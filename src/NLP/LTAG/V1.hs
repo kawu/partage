@@ -1,3 +1,11 @@
+-- | A first, simple version of LTAGs.
+
+
+module NLP.LTAG.V1
+(
+) where
+
+
 -- An LTAG grammar consists of:
 -- * A finite set of terminal symbols T,
 -- * A finite set of non-terminal symbols N, N and T are disjoint,
@@ -6,14 +14,14 @@
 --   - Interior nodes have non-terminal symbols,
 --   - Frontier nodes have terminal or non-terminal symbols;
 --     Non-terminal frontier nodes are marked for substitution.
---     !! Q: can we use the adjoining operation on non-terminal frontier
---           nodes in initial trees? !!
 -- * A set of auxiliary trees A,
 --   - Interior nodes have non-terminal symbols,
 --   - Frontier nodes have terminal or non-terminal symbols;
 --     Non-terminal frontier nodes are marked for substitution, apart
 --     from one special adjoining node called the foot node.  The foot
 --     node has the same label as the root node.
+--
+-- Q: can we use the adjoining operation on non-terminal frontier nodes?
 --
 -- In a lexicalized LTAG grammar, at least one terminal symbol (the anchor) 
 -- must appear at the frontier of all (initial or auxiliary) trees.
@@ -23,7 +31,6 @@
 -- * Lexicalized grammar -> each tree has at least on terminal frontier node.
 --
 -- BTW: I \union A is called the set of *elementary* trees.
---
 --
 -- Other properties of an LTAG grammar:
 -- * In elementary trees, we can check a set of properties between terminal nodes.
