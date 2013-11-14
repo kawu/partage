@@ -17,10 +17,13 @@ module NLP.LTAG.Tree
 , Deriv
 , Trans
 , derive
+-- * Traversal
+, walk
 ) where
 
 
 import           Control.Applicative ((<$>))
+import           Control.Arrow (first)
 import           Control.Monad (foldM)
 
 
@@ -123,7 +126,23 @@ derive =
     m t (pos, op) = case op of
         Left x  -> subst  pos x t
         Right x -> adjoin pos x t
-             
+
+
+---------------------------------------------------------------------
+-- Traversal
+---------------------------------------------------------------------
+
+
+-- | Return all tree paths with corresponding subtrees.
+walk :: Tree a b -> [(Path, Tree a b)]
+walk =
+    map (first reverse) . go []
+  where
+    go acc n@INode{..} = (acc, n) : concat
+        [ go (k:acc) t
+        | (k, t) <- zip [0..] subTrees ]
+    go acc n@FNode{..} = [(acc, n)]
+
 
 ---------------------------------------------------------------------
 -- Misc

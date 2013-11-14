@@ -8,6 +8,7 @@
 
 module NLP.LTAG.V1
 ( LTAG (..)
+, whereSubst
 , module NLP.LTAG.Tree
 ) where
 
@@ -56,28 +57,30 @@ type E t a b = t a (Either a b)
 -- It would be hard to ensure this property on the level of the type system.
 
 
--- -- | A derivated tree is constructed by applying a sequence of transforming
--- -- (substitution or adjoining) rules on particular positions of a tree.
--- type Deriv a b = [(Path, Trans a b)]
--- 
--- 
--- -- | A transformation of a tree.
--- type Trans a b = Either (E Tree a b) (E AuxTree a b)
--- 
--- 
--- -- | Derive a tree.
--- derive :: Deriv a b -> E Tree a b -> Maybe (E Tree a b)
+-- | Determine positions, on which the given elementary tree can be
+-- substituted.
+whereSubst :: (Eq a, Eq b) => E Tree a b -> E Tree a b -> [Path]
+whereSubst s t
+    = map fst
+    . filter (pr . snd)
+    $ walk t
+  where
+    q = rootLabelE s
+    pr x = rootLabelE x == q && isLeaf x
+    isLeaf FNode{} = True
+    isLeaf _       = False
 
 
--- -- | Perform the given transformation.
--- perform :: Trans a b -> IniTree a b -> Maybe (IniTree a b)
--- perform Subst{..} t = do
---     
--- 
--- 
--- -- | Enumerate trees which can be generated from the tree by using the
--- -- substitution rules.
--- subst :: LTAG a b -> 
+
+---------------------------------------------------------------------
+-- Misc
+---------------------------------------------------------------------
+
+
+-- | Get root non-terminal.
+rootLabelE :: E Tree a b -> Either a b
+rootLabelE INode{..} = Left labelI
+rootLabelE FNode{..} = labelF
 
 
 -- | Generate the tree-language represented by the grammar.
