@@ -5,6 +5,8 @@ module NLP.LTAG.Tree
 (
 -- * Tree
   Tree (..)
+, showTree
+, showTree'
 -- * Path
 , Path
 , follow
@@ -36,6 +38,22 @@ data Tree a b
     | FNode -- ^ Frontier node
         { labelF    :: b }
     deriving (Show, Eq, Ord)
+
+
+-- | Show a tree given the showing functions for label values.
+showTree :: (a -> String) -> (b -> String) -> Tree a b -> String
+showTree f g = unlines . go
+  where
+    go t = case t of
+        INode{..}   -> ("INode " ++ f labelI)
+            : map ("  " ++) (concatMap go subTrees)
+        FNode{..}   -> ["FNode " ++ g labelF]
+
+
+-- | Like `showTree`, but using the default `Show` instances
+-- to present label values.
+showTree' :: (Show a, Show b) => Tree a b -> String
+showTree' = showTree show show
 
 
 -- | Replace the tree on the given position.

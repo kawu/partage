@@ -9,12 +9,16 @@
 module NLP.LTAG.V1
 ( LTAG (..)
 , whereSubst
+, whereAdjoin
+, generate
+, treeLang
 , module NLP.LTAG.Tree
 ) where
 
 
 import           Data.Set (Set)
 import qualified Data.Set as S
+import           Data.Maybe (mapMaybe, catMaybes)
 import           NLP.LTAG.Tree
 
 
@@ -35,7 +39,19 @@ import           NLP.LTAG.Tree
 --
 -- Q: Can we use the adjoining operation on non-terminal frontier nodes?
 --    Or, to rephrase the question: can we perform the substitution
---    operation with an auxiliary tree?  
+--    operation with an auxiliary tree? 
+-- A: It seems, that frontier non-terminal nodes should be additionally
+--    marked as "marked for substitution" or not.  If marked, only substitution
+--    operation is allowed there.  Otherwise, only the adjoining operation
+--    is allowed.  We assume in this module, that every frontier node is
+--    marked for substitution.
+--
+-- Q: What is actually the meaning/usage of the starting symbol?
+-- A: The derivation starts with the set of initial trees which
+--    have the starting symbol in their root nodes.
+--
+-- Q: How do we precisely generate the tree language from LTAG?
+--    From what set does the generation start?
 
 
 -- | We define LTAG with respect to the description above.  The sets of
@@ -67,9 +83,62 @@ whereSubst s t
   where
     q = rootLabelE s
     pr x = rootLabelE x == q && isLeaf x
-    isLeaf FNode{} = True
-    isLeaf _       = False
 
+
+-- | Determine positions, on which the given elementary tree can be
+-- adjoined.
+whereAdjoin :: (Eq a, Eq b) => E AuxTree a b -> E Tree a b -> [Path]
+whereAdjoin s t
+    = map fst
+    . filter (pr . snd)
+    $ walk t
+  where
+    q = rootLabelE $ auxTree s
+    pr x = rootLabelE x == q && (not.isLeaf) x
+
+
+---------------------------------------------------------------------
+-- Tree language
+---------------------------------------------------------------------
+
+
+-- | Generate the tree language represented by the LTAG grammar.
+-- Trees with non-termial frontier nodes are not filtered out.
+--
+-- The function is based on a notion of a generation.
+-- Iteratively, starting with the set of initial starting trees,
+-- we produce all trees which can be derived from the current
+-- generation of trees.  This way we obtain the next generation
+-- of trees, which is simultaneously returned as a result of
+-- the `generate` function and subjected to the next iteration
+-- of the process.
+generate :: (Eq a, Eq b) => LTAG a b -> [E Tree a b]
+generate LTAG{..} =
+    go treeSet0
+  where
+    -- `ts` is the current generation
+    go ts =
+        -- `ts'` is the next generation
+        let ts' = concat [step t | t <- ts]
+        in  ts ++ go ts'
+    -- Initial starting trees
+    treeSet0 = filter ((== Left startSym) . rootLabelE)
+        $ S.toList iniTrees
+    -- Next generation
+    step t = stepSubst t ++ stepAdjoin t
+    stepSubst t = catMaybes
+        [ subst x s t
+        | s <- S.toList iniTrees
+        , x <- whereSubst s t ]
+    stepAdjoin t = catMaybes
+        [ adjoin x s t
+        | s <- S.toList auxTrees
+        , x <- whereAdjoin s t ]
+
+
+-- | Like `generate`, but non-termial frontier nodes are removed.
+treeLang :: (Eq a, Eq b) => LTAG a b -> [Tree a b]
+treeLang = mapMaybe finalTree . generate
 
 
 ---------------------------------------------------------------------
@@ -77,10 +146,38 @@ whereSubst s t
 ---------------------------------------------------------------------
 
 
+-- | Check if the tree is final. 
+finalTree :: E Tree a b -> Maybe (Tree a b)
+finalTree n@INode{..} = do
+    subTrees' <- mapM finalTree subTrees
+    return $ n { subTrees = subTrees' }
+finalTree FNode{..} = case labelF of
+    Right x -> Just $ FNode x
+    _       -> Nothing
+
+
+-- | Alternate list elements.
+alternate :: [[a]] -> [a]
+alternate [] = []
+alternate xs =
+    mapMaybe hd xs ++ alternate (mapMaybe tl xs)
+  where
+    hd (x:_)  = Just x
+    hd _      = Nothing
+    tl (_:ys) = Just ys
+    tl _      = Nothing
+
+
 -- | Get root non-terminal.
 rootLabelE :: E Tree a b -> Either a b
 rootLabelE INode{..} = Left labelI
 rootLabelE FNode{..} = labelF
+
+
+-- | Is it a leaf tree?
+isLeaf :: E Tree a b -> Bool
+isLeaf FNode{} = True
+isLeaf _       = False
 
 
 -- | Generate the tree-language represented by the grammar.
