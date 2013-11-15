@@ -7,6 +7,7 @@ module NLP.LTAG.Tree
   Tree (..)
 , showTree
 , showTree'
+, toWord
 -- * Path
 , Path
 , follow
@@ -38,6 +39,13 @@ data Tree a b
     | FNode -- ^ Frontier node
         { labelF    :: b }
     deriving (Show, Eq, Ord)
+
+
+-- | List of frontier values. 
+toWord :: Tree a b -> [b]
+toWord t = case t of
+    INode{..}   -> concatMap toWord subTrees
+    FNode{..}   -> [labelF]
 
 
 -- | Show a tree given the showing functions for label values.

@@ -12,12 +12,14 @@ module NLP.LTAG.V1
 , whereAdjoin
 , generate
 , treeLang
+, unique
 , module NLP.LTAG.Tree
 ) where
 
 
 import           Data.Set (Set)
 import qualified Data.Set as S
+import qualified Data.List as L
 import           Data.Maybe (mapMaybe, catMaybes)
 import           NLP.LTAG.Tree
 
@@ -112,17 +114,19 @@ whereAdjoin s t
 -- of trees, which is simultaneously returned as a result of
 -- the `generate` function and subjected to the next iteration
 -- of the process.
-generate :: (Eq a, Eq b) => LTAG a b -> [E Tree a b]
+generate :: (Ord a, Ord b) => LTAG a b -> [E Tree a b]
 generate LTAG{..} =
     go treeSet0
   where
     -- `ts` is the current generation
     go ts =
         -- `ts'` is the next generation
-        let ts' = concat [step t | t <- ts]
+        let ts' = S.toList . S.fromList
+                $ concat [step t | t <- ts]
         in  ts ++ go ts'
-    -- Initial starting trees
-    treeSet0 = filter ((== Left startSym) . rootLabelE)
+    -- Initial set of trees
+    treeSet0
+        = filter ((== Left startSym) . rootLabelE)
         $ S.toList iniTrees
     -- Next generation
     step t = stepSubst t ++ stepAdjoin t
@@ -137,13 +141,23 @@ generate LTAG{..} =
 
 
 -- | Like `generate`, but non-termial frontier nodes are removed.
-treeLang :: (Eq a, Eq b) => LTAG a b -> [Tree a b]
+treeLang :: (Ord a, Ord b) => LTAG a b -> [Tree a b]
 treeLang = mapMaybe finalTree . generate
 
 
 ---------------------------------------------------------------------
 -- Misc
 ---------------------------------------------------------------------
+
+
+-- | Return only unique elements in the list.
+unique :: Ord a => [a] -> [a]
+unique =
+    catMaybes . snd . L.mapAccumL step S.empty
+  where
+    step acc x = case S.member x acc of
+        True    -> (acc, Nothing)
+        False   -> (S.insert x acc, Just x)
 
 
 -- | Check if the tree is final. 

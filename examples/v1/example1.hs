@@ -5,8 +5,8 @@ import qualified Data.Set as S
 -- | The set of initial trees.
 ltag :: LTAG String String
 ltag = LTAG
-    { startSym  = "S"
-    , iniTrees  = S.fromList
+    { startSym = "S"
+    , iniTrees = S.fromList
         [ INode "S"
             [ FNode (Right "a")
             , INode "T"
