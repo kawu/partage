@@ -24,38 +24,6 @@ import           Data.Maybe (mapMaybe, catMaybes)
 import           NLP.LTAG.Tree
 
 
--- An LTAG grammar consists of:
--- * A finite set of terminal symbols T,
--- * A finite set of non-terminal symbols N, N and T are disjoint,
--- * One of the non-terminal symbols is a starting symbol S \in N,
--- * A set of initial trees I,
---   - Interior nodes have non-terminal symbols,
---   - Frontier nodes have terminal or non-terminal symbols;
---     Non-terminal frontier nodes are marked for substitution.
--- * A set of auxiliary trees A,
---   - Interior nodes have non-terminal symbols,
---   - Frontier nodes have terminal or non-terminal symbols;
---     Non-terminal frontier nodes are marked for substitution, apart
---     from one special adjoining node called the foot node.  The foot
---     node has the same label as the root node.
---
--- Q: Can we use the adjoining operation on non-terminal frontier nodes?
---    Or, to rephrase the question: can we perform the substitution
---    operation with an auxiliary tree? 
--- A: It seems, that frontier non-terminal nodes should be additionally
---    marked as "marked for substitution" or not.  If marked, only substitution
---    operation is allowed there.  Otherwise, only the adjoining operation
---    is allowed.  We assume in this module, that every frontier node is
---    marked for substitution.
---
--- Q: What is actually the meaning/usage of the starting symbol?
--- A: The derivation starts with the set of initial trees which
---    have the starting symbol in their root nodes.
---
--- Q: How do we precisely generate the tree language from LTAG?
---    From what set does the generation start?
-
-
 -- | We define LTAG with respect to the description above.  The sets of
 -- terminal and non-terminal symbols are implicit.
 data LTAG a b = LTAG

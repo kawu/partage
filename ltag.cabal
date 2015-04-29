@@ -23,6 +23,7 @@ library
     exposed-modules:
         NLP.LTAG.V1
       , NLP.LTAG.Tree
+      , NLP.LTAG.Early
 
     ghc-options: -Wall
 

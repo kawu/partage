@@ -120,9 +120,9 @@ data AuxTree a b = AuxTree
 
 -- | Perform adjoining operation on a tree.
 adjoin
-    :: Path             -- ^ Place of operation
+    :: Path             -- ^ Where to adjoin
     -> AuxTree a b      -- ^ Tree to be adjoined
-    -> Tree a b         -- ^ Original tree
+    -> Tree a b         -- ^ Tree with the node to be modified
     -> Maybe (Tree a b) -- ^ Resulting tree
 adjoin (k:ks) aux t = do
     replaceChild t k <$> (step t k >>= adjoin ks aux)
@@ -135,8 +135,12 @@ adjoin [] AuxTree{..} t = do
 ---------------------------------------------------------------------
 
 
--- | A derivated tree is constructed by applying a sequence of transforming
--- (substitution or adjoining) rules on particular positions of a tree.
+-- | A derived tree is constructed by applying a sequence of
+-- transforming (substitution or adjoining) rules on particular
+-- positions of a tree.  The `Deriv` sequence represents a
+-- derivation process.  One could also construct a derivation
+-- tree, which to some extent abstracts over the particular order
+-- of derivations (when it doesn't matter).
 type Deriv a b = [(Path, Trans a b)]
 
 
