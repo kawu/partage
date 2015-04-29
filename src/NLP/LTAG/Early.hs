@@ -14,6 +14,8 @@ module NLP.LTAG.Early
 -- Tests
 , jean
 , dort
+-- , souvent
+, nePas
 , gram
 ) where
 
@@ -25,7 +27,7 @@ import qualified Data.Set as S
 import qualified Data.IntMap as I
 
 import qualified NLP.LTAG.Tree as G
-import           NLP.LTAG.Tree (Tree(FNode, INode))
+import           NLP.LTAG.Tree (AuxTree(AuxTree), Tree(FNode, INode))
 
 -- import           Debug.Trace (trace)
 
@@ -70,6 +72,41 @@ treeTrav G.INode{..} = case subTrees of
         let xs = concatMap treeTrav subTrees
         in  LeftNT labelI (length xs) : xs ++ [RightNT labelI]
 treeTrav G.FNode{..} = [Term labelF]
+
+
+-- | Get traversal of the given auxiliary tree.
+auxTrav :: G.AuxTree a b -> Trav a b
+auxTrav G.AuxTree{..} =
+    doit auxTree auxFoot
+  where
+    doit (G.INode labelI []) [] = [LeafNT labelI True]
+    doit G.INode{..} (k:ks) =
+        let onChild i subTree = if k == i
+                then doit subTree ks
+                else treeTrav subTree
+            xs = concatMap (uncurry onChild) $ zip [0..] subTrees
+        in  LeftNT labelI (length xs) : xs ++ [RightNT labelI]
+    doit G.FNode{..} _ = [Term labelF]
+    doit _ _ = error "auxTrav: incorrect path"
+
+
+
+-- -- | Get traversal of the given auxiliary tree.
+-- auxTrav :: G.AuxTree a b -> Trav a b
+-- auxTrav G.AuxTree{..} =
+--     let trav = treeTrav auxTree
+--     in  markFoot auxFoot trav
+
+
+-- -- | Mark the foot in the traversal tree given the path of the foot
+-- -- node in the original tree.
+-- markFoot :: G.Path -> Trav a b -> Trav a b
+-- markFoot (0:ks) (x:xs) = case x of
+--     LeftNT _ _ -> markFoot 
+-- markFoot [] (x:xs) = case x of
+--     LeafNT v _ -> LeafNT v True : xs
+--     _ -> error "markFoot: expected non-terminal leaf node"
+-- markFoot _ [] = error "markFoot: empty traversal"
 
 
 -- | A grammar is just a set of traversal representations of
@@ -372,7 +409,25 @@ jean = INode "N" [FNode "jean"]
 dort :: Tree String String
 dort = INode "S"
     [ INode "N" []
-    , FNode "dort" ]
+    , INode "V"
+        [FNode "dort"] ]
 
 
-gram = S.fromList $ map treeTrav [jean, dort]
+-- souvent :: AuxTree String String
+-- souvent = AuxTree (INode "V"
+--     [ INode "V" []
+--     , FNode "souvent" ]
+--     ) [0]
+
+
+nePas :: AuxTree String String
+nePas = AuxTree (INode "V"
+    [ FNode "ne"
+    , INode "V" []
+    , FNode "pas" ]
+    ) [1]
+
+
+gram = S.fromList
+    $ map treeTrav [jean, dort]
+   ++ map auxTrav [nePas]
