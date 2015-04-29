@@ -1,4 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TupleSections #-}
 
 
 {- 
@@ -7,8 +8,26 @@
 
 
 module NLP.LTAG.Early
-(
-)
+( early
+, treeTrav 
+
+-- Tests
+, jean
+, dort
+, gram
+) where
+
+
+import           Control.Applicative ((<$>))
+import           Data.Maybe (mapMaybe)
+import qualified Data.Set as S
+-- import qualified Data.Map as M
+import qualified Data.IntMap as I
+
+import qualified NLP.LTAG.Tree as G
+import           NLP.LTAG.Tree (Tree(FNode, INode))
+
+-- import           Debug.Trace (trace)
 
 
 -- An alternative view of a TAG tree is a list of terminal or
@@ -36,20 +55,38 @@ data TrElem a b
       { labelNT :: a }
   | Term
       { labelT  :: b }
-  deriving (Eq, Ord)
+  deriving (Show, Eq, Ord)
 
 
 -- | A traversal of a tree.
 type Trav a b = [TrElem a b]
 
 
+-- | Get traversal of the given tree.
+treeTrav :: G.Tree a b -> Trav a b
+treeTrav G.INode{..} = case subTrees of
+    [] -> [LeafNT labelI False]
+    _  -> 
+        let xs = concatMap treeTrav subTrees
+        in  LeftNT labelI (length xs) : xs ++ [RightNT labelI]
+treeTrav G.FNode{..} = [Term labelF]
+
+
+-- | A grammar is just a set of traversal representations of
+-- initial and auxiliary trees.
+type Grammar a b = S.Set (Trav a b)
+
+
 -- | Does the tree (represented as a traversal) has a specific
 -- label in the root?
-hasInRoot :: Trav a b -> a -> Bool
-hasInRoot (t:ts) x = case t of
-    LeftNT a _ -> True 
+--
+-- TODO: stupid, we have to use reverse here...
+hasInRoot :: Eq a => Trav a b -> a -> Bool
+hasInRoot ts = hasInRoot' $ reverse ts
+hasInRoot' (t:_) x = case t of
+    LeftNT y _ -> x == y 
     _ -> False
-hasInRoot _ _ = False
+hasInRoot' _ _ = False
 
 
 -- | Parsing state: processed traversal elements and the elements
@@ -60,7 +97,8 @@ type State a b = (Trav a b, Trav a b)
 -- | The scan operation: read a symbol from the input if it is
 -- consistent with the non-terminal in the state.
 scan
-    :: b                    -- ^ Terminal to scan
+    :: Eq b
+    => b                    -- ^ Terminal to scan
     -> State a b            -- ^ Within the context of the state
     -> Maybe (State a b)    -- ^ Output state
 scan x (ls, r:rs) = case r of
@@ -83,14 +121,15 @@ ignore (ls, r:rs) = case r of
     -- the k-th element from `rs' we are losing the
     -- correspondence between left and right counterparts.
     -- But maybe this is not a severe problem?
-    LeftNT x k -> Just (r:ls, removeKth k rs)
+    LeftNT _ k -> Just (r:ls, removeKth k rs)
     _ -> Nothing
 ignore _ = Nothing
 
 
 -- | Complete a leaf non-terminal with a parsed tree.
 subst
-    :: Trav a b     -- ^ The parsed tree
+    :: Eq a
+    => Trav a b     -- ^ The parsed tree
     -> State a b    -- ^ A state to complement
     -> Maybe (State a b)
 subst t (ls, r:rs) = case r of
@@ -101,14 +140,15 @@ subst t (ls, r:rs) = case r of
 subst _ _ = Nothing
 
 
--- | Try to complete a leaf non-terminal with a parsed tree.
--- That is, check if the tree is really parsed first.
-trySubst
-    :: State a b    -- ^ The parsed tree
-    -> State a b    -- ^ A state to complement
-    -> Maybe (State a b)
-trySubst (ls, []) = subst ls
-trySubst _ = const Nothing
+-- -- | Try to complete a leaf non-terminal with a parsed tree.
+-- -- That is, check if the tree is really parsed first.
+-- trySubst
+--     :: Eq a
+--     => State a b    -- ^ The parsed tree
+--     -> State a b    -- ^ A state to complement
+--     -> Maybe (State a b)
+-- trySubst (ls, []) = subst ls
+-- trySubst _ = const Nothing
 
 
 -- | Complete an internal non-terminal with a partially parsed
@@ -117,7 +157,8 @@ trySubst _ = const Nothing
 -- TODO: we could easily take (see `tryAdjoin') a footnode label
 -- as argument.
 adjoin
-    :: Trav a b     -- ^ Parsed part of an auxiliary tree
+    :: Eq a
+    => Trav a b     -- ^ Parsed part of an auxiliary tree
     -> Trav a b     -- ^ Part of an auxiliary tree to be parsed
     -> State a b    -- ^ Tree to complement (adjoin)
     -> Maybe (State a b)
@@ -128,11 +169,13 @@ adjoin aux aux' (ls, r:rs) = case r of
     _ -> Nothing
 adjoin _ _ _ = Nothing
 
+
 -- | Try to complete an internal non-terminal with a partially
 -- parsed auxiliary tree.  Check if the tree is partially parsed
 -- indeed and remove the foot node.
 tryAdjoin
-    :: State a b    -- ^ Partially parsed auxiliary tree
+    :: Eq a
+    => State a b    -- ^ Partially parsed auxiliary tree
     -> State a b    -- ^ Tree to complement (adjoin)
     -> Maybe (State a b)
 tryAdjoin (ls, r:rs) = case r of
@@ -155,32 +198,181 @@ replaceKth
 replaceKth k x xs = take k xs ++ x ++ drop (k + 1) xs
 
 
--- | An alternative view of a TAG tree -- a list of
--- terminal/non-terminal labels obtained with a traversal in
--- which each non-teminal occurs twice in the output -- once when
--- the subtree is entered, once when the traversal of the subtree
--- is done.
---
--- The two output non-terminals related to the same non-terminal
--- in the original tree are marked with L and R subscript
--- indices.  A TAG tree can be then seen as a regular CFG rule
--- with one (and important) exception that if the X_L
--- non-terminal of a rule is rewritten within an adjunction
--- operation, then the X_R non-terminal has to be rewritten as
--- well using the same operation.
---
--- Each auxiliary tree is thus represented as two CFG rules --
--- one which describes the rewriting on the left of the adjoined
--- node, the other one representing the rewriting on the right.
---
--- The idea is that when we rewrite a decoration string of a
--- given initial tree and if we rewrite a non-terminal X_L with a
--- specific left-hand-side rule related to a given auxiliary
--- tree, then we also have to rewrite the corresponding X_R
--- non-terminal with the right-hand-side rule corresponding to
--- the same auxiliary tree.
---
--- The tricky part is with the auxiliary trees themselves --
--- they can be modified (adjoined into) as well after all!
--- As a result, the simple idea described above doesn't really
--- work for auxiliary trees -- 
+-- | A chart entry is a set of states together with information
+-- about where their corresponding spans begin.
+type Entry a b = S.Set (State a b, Int)
+
+
+-- | A new state based on the traversal.
+mkStatePos :: Int -> Trav a b -> (State a b, Int)
+mkStatePos k t = (([], t), k)
+
+
+-- | A chart is a map from indiced to chart entries.
+type Chart a b = I.IntMap (Entry a b)
+
+
+-- | X-th position of the chart.
+(!?) :: Chart a b -> Int -> Entry a b
+chart !? k = case I.lookup k chart of
+    Just e  -> e
+    Nothing -> error $ "!?: no such index in the chart"
+
+
+-- | Scan input w.r.t. all the states of the specific entry of
+-- the chart.  Once the Chart[i] is ready, we can run `scanAll`
+-- on this chart just once to get the next chart entry, i.e.
+-- Chart[i+1].  One has to remember to also add to Chart[i+1] all
+-- the preliminary states (since we don't do prediction yet) at
+-- some point.
+scanAll
+    :: (Ord a, Ord b)
+    => b            -- ^ The next symbol on the input
+    -> Entry a b    -- ^ Previous chart entry (Chart[i])
+    -> Entry a b    -- ^ The scanned part of the entry Chart[i+1]
+scanAll x curr =
+    let doit (st, k) = (,k) <$> scan x st
+    in  S.fromList $ mapMaybe doit (S.toList curr)
+--   where
+--     doit (st, k) = do
+--         -- First try to scan the input
+--         st' <- scan x st
+--         -- If success, we move the dot one position to the right.
+--         return (st', k+1)
+
+
+-- | We update the current entry by `ignore'ing the non-terminal
+-- internal nodes where possible.  Note, that after performing
+-- `ignoreAll' there may be new states in the entry which can be,
+-- again, possibly ignored.
+ignoreAll
+    :: (Ord a, Ord b)
+    => Entry a b        -- ^ The current chart entry
+    -> Entry a b
+ignoreAll curr = S.union curr $
+    let doit (st, k) = (,k) <$> ignore st
+    in  S.fromList $ mapMaybe doit $ S.toList curr
+
+
+-- | We try to complete states from previous chart entries given
+-- the final (fully parsed) states from the current entry.  While
+-- doing this we can obtain new final states and thus `substAll`
+-- may be needed to run again.
+substAll
+    :: (Ord a, Ord b)
+    => Entry a b        -- ^ The current chart entry Chart[i]
+    -> Chart a b        -- ^ The chart with previous entries
+    -> Entry a b
+substAll curr chart
+    = S.union curr $ S.fromList
+    $ concatMap doit $ S.toList curr
+  where
+    doit (st, i) = case st of
+        -- We do substitution only with respect to completed
+        -- parse trees.
+        (ls, []) ->
+            -- Substitution on some previous state from Chart[i]
+            -- which starts on position j does not change its
+            -- position.
+            let substOn (xs, j) = (,j) <$> subst ls xs
+            in  mapMaybe substOn $ S.toList $ chart !? i
+        -- Otherwise: no new states.
+        _        -> []
+
+
+-- | We try to complete states from previous chart entries given
+-- the partially parsed auxiliary tree from the current entry.
+adjoinAll
+    :: (Ord a, Ord b)
+    => Entry a b        -- ^ The current chart entry Chart[i]
+    -> Chart a b        -- ^ The chart with previous entries
+    -> Entry a b
+adjoinAll curr chart
+    = S.union curr $ S.fromList $ concatMap doit
+    $ mapMaybe getRelevantAux $ S.toList curr
+  where
+    -- Check if the tree is relevant -- partially parsed (up to
+    -- the foot node) auxiliary tree.
+    getRelevantAux st@((_, r:_), _) = case r of
+        LeafNT _ True -> Just st
+        _ -> Nothing
+    getRelevantAux _ = Nothing
+    doit (aux, i) =
+        -- Adjoin on some previous state from Chart[i] which
+        -- starts on position j does not change its position.
+        let adjoinOn (st, j) = (,j) <$> tryAdjoin aux st
+        in  mapMaybe adjoinOn $ S.toList $ chart !? i
+
+
+-- | Update (i.e. perform the ignore, subst and adjoin
+-- operations) the current entry of the chart.
+updateOnce
+    :: (Ord a, Ord b)
+    => Entry a b        -- ^ The current chart entry Chart[i]
+    -> Chart a b        -- ^ The chart with previous entries
+    -> Entry a b
+updateOnce curr chart
+    = flip adjoinAll chart
+    $ flip substAll chart
+    $ ignoreAll curr
+
+
+-- | `Update' as long as the size of the current state grows.
+updateLoop
+    :: (Ord a, Ord b)
+    => Entry a b        -- ^ The current chart entry Chart[i]
+    -> Chart a b        -- ^ The chart with previous entries
+    -> Entry a b
+updateLoop curr chart =
+    let n = S.size curr
+        next = updateOnce curr chart
+        m = S.size next
+    in  if m > n
+            then updateLoop next chart
+            else next
+
+
+-- | Perform early parsing.
+early
+    :: (Ord a, Ord b)
+    => Grammar a b      -- ^ Grammar
+    -> [b]              -- ^ Input
+    -> Chart a b
+early gram sent = earlyStep gram sent 1 $ I.singleton 0 $
+    let new = S.fromList $ map (mkStatePos 0) $ S.toList gram
+    in  updateLoop new I.empty
+    
+
+-- | Early parsing step.
+earlyStep
+    :: (Ord a, Ord b)
+    => Grammar a b      -- ^ Grammar
+    -> [b]              -- ^ Input still to process
+    -> Int              -- ^ Current position
+    -> Chart a b        -- ^ Previous entries
+    -> Chart a b        -- ^ With new entry
+earlyStep gram (x:xs) k chart =
+    earlyStep gram xs (k+1) $ I.insert k entry chart
+  where
+    entry = updateLoop (new `S.union` scanned) chart
+    new = S.fromList $ map (mkStatePos k) $ S.toList gram
+    scanned = scanAll x (chart !? (k-1))
+earlyStep _ [] _ chart = chart
+
+
+----------
+-- TEST --
+----------
+
+
+jean :: Tree String String
+jean = INode "N" [FNode "jean"]
+
+
+dort :: Tree String String
+dort = INode "S"
+    [ INode "N" []
+    , FNode "dort" ]
+
+
+gram = S.fromList $ map treeTrav [jean, dort]
