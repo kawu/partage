@@ -56,6 +56,7 @@ hasInRoot _ _ = False
 -- yet to process.  The first list is in the inverse order.
 type State a b = (Trav a b, Trav a b)
 
+
 -- | The scan operation: read a symbol from the input if it is
 -- consistent with the non-terminal in the state.
 scan
@@ -100,8 +101,21 @@ subst t (ls, r:rs) = case r of
 subst _ _ = Nothing
 
 
+-- | Try to complete a leaf non-terminal with a parsed tree.
+-- That is, check if the tree is really parsed first.
+trySubst
+    :: State a b    -- ^ The parsed tree
+    -> State a b    -- ^ A state to complement
+    -> Maybe (State a b)
+trySubst (ls, []) = subst ls
+trySubst _ = const Nothing
+
+
 -- | Complete an internal non-terminal with a partially parsed
 -- auxiliary tree (no foot node!).
+--
+-- TODO: we could easily take (see `tryAdjoin') a footnode label
+-- as argument.
 adjoin
     :: Trav a b     -- ^ Parsed part of an auxiliary tree
     -> Trav a b     -- ^ Part of an auxiliary tree to be parsed
@@ -113,6 +127,18 @@ adjoin aux aux' (ls, r:rs) = case r of
         else Nothing
     _ -> Nothing
 adjoin _ _ _ = Nothing
+
+-- | Try to complete an internal non-terminal with a partially
+-- parsed auxiliary tree.  Check if the tree is partially parsed
+-- indeed and remove the foot node.
+tryAdjoin
+    :: State a b    -- ^ Partially parsed auxiliary tree
+    -> State a b    -- ^ Tree to complement (adjoin)
+    -> Maybe (State a b)
+tryAdjoin (ls, r:rs) = case r of
+    LeafNT _ True -> adjoin ls rs
+    _ -> const Nothing
+tryAdjoin _ = const Nothing
 
 
 -- | Remove the k-th element of the list.
