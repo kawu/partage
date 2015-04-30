@@ -10,11 +10,14 @@
 module NLP.LTAG.Early
 ( early
 , treeTrav 
+, auxTrav
+, final
+, parsed
 
 -- Tests
 , jean
 , dort
--- , souvent
+, souvent
 , nePas
 , gram
 ) where
@@ -40,23 +43,12 @@ import           NLP.LTAG.Tree (AuxTree(AuxTree), Tree(FNode, INode))
 
 
 -- | A traversal element.
--- TODO: IDEA -- remove RightNTs completely?  Do we need them for
--- anything?
 data TrElem a b
-  = LeafNT
-      { labelNT :: a
-      -- | Is it a foot non-terminal?  It has only sense within
-      -- the scope of auxiliary trees.
-      , isFoot  :: Bool }
-  | LeftNT
-      { labelNT :: a
-      -- | Distance to the right counterpart of the non-terminal
-      -- (only if left counterpart).
-      , rightDist :: Int }
-  | RightNT
-      { labelNT :: a }
-  | Term
-      { labelT  :: b }
+  = LeafNT { labelNT :: a }
+  | OpenNT { labelNT :: a }
+  | CloseNT
+  | Term { labelT  :: b }
+  | Foot
   deriving (Show, Eq, Ord)
 
 
@@ -67,10 +59,10 @@ type Trav a b = [TrElem a b]
 -- | Get traversal of the given tree.
 treeTrav :: G.Tree a b -> Trav a b
 treeTrav G.INode{..} = case subTrees of
-    [] -> [LeafNT labelI False]
+    [] -> [LeafNT labelI]
     _  -> 
         let xs = concatMap treeTrav subTrees
-        in  LeftNT labelI (length xs) : xs ++ [RightNT labelI]
+        in  OpenNT labelI : xs ++ [CloseNT]
 treeTrav G.FNode{..} = [Term labelF]
 
 
@@ -79,34 +71,15 @@ auxTrav :: G.AuxTree a b -> Trav a b
 auxTrav G.AuxTree{..} =
     doit auxTree auxFoot
   where
-    doit (G.INode labelI []) [] = [LeafNT labelI True]
+    doit (G.INode labelI []) [] = [OpenNT labelI, Foot, CloseNT]
     doit G.INode{..} (k:ks) =
         let onChild i subTree = if k == i
                 then doit subTree ks
                 else treeTrav subTree
             xs = concatMap (uncurry onChild) $ zip [0..] subTrees
-        in  LeftNT labelI (length xs) : xs ++ [RightNT labelI]
+        in  OpenNT labelI : xs ++ [CloseNT]
     doit G.FNode{..} _ = [Term labelF]
     doit _ _ = error "auxTrav: incorrect path"
-
-
-
--- -- | Get traversal of the given auxiliary tree.
--- auxTrav :: G.AuxTree a b -> Trav a b
--- auxTrav G.AuxTree{..} =
---     let trav = treeTrav auxTree
---     in  markFoot auxFoot trav
-
-
--- -- | Mark the foot in the traversal tree given the path of the foot
--- -- node in the original tree.
--- markFoot :: G.Path -> Trav a b -> Trav a b
--- markFoot (0:ks) (x:xs) = case x of
---     LeftNT _ _ -> markFoot 
--- markFoot [] (x:xs) = case x of
---     LeafNT v _ -> LeafNT v True : xs
---     _ -> error "markFoot: expected non-terminal leaf node"
--- markFoot _ [] = error "markFoot: empty traversal"
 
 
 -- | A grammar is just a set of traversal representations of
@@ -121,7 +94,7 @@ type Grammar a b = S.Set (Trav a b)
 hasInRoot :: Eq a => Trav a b -> a -> Bool
 hasInRoot ts = hasInRoot' $ reverse ts
 hasInRoot' (t:_) x = case t of
-    LeftNT y _ -> x == y 
+    OpenNT y -> x == y 
     _ -> False
 hasInRoot' _ _ = False
 
@@ -146,19 +119,14 @@ scan x (ls, r:rs) = case r of
 scan _ (_, []) = Nothing
 
 
--- | Ignore the internal non-terminal -- it will be not
--- adjoined.
+-- | Ignore the internal non-terminal -- no adjunction will take
+-- place.
 ignore
     :: State a b
     -> Maybe (State a b)
 ignore (ls, r:rs) = case r of
-    -- TODO: (r:ls) or just (ls)?  What are we going to do with
-    -- the left side next anyway?  If we want to have a traversal
-    -- of a parsed tree on the left in the result, by removing
-    -- the k-th element from `rs' we are losing the
-    -- correspondence between left and right counterparts.
-    -- But maybe this is not a severe problem?
-    LeftNT _ k -> Just (r:ls, removeKth k rs)
+    OpenNT _ -> Just (r:ls, rs)
+    CloseNT -> Just (r:ls, rs)
     _ -> Nothing
 ignore _ = Nothing
 
@@ -170,22 +138,11 @@ subst
     -> State a b    -- ^ A state to complement
     -> Maybe (State a b)
 subst t (ls, r:rs) = case r of
-    LeafNT x False  -> if t `hasInRoot` x
+    LeafNT x -> if t `hasInRoot` x
         then Just (t ++ ls, rs)
         else Nothing
     _ -> Nothing
 subst _ _ = Nothing
-
-
--- -- | Try to complete a leaf non-terminal with a parsed tree.
--- -- That is, check if the tree is really parsed first.
--- trySubst
---     :: Eq a
---     => State a b    -- ^ The parsed tree
---     -> State a b    -- ^ A state to complement
---     -> Maybe (State a b)
--- trySubst (ls, []) = subst ls
--- trySubst _ = const Nothing
 
 
 -- | Complete an internal non-terminal with a partially parsed
@@ -200,8 +157,8 @@ adjoin
     -> State a b    -- ^ Tree to complement (adjoin)
     -> Maybe (State a b)
 adjoin aux aux' (ls, r:rs) = case r of
-    LeftNT x k -> if aux `hasInRoot` x
-        then Just (aux ++ ls, replaceKth k aux' rs)
+    OpenNT x -> if aux `hasInRoot` x
+        then Just (aux ++ ls, replaceClose aux' rs)
         else Nothing
     _ -> Nothing
 adjoin _ _ _ = Nothing
@@ -216,14 +173,14 @@ tryAdjoin
     -> State a b    -- ^ Tree to complement (adjoin)
     -> Maybe (State a b)
 tryAdjoin (ls, r:rs) = case r of
-    LeafNT _ True -> adjoin ls rs
+    Foot -> adjoin ls rs
     _ -> const Nothing
 tryAdjoin _ = const Nothing
 
 
--- | Remove the k-th element of the list.
-removeKth :: Int -> [a] -> [a]
-removeKth k xs = take k xs ++ drop (k + 1) xs
+-- -- | Remove the k-th element of the list.
+-- removeKth :: Int -> [a] -> [a]
+-- removeKth k xs = take k xs ++ drop (k + 1) xs
 
 
 -- | Replace the k-th element of the list.
@@ -235,9 +192,41 @@ replaceKth
 replaceKth k x xs = take k xs ++ x ++ drop (k + 1) xs
 
 
+-- | Consume all subtrees and replace the closing non-terminal
+-- with the given sequence.  
+replaceClose
+    :: Trav a b -- ^ The sequence to be placed
+    -> Trav a b -- ^ The sequence to be searched
+    -> Trav a b
+replaceClose new xs =
+    go 0 xs
+  where
+    go k (x:xs) = case x of
+        OpenNT _ -> x : go (k + 1) xs
+        CloseNT  -> if k > 0
+            then x : go (k - 1) xs
+            else new ++ xs
+        _ -> x : go k xs
+
+-- replaceClose new xs = case readTree xs of
+--     Just (t, xs') -> t ++ replaceClose new xs'
+--     Nothing -> new ++ drop 1 xs
+
+
 -- | A chart entry is a set of states together with information
 -- about where their corresponding spans begin.
 type Entry a b = S.Set (State a b, Int)
+
+
+-- | Is it a final state/pos pair?
+final :: (State a b, Int) -> Bool
+final ((_, []), 0) = True
+final _ = False
+
+
+-- | The parsed part of the state.
+parsed :: (State a b, Int) -> Trav a b
+parsed ((ls, _), _) = ls
 
 
 -- | A new state based on the traversal.
@@ -312,13 +301,16 @@ substAll curr chart
             -- which starts on position j does not change its
             -- position.
             let substOn (xs, j) = (,j) <$> subst ls xs
+            -- Below we know, that <i> refers to some previous
+            -- entry and not the current state because each tree
+            -- spans over at least one non-terminal. 
             in  mapMaybe substOn $ S.toList $ chart !? i
         -- Otherwise: no new states.
         _        -> []
 
 
 -- | We try to complete states from previous chart entries given
--- the partially parsed auxiliary tree from the current entry.
+-- the partially parsed auxiliary trees from the current entry.
 adjoinAll
     :: (Ord a, Ord b)
     => Entry a b        -- ^ The current chart entry Chart[i]
@@ -331,14 +323,18 @@ adjoinAll curr chart
     -- Check if the tree is relevant -- partially parsed (up to
     -- the foot node) auxiliary tree.
     getRelevantAux st@((_, r:_), _) = case r of
-        LeafNT _ True -> Just st
+        Foot -> Just st
         _ -> Nothing
     getRelevantAux _ = Nothing
     doit (aux, i) =
         -- Adjoin on some previous state from Chart[i] which
         -- starts on position j does not change its position.
         let adjoinOn (st, j) = (,j) <$> tryAdjoin aux st
-        in  mapMaybe adjoinOn $ S.toList $ chart !? i
+            -- TODO: this doesn't work as expected!
+            entry = case I.lookup i chart of
+                Just e  -> e
+                Nothing -> curr 
+        in  mapMaybe adjoinOn $ S.toList $ entry
 
 
 -- | Update (i.e. perform the ignore, subst and adjoin
@@ -415,9 +411,18 @@ dort = INode "S"
 
 -- souvent :: AuxTree String String
 -- souvent = AuxTree (INode "V"
---     [ INode "V" []
---     , FNode "souvent" ]
---     ) [0]
+--     [ INode "Adv"
+--         [FNode "souvent"]
+--     , INode "V" [] ]
+--     ) [1]
+
+
+souvent :: AuxTree String String
+souvent = AuxTree (INode "V"
+    [ INode "V" []
+    , INode "Adv"
+        [FNode "souvent"] ]
+    ) [0]
 
 
 nePas :: AuxTree String String
@@ -430,4 +435,4 @@ nePas = AuxTree (INode "V"
 
 gram = S.fromList
     $ map treeTrav [jean, dort]
-   ++ map auxTrav [nePas]
+   ++ map auxTrav [nePas, souvent]
