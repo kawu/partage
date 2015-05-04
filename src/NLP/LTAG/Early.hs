@@ -11,25 +11,30 @@ module NLP.LTAG.Early
 ( early
 , treeTrav 
 , auxTrav
+, toTree
 , final
 , parsed
 
 -- Tests
 , jean
 , dort
+, aime
 , souvent
 , nePas
 , gram
 ) where
 
 
-import           Control.Applicative ((<$>))
+import           Control.Applicative ((<$>), (<|>))
 import           Control.Monad (guard)
 import           Data.Maybe (mapMaybe)
 import qualified Data.Set as S
 import qualified Data.IntSet as IS
 -- import qualified Data.Map as M
 import qualified Data.IntMap as I
+
+-- For parsing
+import qualified Text.ParserCombinators.Poly.Plain as P
 
 import qualified NLP.LTAG.Tree as G
 import           NLP.LTAG.Tree (AuxTree(AuxTree), Tree(FNode, INode))
@@ -76,6 +81,13 @@ mayTerm t = case t of
     _ -> Nothing
 
 
+-- -- | Is it a foot?
+-- isTerm :: TrElem a b -> Bool
+-- isTerm t = case t of
+--     Term x -> True
+--     _ -> False
+
+
 -- | Extract opening non-terminal label.
 mayLeaf :: TrElem a b -> Maybe a
 mayLeaf t = case t of
@@ -88,6 +100,13 @@ mayOpen :: TrElem a b -> Maybe a
 mayOpen t = case t of
     OpenNT x -> Just x
     _ -> Nothing
+
+
+-- | Is it a non-terminal closing tag?
+isClose :: TrElem a b -> Bool
+isClose t = case t of
+    CloseNT -> True
+    _ -> False
 
 
 -- | Is it an opening or closing tag-non-terminal?
@@ -133,6 +152,44 @@ auxTrav G.AuxTree{..} =
         in  OpenNT labelI : xs ++ [CloseNT]
     doit G.FNode{..} _ = [Term labelF]
     doit _ _ = error "auxTrav: incorrect path"
+
+
+-- | Make a tree from the traversal.  The foot-node is
+-- ignored for the moment.
+toTree :: Trav a b -> G.Tree a b
+toTree = doParse readTree
+
+  where
+
+    readTree = readNode <|> readTerm <|> readLeaf
+    readNode = do
+        x  <- readOpen
+        ts <- readForest
+        readClose
+        return $ INode x ts
+    readOpen = mayNext mayOpen
+    readClose = P.satisfy isClose
+    readForest = P.many1 readTree
+    readTerm = do
+        t <- mayNext mayTerm
+        return $ FNode t
+    readLeaf = do
+        x <- mayNext mayLeaf
+        return $ INode x []
+
+    doParse p xs = case fst (P.runParser p xs) of
+        Left err -> error $ "toTree error: " ++ err
+        Right x  -> x
+
+    mayNext may = do
+        let pred t = case may t of
+                Just _ -> True
+                _ -> False
+        t <- P.satisfy pred
+        return $ case may t of
+            Nothing -> error "toTree: impossible!" 
+            Just x -> x
+
 
 
 -- | A grammar is just a set of traversal representations of
@@ -544,6 +601,14 @@ dort = INode "S"
         [FNode "dort"] ]
 
 
+aime :: Tree String String
+aime = INode "S"
+    [ INode "N" []
+    , INode "V"
+        [FNode "dort"]
+    , INode "N" [] ]
+
+
 -- souvent :: AuxTree String String
 -- souvent = AuxTree (INode "V"
 --     [ INode "Adv"
@@ -569,5 +634,5 @@ nePas = AuxTree (INode "V"
 
 
 gram = I.fromList $ zip [0..]
-    $ map treeTrav [jean, dort]
+    $ map treeTrav [jean, dort, aime]
    ++ map auxTrav [souvent, nePas]
