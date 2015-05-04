@@ -8,20 +8,38 @@
 
 
 module NLP.LTAG.Early
-( early
-, treeTrav 
+(
+-- * Traversal
+  Elem (..)
+, Trav (..)
+, treeTrav
 , auxTrav
 , toTree
+
+-- * Grammar
+, Grammar
+
+-- * Chart state
+, State (..)
+, scan
+, ignore
+, subst
+, adjoin
+
+-- * Chart entry
+, Entry
 , final
 , parsed
+, showParsed
+, printParsed
 
--- Tests
-, jean
-, dort
-, aime
-, souvent
-, nePas
-, gram
+-- * Chart
+, Chart
+, lastEntry
+, chartFinal
+
+-- * Early
+, early
 ) where
 
 
@@ -30,14 +48,12 @@ import           Control.Monad (guard)
 import           Data.Maybe (mapMaybe)
 import qualified Data.Set as S
 import qualified Data.IntSet as IS
--- import qualified Data.Map as M
 import qualified Data.IntMap as I
 
 -- For parsing
 import qualified Text.ParserCombinators.Poly.Plain as P
 
 import qualified NLP.LTAG.Tree as G
-import           NLP.LTAG.Tree (AuxTree(AuxTree), Tree(FNode, INode))
 
 -- import           Debug.Trace (trace)
 
@@ -53,88 +69,80 @@ import           NLP.LTAG.Tree (AuxTree(AuxTree), Tree(FNode, INode))
 type ID = Int
 
 
--- | Deconstruct list.  Utility function.
-decoList :: [a] -> Maybe (a, [a])
-decoList [] = Nothing
-decoList (y:ys) = Just (y, ys)
-
-
--- | Is there no overlap between to IntSets?
-noOverlap :: IS.IntSet -> IS.IntSet -> Bool
-noOverlap x y = IS.null $ IS.intersection x y
+--------------------------------------------------
+-- TRAVERSAL ELEMENT
+--------------------------------------------------
 
 
 -- | A traversal element.
-data TrElem a b
-  = LeafNT { labelNT :: a }
-  | OpenNT { labelNT :: a }
-  | CloseNT
-  | Term { labelT  :: b }
+data Elem a b
+  = Leaf a
+  | Open a
+  | Close
+  | Term b
   | Foot
   deriving (Show, Eq, Ord)
 
 
 -- | Extract terminal label.
-mayTerm :: TrElem a b -> Maybe b
+mayTerm :: Elem a b -> Maybe b
 mayTerm t = case t of
     Term v -> Just v
     _ -> Nothing
 
 
--- -- | Is it a foot?
--- isTerm :: TrElem a b -> Bool
--- isTerm t = case t of
---     Term x -> True
---     _ -> False
-
-
 -- | Extract opening non-terminal label.
-mayLeaf :: TrElem a b -> Maybe a
+mayLeaf :: Elem a b -> Maybe a
 mayLeaf t = case t of
-    LeafNT x -> Just x
+    Leaf x -> Just x
     _ -> Nothing
 
 
 -- | Extract opening non-terminal label.
-mayOpen :: TrElem a b -> Maybe a
+mayOpen :: Elem a b -> Maybe a
 mayOpen t = case t of
-    OpenNT x -> Just x
+    Open x -> Just x
     _ -> Nothing
 
 
 -- | Is it a non-terminal closing tag?
-isClose :: TrElem a b -> Bool
+isClose :: Elem a b -> Bool
 isClose t = case t of
-    CloseNT -> True
+    Close -> True
     _ -> False
 
 
 -- | Is it an opening or closing tag-non-terminal?
-isTag :: TrElem a b -> Bool
+isTag :: Elem a b -> Bool
 isTag t = case t of
-    OpenNT _ -> True
-    CloseNT -> True
+    Open _ -> True
+    Close -> True
     _ -> False
 
 
 -- | Is it a foot?
-isFoot :: TrElem a b -> Bool
+isFoot :: Elem a b -> Bool
 isFoot t = case t of
     Foot -> True
     _ -> False
 
 
+--------------------------------------------------
+-- TRAVERSAL
+--------------------------------------------------
+
+
 -- | A traversal of a tree.
-type Trav a b = [TrElem a b]
+type Trav a b = [Elem a b]
 
 
 -- | Get traversal of the given tree.
 treeTrav :: G.Tree a b -> Trav a b
 treeTrav G.INode{..} = case subTrees of
-    [] -> [LeafNT labelI]
+    [] -> [Leaf labelI]
     _  -> 
         let xs = concatMap treeTrav subTrees
-        in  OpenNT labelI : xs ++ [CloseNT]
+        in  Open labelI : xs ++ [Close]
 treeTrav G.FNode{..} = [Term labelF]
 
 
@@ -143,13 +151,13 @@ auxTrav :: G.AuxTree a b -> Trav a b
 auxTrav G.AuxTree{..} =
     doit auxTree auxFoot
   where
-    doit (G.INode labelI []) [] = [OpenNT labelI, Foot, CloseNT]
+    doit (G.INode labelI []) [] = [Open labelI, Foot, Close]
     doit G.INode{..} (k:ks) =
         let onChild i subTree = if k == i
                 then doit subTree ks
                 else treeTrav subTree
             xs = concatMap (uncurry onChild) $ zip [0..] subTrees
-        in  OpenNT labelI : xs ++ [CloseNT]
+        in  Open labelI : xs ++ [Close]
     doit G.FNode{..} _ = [Term labelF]
     doit _ _ = error "auxTrav: incorrect path"
 
@@ -166,16 +174,16 @@ toTree = doParse readTree
         x  <- readOpen
         ts <- readForest
         readClose
-        return $ INode x ts
+        return $ G.INode x ts
     readOpen = mayNext mayOpen
     readClose = P.satisfy isClose
     readForest = P.many1 readTree
     readTerm = do
         t <- mayNext mayTerm
-        return $ FNode t
+        return $ G.FNode t
     readLeaf = do
         x <- mayNext mayLeaf
-        return $ INode x []
+        return $ G.INode x []
 
     doParse p xs = case fst (P.runParser p xs) of
         Left err -> error $ "toTree error: " ++ err
@@ -191,6 +199,40 @@ toTree = doParse readTree
             Just x -> x
 
 
+-- | Consume all subtrees and replace the closing non-terminal
+-- with the given sequence.
+replaceClose
+    :: Trav a b -- ^ The sequence to be placed
+    -> Trav a b -- ^ The sequence to be searched
+    -> Trav a b
+replaceClose new =
+    go (0 :: Int)
+  where
+    go k (x:xs) = case x of
+        Open _ -> x : go (k + 1) xs
+        Close  -> if k > 0
+            then x : go (k - 1) xs
+            else new ++ xs
+        _ -> x : go k xs
+    go _ [] = error "replaceClose: empty list"
+
+
+-- | Does the tree (represented as a traversal) has a specific
+-- label in the root?
+hasInRoot :: Eq a => Trav a b -> a -> Bool
+hasInRoot ts =
+    hasInRoot' $ reverse ts
+  where
+    hasInRoot' (t:_) x = case t of
+        Open y -> x == y 
+        _ -> False
+    hasInRoot' _ _ = False
+
+
+--------------------------------------------------
+-- GRAMMAR
+--------------------------------------------------
+
 
 -- | A grammar is just a set of traversal representations of
 -- initial and auxiliary trees.  Additionally, to each elementary
@@ -200,18 +242,12 @@ toTree = doParse readTree
 type Grammar a b = I.IntMap (Trav a b)
 
 
--- | Does the tree (represented as a traversal) has a specific
--- label in the root?
+--------------------------------------------------
+-- CHART STATE ...
 --
--- TODO: stupid, we have to use reverse here...
-hasInRoot :: Eq a => Trav a b -> a -> Bool
-hasInRoot ts =
-    hasInRoot' $ reverse ts
-  where
-    hasInRoot' (t:_) x = case t of
-        OpenNT y -> x == y 
-        _ -> False
-    hasInRoot' _ _ = False
+-- ... and chart extending operations: scan,
+-- ignore, complement (subst + adjoin)
+--------------------------------------------------
 
 
 -- | Parsing state: processed traversal elements and the elements
@@ -242,16 +278,6 @@ scan x st@State{..} = do
     y <- mayTerm r
     guard $ x == y
     return $ st {left  = r : left, right = rs}
-  where
-
-
--- THE OLD VERSION:
--- scan x (ls, r:rs) = case r of
---     Term y  -> if x == y
---         then Just (r:ls, rs)
---         else Nothing
---     _   -> Nothing
--- scan _ (_, []) = Nothing
 
 
 -- | Ignore the internal non-terminal -- no adjunction will take
@@ -263,164 +289,64 @@ ignore st@State{..} = do
     return $ st {left = r:left, right = rs}
 
 
--- THE OLD VERSION:
--- -- | Ignore the internal non-terminal -- no adjunction will take
--- -- place.
--- ignore
---     :: State a b
---     -> Maybe (State a b)
--- ignore (ls, r:rs) = case r of
---     OpenNT _ -> Just (r:ls, rs)
---     CloseNT -> Just (r:ls, rs)
---     _ -> Nothing
--- ignore _ = Nothing
-
-
 -- | Complete a leaf non-terminal with a parsed tree.
 subst
     :: Eq a
-    => (Trav a b, IS.IntSet)    -- ^ The parsed tree
-    -> State a b                -- ^ A state to complement
+    => State a b            -- ^ The parsed tree
+    -> State a b            -- ^ A state to complement
     -> Maybe (State a b)
-subst (t, ids') State{..} = do
-    (r, rs) <- decoList right
-    x <- mayLeaf r
-    guard $ noOverlap ids ids'
-    guard $ t `hasInRoot` x
+subst fin tre = do
+    -- Are you sure it's parsed?
+    guard $ null $ right fin
+    (treHead, treRest) <- decoList $ right tre
+    x <- mayLeaf treHead
+    guard $ noOverlap (ids fin) (ids tre)
+    guard $ left fin `hasInRoot` x  -- TODO: inefficient!
     return $ State
-        { left = t ++ left
-        , ids = IS.union ids ids'
-        , right = rs }
-
-
--- THE OLD VERSION:
--- -- | Complete a leaf non-terminal with a parsed tree.
--- subst
---     :: Eq a
---     => Trav a b     -- ^ The parsed tree
---     -> State a b    -- ^ A state to complement
---     -> Maybe (State a b)
--- subst t (ls, r:rs) = case r of
---     LeafNT x -> if t `hasInRoot` x
---         then Just (t ++ ls, rs)
---         else Nothing
---     _ -> Nothing
--- subst _ _ = Nothing
-
-
--- | Complete an internal non-terminal with a partially parsed
--- auxiliary tree (no foot node!).
---
--- TODO: we could easily take (see `tryAdjoin') a footnode label
--- as argument.
-adjoin
-    :: Eq a
-    => Trav a b     -- ^ Parsed part of an auxiliary tree
-    -> IS.IntSet    -- ^ IDs of the auxiliary tree
-    -> Trav a b     -- ^ Part of an auxiliary tree to be parsed
-    -> State a b    -- ^ Tree to complement (adjoin to)
-    -> Maybe (State a b)
-adjoin aux ids' aux' State{..} = do
-    (r, rs) <- decoList right
-    x <- mayOpen r
-    guard $ noOverlap ids ids'
-    guard $ aux `hasInRoot` x
-    return $ State
-        { left = aux ++ left
-        , ids = IS.union ids ids'
-        , right = replaceClose aux' rs }
-
-
--- THE OLD VERSION:
--- -- | Complete an internal non-terminal with a partially parsed
--- -- auxiliary tree (no foot node!).
--- --
--- -- TODO: we could easily take (see `tryAdjoin') a footnode label
--- -- as argument.
--- adjoin
---     :: Eq a
---     => Trav a b     -- ^ Parsed part of an auxiliary tree
---     -> Trav a b     -- ^ Part of an auxiliary tree to be parsed
---     -> State a b    -- ^ Tree to complement (adjoin)
---     -> Maybe (State a b)
--- adjoin aux aux' (ls, r:rs) = case r of
---     OpenNT x -> if aux `hasInRoot` x
---         then Just (aux ++ ls, replaceClose aux' rs)
---         else Nothing
---     _ -> Nothing
--- adjoin _ _ _ = Nothing
+        { left = left fin ++ left tre
+        , ids = IS.union (ids fin) (ids tre)
+        , right = treRest }
 
 
 -- | Try to complete an internal non-terminal with a partially
 -- parsed auxiliary tree.  Check if the tree is partially parsed
 -- indeed and remove the foot node.
-tryAdjoin
+adjoin
     :: Eq a
     => State a b    -- ^ Partially parsed auxiliary tree
     -> State a b    -- ^ Tree to complement (adjoin)
     -> Maybe (State a b)
-tryAdjoin State{..} t = do
-    (r, rs) <- decoList right
-    guard $ isFoot r
-    -- `rs' and not `right' because `adjoin' requires that there
-    -- is no foot-node on the right.
-    adjoin left ids rs t
+adjoin aux tre = do
+    -- Check if the first element of the axuliary traversal
+    -- is a foot-node and skip it.
+    (auxHead, auxRest) <- decoList $ right aux
+    guard $ isFoot auxHead
+    -- Take the root label of the auxiliary tree (x) and the
+    -- internal label (y) of the tree to complement and check if
+    -- they match.
+    x <- mayOpen . fst =<< decoList (left aux)
+    (treHead, treRest) <- decoList $ right tre
+    y <- mayOpen treHead
+    guard $ x == y
+    -- Do not compose trees which have overlaping set of indices.
+    guard $ noOverlap (ids aux) (ids tre)
+    -- Construct the final result.
+    return $ State
+        { left = left aux ++ left tre
+        , ids = IS.union (ids aux) (ids tre)
+        , right = replaceClose auxRest treRest }
 
--- 
--- tryAdjoin (ls, r:rs) = case r of
---     Foot -> adjoin ls rs
---     _ -> const Nothing
--- tryAdjoin _ = const Nothing
 
-
--- -- -- | Remove the k-th element of the list.
--- -- removeKth :: Int -> [a] -> [a]
--- -- removeKth k xs = take k xs ++ drop (k + 1) xs
--- 
--- 
--- -- | Replace the k-th element of the list.
--- replaceKth
---     :: Int
---     -> [a]  -- ^ What is placed on k-th position 
---     -> [a]  -- ^ In which replace takes places
---     -> [a]
--- replaceKth k x xs = take k xs ++ x ++ drop (k + 1) xs
--- 
--- 
--- | Consume all subtrees and replace the closing non-terminal
--- with the given sequence.  
-replaceClose
-    :: Trav a b -- ^ The sequence to be placed
-    -> Trav a b -- ^ The sequence to be searched
-    -> Trav a b
-replaceClose new =
-    go (0 :: Int)
-  where
-    go k (x:xs) = case x of
-        OpenNT _ -> x : go (k + 1) xs
-        CloseNT  -> if k > 0
-            then x : go (k - 1) xs
-            else new ++ xs
-        _ -> x : go k xs
-    go _ [] = error "replaceClose: empty list"
+--------------------------------------------------
+-- ENTRY
+--
+-- As well as entry elements
+--------------------------------------------------
 
 
 -- | A chart entry is a set of states together with information
 -- about where their corresponding spans begin.
 type Entry a b = S.Set (State a b, Int)
-
-
--- | Is it a final state/pos pair?
-final :: (State a b, Int) -> Bool
-final (State{..}, i) = null right && i == 0
--- final ((_, []), 0) = True
--- final _ = False
-
-
--- | The parsed part of the state.
-parsed :: (State a b, Int) -> Trav a b
-parsed (State{..}, _) = left
--- parsed ((ls, _), _) = ls
 
 
 -- | A new state based on the traversal.
@@ -429,7 +355,31 @@ mkStatePos k (i, t) = (,k) $ State
     { left=[]
     , ids=IS.singleton i
     , right=t }
--- mkStatePos k t = (([], t), k)
+
+
+-- | Is it a final state/pos pair?
+final :: (State a b, Int) -> Bool
+final (State{..}, i) = null right && i == 0
+
+
+-- | The parsed part of the state.
+parsed :: (State a b, c) -> Trav a b
+parsed (State{..}, _) = left
+
+
+-- | Show the parsed part of the given state.
+showParsed :: (Show a, Show b) => (State a b, c) -> String
+showParsed = G.showTree' . toTree . reverse . parsed
+
+
+-- | Show and print.
+printParsed :: (Show a, Show b) => (State a b, c) -> IO ()
+printParsed = putStr . showParsed
+
+
+--------------------------------------------------
+-- CHART
+--------------------------------------------------
 
 
 -- | A chart is a map from indiced to chart entries.
@@ -441,6 +391,19 @@ type Chart a b = I.IntMap (Entry a b)
 chart !? k = case I.lookup k chart of
     Just e  -> e
     Nothing -> error $ "!?: no such index in the chart"
+
+
+-- | Retrieve the last entry of the chart.  Error if chart is
+-- empty.
+lastEntry :: Chart a b -> Entry a b
+lastEntry ch = if I.null ch
+    then error "lastEntry: null chart"
+    else snd $ I.findMax ch
+
+
+-- | Show the final results of the early parsing.
+chartFinal :: Chart a b -> [(State a b, Int)]
+chartFinal = filter final . S.toList . lastEntry
 
 
 -- | Scan input w.r.t. all the states of the specific entry of
@@ -485,14 +448,14 @@ substAll curr chart
     = S.union curr $ S.fromList
     $ concatMap doit $ S.toList curr
   where
-    doit (State{..}, i) =
+    doit (st, i) =
         -- We do substitution only with respect to completed
         -- parse trees.
-        if null right then
+        if null (right st) then
             -- Substitution on some previous state from Chart[i]
             -- which starts on position j does not change its
             -- position.
-            let substOn (xs, j) = (,j) <$> subst (left, ids) xs
+            let substOn (xs, j) = (,j) <$> subst st xs
             -- Below we know, that <i> refers to some previous
             -- entry and not the current state because each tree
             -- spans over at least one non-terminal. 
@@ -521,11 +484,14 @@ adjoinAll curr chart
     doit (aux, i) =
         -- Adjoin on some previous state from Chart[i] which
         -- starts on position j does not change its position.
-        let adjoinOn (st, j) = (,j) <$> tryAdjoin aux st
-            -- TODO: this doesn't work as expected!
+        let adjoinOn (st, j) = (,j) <$> adjoin aux st
+            -- TODO: this is kind of dangerous!  We assume here
+            -- that <i> values are always correct and thus, if
+            -- they are not in the chart, they refer to the
+            -- current entry.
             entry = case I.lookup i chart of
                 Just e  -> e
-                Nothing -> curr 
+                Nothing -> curr
         in  mapMaybe adjoinOn $ S.toList $ entry
 
 
@@ -585,54 +551,17 @@ earlyStep gram (x:xs) k chart =
 earlyStep _ [] _ chart = chart
 
 
-----------
--- TEST --
-----------
+--------------------------------------------------
+-- UTILITIES
+--------------------------------------------------
 
 
-jean :: Tree String String
-jean = INode "N" [FNode "jean"]
+-- | Deconstruct list.  Utility function.
+decoList :: [a] -> Maybe (a, [a])
+decoList [] = Nothing
+decoList (y:ys) = Just (y, ys)
 
 
-dort :: Tree String String
-dort = INode "S"
-    [ INode "N" []
-    , INode "V"
-        [FNode "dort"] ]
-
-
-aime :: Tree String String
-aime = INode "S"
-    [ INode "N" []
-    , INode "V"
-        [FNode "dort"]
-    , INode "N" [] ]
-
-
--- souvent :: AuxTree String String
--- souvent = AuxTree (INode "V"
---     [ INode "Adv"
---         [FNode "souvent"]
---     , INode "V" [] ]
---     ) [1]
-
-
-souvent :: AuxTree String String
-souvent = AuxTree (INode "V"
-    [ INode "V" []
-    , INode "Adv"
-        [FNode "souvent"] ]
-    ) [0]
-
-
-nePas :: AuxTree String String
-nePas = AuxTree (INode "V"
-    [ FNode "ne"
-    , INode "V" []
-    , FNode "pas" ]
-    ) [1]
-
-
-gram = I.fromList $ zip [0..]
-    $ map treeTrav [jean, dort, aime]
-   ++ map auxTrav [souvent, nePas]
+-- | Is there no overlap between to IntSets?
+noOverlap :: IS.IntSet -> IS.IntSet -> Bool
+noOverlap x y = IS.null $ IS.intersection x y
