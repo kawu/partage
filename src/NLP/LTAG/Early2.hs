@@ -27,7 +27,7 @@ import qualified Text.ParserCombinators.Poly.Plain as P
 
 import qualified NLP.LTAG.Tree as G
 
--- import           Debug.Trace (trace)
+import           Debug.Trace (trace)
 
 
 --------------------------------------------------
@@ -189,9 +189,9 @@ replaceClose new =
 -- | Does the tree (represented as a traversal) has a specific
 -- label in the root?
 hasInRoot :: Eq a => Trav a b -> a -> Bool
-hasInRoot sq x = case E.viewr sq of
-    EmptyR -> False
-    _ :> t -> case t of
+hasInRoot sq x = case E.viewl sq of
+    EmptyL -> False
+    t :< _ -> case t of
         Open y -> x == y 
         _ -> False
 
@@ -237,6 +237,25 @@ data State a b = Single {
     -- By definition, all the elements on the left are processed.
     , right :: Trav a b
     } deriving (Show, Eq, Ord)
+
+
+-- -- | Is it parsed?
+-- isParsed :: State a b -> Bool
+-- isParsed Single{..} = E.null left && E.null right
+-- isParsed _ = False
+
+
+-- | Is it a parsed single tree?
+maySngParsed :: State a b -> Maybe (Trav a b)
+maySngParsed Single{..} = do
+    guard $ E.null left && E.null right
+    return done
+maySngParsed _ = Nothing
+
+
+-- | Is it a pasred auxiliary tree? 
+mayAuxParsed :: State a b -> Maybe (Trav a b, Trav a b)
+mayAuxParsed = TODO
 
 
 -- | Create a single state from an initial tree traversal given
@@ -293,6 +312,77 @@ ignore dual@DualR{..} = do
     return $ dual
         { done = l <| done
         , left = ls }
+
+
+-- | Complete a leaf non-terminal with a parsed tree on its
+-- right.
+substL
+    :: (Eq a, Show a, Show b)
+    => State a b            -- ^ A state to complement
+    -> State a b            -- ^ The parsed tree
+    -> Maybe (State a b)
+substL st@Single{..} finSt = do
+    fin <- maySngParsed finSt
+    (treHead, treRest) <- mayViewL right
+    x <- mayLeaf treHead
+    guard $ fin `hasInRoot` x
+    return $ st
+        { done = done >< fin
+        , right = treRest }
+substL _  finSt = error "substL: to implement?"
+
+
+-- | Complete a leaf non-terminal with a parsed tree on its left.
+substR
+    :: Eq a
+    => State a b            -- ^ The parsed tree
+    -> State a b            -- ^ A state to complement
+    -> Maybe (State a b)
+substR finSt st@Single{..} = do
+    fin <- maySngParsed finSt
+    (treRest, treHead) <- mayViewR left
+    x <- mayLeaf treHead
+    guard $ fin `hasInRoot` x
+    return $ st
+        { done = fin >< done
+        , left = treRest }
+substR finSt _ = error "substR: to implement?"
+
+
+-- | Extend is a kind of prediction and not really an operation:
+-- given a single state representing an auxiliary tree with a
+-- fully parsed left/right side, it makes a dual tree of it.
+-- This makes sense if on a given span adjacent to the auxiliary
+-- tree a potential partial parse has been found.
+
+
+-- | Adjoin takes a dual (auxiliary) tree fully parsed and
+-- adjoins it to either a partially parsed initial tree expecting
+-- a specific non-terminal or another fully parsed auxiliary tree
+-- which expects this non-terminal.
+adjoin
+    :: Eq a
+    => State a b    -- ^ Tree to adjoin
+    -> State a b    -- ^ Tree to complement
+    -> Maybe (State a b)
+adjoin aux Single{..} = do
+    -- Check if the auxiliary tree is really parsed 
+    (leftAux, rightAux) <- mayAuxParsed aux
+    -- Take the foot-node/root label of the auxiliary tree
+    x <- mayViewR leftAux >>= mayOpen.snd
+    -- See what the tree to be complemented expects as a
+    -- non-terminal
+    (leftRest, leftHead) <- mayViewR left
+    (rightHead, rightRest) <- mayViewL right
+    guard $ isClose rightHead
+    y <- mayOpen leftHead
+    -- Make sure that the two labels actually match
+    guard $ x == y
+    -- And the result
+    return $ Single
+        { left = leftRest
+        , done = leftAux >< (done >< rightAux)
+        , right = rightRest }
 
 
 
