@@ -356,20 +356,46 @@ substR finSt _ = error "substR: to implement?"
 -- tree a potential partial parse has been found.
 
 
--- | Adjoin takes a dual (auxiliary) tree fully parsed and
--- adjoins it to either a partially parsed initial tree expecting
--- a specific non-terminal or another fully parsed auxiliary tree
--- which expects this non-terminal.
+-- | Take a fully parsed dual (auxiliary) tree and adjoin it to a
+-- partially parsed initial tree expecting a specific
+-- non-terminal.
 adjoin
     :: Eq a
     => State a b    -- ^ Tree to adjoin
-    -> State a b    -- ^ Tree to complement
+    -> State a b    -- ^ Single tree to complement
     -> Maybe (State a b)
 adjoin aux Single{..} = do
     -- Check if the auxiliary tree is really parsed 
     (leftAux, rightAux) <- mayAuxParsed aux
     -- Take the foot-node/root label of the auxiliary tree
     x <- mayViewR leftAux >>= mayOpen.snd
+    -- See what the tree to be complemented expects as a
+    -- non-terminal
+    (leftRest, leftHead) <- mayViewR left
+    (rightHead, rightRest) <- mayViewL right
+    guard $ isClose rightHead
+    y <- mayOpen leftHead
+    -- Make sure that the two labels actually match
+    guard $ x == y
+    -- And the result
+    return $ Single
+        { left = leftRest
+        , done = leftAux >< (done >< rightAux)
+        , right = rightRest }
+
+-- | Take a fully parsed dual (auxiliary) tree and adjoin it to
+-- another fully parsed auxiliary tree somewhere on its spine.
+--
+-- What about adjunctions beyond the spine?  
+inject aux aux'@DualL{} = do
+    -- Check if the auxiliary tree is really parsed 
+    (leftAux, rightAux) <- mayAuxParsed aux
+    -- Take the foot-node/root label of the auxiliary tree
+    x <- mayViewR leftAux >>= mayOpen.snd
+
+    -- Check if the second auxiliary tree is really parsed
+    (leftAux', rightAux') <- mayAuxParsed aux
+
     -- See what the tree to be complemented expects as a
     -- non-terminal
     (leftRest, leftHead) <- mayViewR left
