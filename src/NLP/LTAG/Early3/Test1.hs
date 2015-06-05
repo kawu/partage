@@ -4,7 +4,7 @@ module NLP.LTAG.Early3.Test1 where
 import qualified Data.IntMap as I
 
 import           NLP.LTAG.Tree (AuxTree(AuxTree), Tree(FNode, INode))
-import           NLP.LTAG.Early3
+import           NLP.LTAG.Early3.Rule
 
 
 jean :: Tree String String

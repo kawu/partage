@@ -3,22 +3,21 @@
 
 
 {- 
- - Early parser for TAGs.  Third preliminary version :-).
+ - Early parser for TAGs: Rules.
  -}
 
 
-module NLP.LTAG.Early3 where
+module NLP.LTAG.Early3.Rule where
 
 
 import           Control.Applicative ((<$>))
 import           Control.Monad (void)
 import qualified Control.Monad.RWS.Strict as S
 
+import qualified Pipes as P
+
 import qualified NLP.LTAG.Tree as G
-
-
--- | Position in the sentence.
-type Pos = Int
+import           NLP.LTAG.Early3.Core
 
 
 ----------------------
@@ -34,18 +33,6 @@ type Pos = Int
 -- Within the context of substitution, both the non-terminal and
 -- the identifier have to agree.  In case of adjunction, only the
 -- non-terminals have to be equal.
-
-
--- | Additional identifier.
-type ID = Int
-
-
--- | Symbol: a (non-terminal, maybe identifier) pair.
-type Sym n = (n, Maybe ID)
-
-
--- | Label: either a symbol or a terminal.
-type Lab n t = Either (Sym n) t
 
 
 -- | A rule for initial tree.
@@ -171,25 +158,3 @@ auxRules b G.AuxTree{..} =
         doit acc 0 (x:xs) = (reverse acc, x, xs)
         doit acc k (x:xs) = doit (x:acc) (k-1) xs
         doit acc _ [] = error "auxRules.split: index to high"
-
-
---------------------------------------------------
--- CHART STATE ...
---
--- ... and chart extending operations
---------------------------------------------------
-
-
--- | Parsing state: processed initial rule elements and the elements
--- yet to process.
-data StateI n t = StateI {
-    -- | The head of the rule represented by the state.
-      root  :: Sym n
-    -- | Starting position.
-    , beg   :: Pos
-    -- | The list of processed elements of the rule.  
-    -- Stored in the inverse order. 
-    , left  :: [Lab n t]
-    -- | The list of elements yet to process. 
-    , right :: [Lab n t]
-    } deriving (Show, Eq, Ord)
