@@ -350,6 +350,34 @@ tryAdjoin' p q = void $ runMaybeT $ do
         , right = right' }
 
 
+-- | Adjoin a fully parsed auxiliary rule to a partially parsed
+-- initial tree represented by a regular, fully parsed rule.
+tryComplete
+    :: (Ord t, Ord n)
+    => State n t
+    -> State n t
+    -> Earley n t ()
+tryComplete p q = void $ runMaybeT $ do
+    -- make sure that `p' is completed ...
+    guard $ null $ right p
+    -- ... and that it is an auxiliary rule ...
+    (gapBeg, gapEnd) <- maybeT $ gap p
+    -- ... and also that its a top-level auxiliary rule
+    guard $ isNothing $ snd $ root p
+    -- make sure that `q' is completed as well ...
+    guard $ null $ right q
+    -- ... and that it is a regular rule
+    guard $ isNothing $ gap p
+    -- finally, check that the spans match
+    guard $ gapBeg == beg q
+    guard $ gapEnd == end q
+    -- and that non-terminals match (not IDs)
+    guard $ fst (root p) == fst (root q)
+    lift $ pushState $ q
+        { beg = beg p
+        , end = end p }
+
+
 --------------------------------------------------
 -- UTILS
 --------------------------------------------------
