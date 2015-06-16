@@ -1,5 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 
 {- 
@@ -16,11 +18,17 @@ import qualified Control.Monad.RWS.Strict as RWS
 import           Control.Monad.Trans.Maybe (MaybeT(..))
 import           Control.Monad.Trans.Class (lift)
 
-import qualified Pipes as P
 import qualified Data.Set as S
-import           Data.Maybe (isNothing, isJust)
+import           Data.Maybe (isNothing, isJust, listToMaybe)
+
+import qualified Pipes as P
 
 import qualified NLP.LTAG.Tree as G
+
+
+class (Show a, Ord a) => SOrd a where
+
+instance (Show a, Ord a) => SOrd a where
 
 
 -- | Position in the sentence.
@@ -122,7 +130,7 @@ treeRules
 treeRules isTop G.INode{..} = case subTrees of
     [] -> do
         let x = (labelI, Nothing)
-        keepRule $ Rule x []
+        -- keepRule $ Rule x []
         return $ NonT x
     _  -> do
         x <- if isTop
@@ -210,12 +218,14 @@ data EarSt n t = EarSt
 
 
 -- | Dummy Earley computation monad for now.
-type Earley n t a = RWS.RWS [t] () (EarSt n t) a
+type Earley n t = RWS.RWST [t] () (EarSt n t) IO
 
 
 -- | Read input on the given position.
-readInput :: Pos -> Earley n t t 
-readInput i = RWS.reader (!! i)
+readInput :: Pos -> MaybeT (Earley n t) t
+readInput i = do
+    xs <- RWS.ask
+    maybeT $ listToMaybe $ drop i xs
 
 
 -- | Retrieve the set of "done" states. 
@@ -223,10 +233,21 @@ getDone :: Earley n t (S.Set (State n t))
 getDone = done <$> RWS.get
 
 
--- | Add the state to the queue.
+-- | Add the state to the queue.  Check first if it is not already in
+-- the set of processed ("done") states.
 pushState :: (Ord t, Ord n) => State n t -> Earley n t ()
-pushState p = RWS.state $ \s -> ((),
-    s {waiting = S.insert p (waiting s)})
+pushState p = RWS.state $ \s ->
+    let waiting' = if S.member p (done s)
+            then waiting s
+            else S.insert p (waiting s)
+    in  ((), s {waiting = waiting'})
+
+
+-- | Pop a state from the queue.
+popState :: (Ord t, Ord n) => Earley n t (Maybe (State n t))
+popState = RWS.state $ \st -> case S.minView (waiting st) of
+    Nothing -> (Nothing, st)
+    Just (x, s) -> (Just x, st {waiting = s})
 
 
 -- | Add the state to the queue.
@@ -235,10 +256,33 @@ saveState p = RWS.state $ \s -> ((),
     s {done = S.insert p (done s)})
 
 
+-- | Earley.
+earley
+    :: (SOrd t, SOrd n)
+    => S.Set (Rule n t) -- ^ The grammar (set of rules)
+    -> [t]              -- ^ Input sentence
+    -> IO (S.Set (State n t))
+earley gram xs =
+    done . fst <$> RWS.execRWST loop xs st0
+  where
+    st0 = EarSt S.empty $ S.fromList
+        [ State
+            { root = headI
+            , left = []
+            , right = body
+            , beg = i, end = i
+            , gap = Nothing }
+        | Rule{..} <- S.toList gram
+        , i <- [0 .. length xs - 1] ]
+    loop = popState >>= \mp -> case mp of
+        Nothing -> return ()
+        Just p -> step p >> loop
+
 -- | Step of the algorithm loop.  `p' is the state poped off from the
 -- queue.
-step :: (Ord t, Ord n) => State n t -> Earley n t ()
+step :: (SOrd t, SOrd n) => State n t -> Earley n t ()
 step p = do
+    -- lift $ putStr "PP:  " >> print p
     -- Try to scan it
     tryScan p
     P.runListT $ do
@@ -253,33 +297,37 @@ step p = do
 
 
 -- | Try to perform the SCAN operation w.r.t. to the given state.
-tryScan :: (Ord t, Ord n) => State n t -> Earley n t ()
-tryScan p = do 
+tryScan :: (SOrd t, SOrd n) => State n t -> Earley n t ()
+tryScan p = void $ runMaybeT $ do
     c <- readInput $ end p
-    void $ runMaybeT $ do
-        (Term t, right') <- maybeT $ decoList $ right p
-        guard $ c == t
-        lift $ pushState $ p
+    (Term t, right') <- maybeT $ decoList $ right p
+    guard $ c == t
+    let p' = p
             { end = end p + 1
             , left = Term t : left p
             , right = right' }
+    lift . lift $ do
+        putStr "[S]  " >> print p
+        putStr "  :  " >> print p'
+    lift $ pushState p'
 
 
 -- | Try compose two states.
 tryCompose
-    :: (Ord t, Ord n)
+    :: (SOrd t, SOrd n)
     => State n t
     -> State n t
     -> Earley n t ()
 tryCompose p q = do
     trySubst p q
     tryAdjoin p q
-    -- tryAdjoin' p q
+    tryAdjoin' p q
+    tryComplete p q
 
 
 -- | Try substitute the first state with the second state.
 trySubst
-    :: (Ord t, Ord n)
+    :: (SOrd t, SOrd n)
     => State n t
     -> State n t
     -> Earley n t ()
@@ -291,19 +339,26 @@ trySubst p q = void $ runMaybeT $ do
     -- make sure `q' is not yet completed and expects
     -- a non-terminal
     (NonT x, right') <- maybeT $ decoList $ right q
+    -- make sure that `p' begins where `q' ends
+    guard $ beg p == end q
     -- make sure that the root of `p' matches with the next
     -- non-terminal of `q'; IDs of the symbols have to be
     -- the same as well
     guard $ root p == x
-    lift $ pushState $ q
-        { end = end p
-        , left = NonT x : left q
-        , right = right' }
+    let q' = q
+            { end = end p
+            , left = NonT x : left q
+            , right = right' }
+    lift . lift $ do
+        putStr "[U]  " >> print p
+        putStr "  +  " >> print q
+        putStr "  :  " >> print q'
+    lift $ pushState q'
 
 
 -- | Try adjoining...
 tryAdjoin
-    :: (Ord n, Ord t)
+    :: (SOrd n, SOrd t)
     => State n t
     -> State n t
     -> Earley n t ()
@@ -315,20 +370,27 @@ tryAdjoin p q = void $ runMaybeT $ do
     -- make sure `q' is not yet completed and expects
     -- a real foot
     (Foot x@(u, Nothing), right') <- maybeT $ decoList $ right q
+    -- make sure that `p' begins where `q' ends
+    guard $ beg p == end q
     -- make sure that the root of `p' matches with the non-terminal
     -- of the foot of `q'; IDs of the symbols *no not* have to be
     -- the same
     guard $ fst (root p) == u
-    lift $ pushState $ q
-        { gap = Just (beg p, end p)
-        , end = end p
-        , left = Foot x : left q
-        , right = right' }
+    let q' = q
+            { gap = Just (beg p, end p)
+            , end = end p
+            , left = Foot x : left q
+            , right = right' }
+    lift . lift $ do
+        putStr "[A]  " >> print p
+        putStr "  +  " >> print q
+        putStr "  :  " >> print q'
+    lift $ pushState q'
 
 
 -- | Try adjoining, second option...
 tryAdjoin'
-    :: (Ord n, Ord t)
+    :: (SOrd n, SOrd t)
     => State n t
     -> State n t
     -> Earley n t ()
@@ -340,20 +402,27 @@ tryAdjoin' p q = void $ runMaybeT $ do
     -- make sure `q' is not yet completed and expects
     -- a dummy foot
     (Foot x@(_, Just _), right') <- maybeT $ decoList $ right q
+    -- make sure that `p' begins where `q' ends
+    guard $ beg p == end q
     -- make sure that the root of `p' matches with the non-terminal
     -- of the foot of `q'; IDs of the symbols have to be the same
     guard $ root p == x
-    lift $ pushState $ q
-        { gap = gap p
-        , end = end p
-        , left = Foot x : left q
-        , right = right' }
+    let q' = q
+            { gap = gap p
+            , end = end p
+            , left = Foot x : left q
+            , right = right' }
+    lift . lift $ do
+        putStr "[B]  " >> print p
+        putStr "  +  " >> print q
+        putStr "  :  " >> print q'
+    lift $ pushState q'
 
 
 -- | Adjoin a fully parsed auxiliary rule to a partially parsed
 -- initial tree represented by a regular, fully parsed rule.
 tryComplete
-    :: (Ord t, Ord n)
+    :: (SOrd t, SOrd n)
     => State n t
     -> State n t
     -> Earley n t ()
@@ -367,15 +436,20 @@ tryComplete p q = void $ runMaybeT $ do
     -- make sure that `q' is completed as well ...
     guard $ null $ right q
     -- ... and that it is a regular rule
-    guard $ isNothing $ gap p
+    guard $ isNothing $ gap q
     -- finally, check that the spans match
     guard $ gapBeg == beg q
     guard $ gapEnd == end q
     -- and that non-terminals match (not IDs)
     guard $ fst (root p) == fst (root q)
-    lift $ pushState $ q
-        { beg = beg p
-        , end = end p }
+    let q' = q
+            { beg = beg p
+            , end = end p }
+    lift . lift $ do
+        putStr "[C]  " >> print p
+        putStr "  +  " >> print q
+        putStr "  :  " >> print q'
+    lift $ pushState q'
 
 
 --------------------------------------------------
