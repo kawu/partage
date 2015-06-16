@@ -169,7 +169,7 @@ auxRules b G.AuxTree{..} =
 --         keepAux $ Aux x ls' bt' rs'
 --         return $ Just x
         keepRule $ Rule x $ ls' ++ (bt' : rs')
-        return $ NonT x
+        return $ Foot x
     doit _ _ _ = error "auxRules: incorrect path"
     split =
         doit []
@@ -323,6 +323,7 @@ tryCompose p q = do
     tryAdjoin p q
     tryAdjoin' p q
     tryComplete p q
+    -- tryComplete' p q
 
 
 -- | Try substitute the first state with the second state.
@@ -365,8 +366,8 @@ tryAdjoin
 tryAdjoin p q = void $ runMaybeT $ do
     -- make sure that `p' is completed...
     guard $ null $ right p
-    -- ... and that it is a regular rule
-    guard $ isNothing $ gap p
+--     -- ... and that it is a regular rule
+--     guard $ isNothing $ gap p  <- NOPE, not necessarily!
     -- make sure `q' is not yet completed and expects
     -- a real foot
     (Foot x@(u, Nothing), right') <- maybeT $ decoList $ right q
@@ -431,12 +432,13 @@ tryComplete p q = void $ runMaybeT $ do
     guard $ null $ right p
     -- ... and that it is an auxiliary rule ...
     (gapBeg, gapEnd) <- maybeT $ gap p
-    -- ... and also that its a top-level auxiliary rule
+    -- ... and also that it's a top-level auxiliary rule
     guard $ isNothing $ snd $ root p
     -- make sure that `q' is completed as well ...
     guard $ null $ right q
-    -- ... and that it is a regular rule
-    guard $ isNothing $ gap q
+    -- ... and that it is either a regular rule or an intermediate
+    -- auxiliary rule; (<=) used as an implication here!
+    guard $ (isJust $ gap q) <= (isJust $ snd $ root q)
     -- finally, check that the spans match
     guard $ gapBeg == beg q
     guard $ gapEnd == end q
@@ -450,6 +452,40 @@ tryComplete p q = void $ runMaybeT $ do
         putStr "  +  " >> print q
         putStr "  :  " >> print q'
     lift $ pushState q'
+
+
+-- -- | Adjoin a fully parsed auxiliary rule to a partially parsed
+-- -- tree represented by an auxiliary, fully parsed rule.
+-- tryComplete'
+--     :: (SOrd t, SOrd n)
+--     => State n t
+--     -> State n t
+--     -> Earley n t ()
+-- tryComplete' p q = void $ runMaybeT $ do
+--     -- make sure that `p' is completed ...
+--     guard $ null $ right p
+--     -- ... and that it is an auxiliary rule ...
+--     (gapBeg, gapEnd) <- maybeT $ gap p
+--     -- ... and also that it's a top-level auxiliary rule
+--     guard $ isNothing $ snd $ root p
+--     -- make sure that `q' is completed as well ...
+--     guard $ null $ right q
+--     -- ... and that it is an intermediate auxiliary rule
+--     guard $ isJust $ gap q
+--     guard $ isJust $ snd $ root q
+--     -- finally, check that the spans match
+--     guard $ gapBeg == beg q
+--     guard $ gapEnd == end q
+--     -- and that non-terminals match (not IDs)
+--     guard $ fst (root p) == fst (root q)
+--     let q' = q
+--             { beg = beg p
+--             , end = end p }
+--     lift . lift $ do
+--         putStr "[D]  " >> print p
+--         putStr "  +  " >> print q
+--         putStr "  :  " >> print q'
+--     lift $ pushState q'
 
 
 --------------------------------------------------
