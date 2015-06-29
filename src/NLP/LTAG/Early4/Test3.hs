@@ -41,8 +41,8 @@ beta2 = AuxTree (INode "X"
 
 testGram :: [String] -> IO ()
 testGram sent = do
-    -- void $ earley gram sent
-    mapM_ print $ S.toList gram
+    void $ earley gram sent
+    -- mapM_ print $ S.toList gram
   where
     gram = S.fromList $ snd $ runRM $ do
         mapM_ (treeRules True) [alpha]

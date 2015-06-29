@@ -295,13 +295,13 @@ printState State{..} = do
 
 
 -- | Priority type.
-type Prio = (Int, Int)
+type Prio = Int
 
 
 -- | Priority of a state.  Crucial for the algorithm -- states have
 -- to be removed from the queue in a specific order.
 prio :: State n t -> Prio
-prio p = (beg p, end p - beg p)
+prio p = end p
 
 
 --------------------------------------------------
@@ -587,9 +587,7 @@ tryAdjoinTerm p = void $ P.runListT $ do
     -- make sure that `p' is a completed, top-level state ...
     guard $ completed p && topLevel p
     -- ... and that it is an auxiliary state
-    -- (gapBeg, gapEnd) <- maybeT $ gap p
     (gapBeg, gapEnd) <- each $ maybeToList $ gap p
-
     -- take all completed rules with a given span
     -- and a given root non-terminal (IDs irrelevant)
     q <- rootSpan (fst $ root p) (gapBeg, gapEnd)
@@ -597,16 +595,6 @@ tryAdjoinTerm p = void $ P.runListT $ do
     -- either a regular rule or an intermediate auxiliary rule
     -- ((<=) used as an implication here!)
     guard $ completed q && auxiliary q <= subLevel q
-
---     -- make sure that `q' is completed as well and that it is
---     -- either a regular rule or an intermediate auxiliary rule
---     -- ((<=) used as an implication here!)
---     guard $ completed q && auxiliary q <= subLevel q
---     -- finally, check that the spans match
---     guard $ gapBeg == beg q && gapEnd == end q
---     -- and that non-terminals match (not IDs)
---     guard $ fst (root p) == fst (root q)
-
     let q' = q
             { beg = beg p
             , end = end p }
