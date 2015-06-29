@@ -1,4 +1,4 @@
-module NLP.LTAG.Early3.Test1 where
+module NLP.LTAG.Early4.Test2 where
 
 
 import           Control.Applicative ((<$>), (<*>))
@@ -10,7 +10,7 @@ import           Data.List (sortBy)
 import           Data.Ord (comparing)
 
 import           NLP.LTAG.Tree (AuxTree(AuxTree), Tree(FNode, INode))
-import           NLP.LTAG.Early3
+import           NLP.LTAG.Early4
 
 
 jean :: Tree String String

@@ -21,9 +21,11 @@ import           Control.Monad.Trans.Maybe  (MaybeT (..))
 
 import           Data.List                  (intercalate)
 import qualified Data.Map.Strict            as M
-import           Data.Maybe                 (isJust, isNothing, listToMaybe,
-                                             maybeToList)
+import           Data.Maybe     ( isJust, isNothing
+                                , listToMaybe, maybeToList)
 import qualified Data.Set                   as S
+import qualified Data.PSQueue               as Q
+import           Data.PSQueue (Binding(..))
 
 import qualified Pipes                      as P
 
@@ -292,6 +294,16 @@ printState State{..} = do
     putStrLn ">"
 
 
+-- | Priority type.
+type Prio = (Int, Int)
+
+
+-- | Priority of a state.  Crucial for the algorithm -- states have
+-- to be removed from the queue in a specific order.
+prio :: State n t -> Prio
+prio p = (beg p, end p - beg p)
+
+
 --------------------------------------------------
 -- Earley monad
 --------------------------------------------------
@@ -299,25 +311,28 @@ printState State{..} = do
 
 -- | The state of the earley monad.
 data EarSt n t = EarSt {
-    -- | Rules which expect a specific symbol and which end on a
+    -- | Rules which expect a specific label and which end on a
     -- specific position.
-      doneExpEnd :: M.Map (Sym n, Pos) (S.Set (State n t))
-    -- | Processed, fully-parsed rules which provide a specific
-    -- non-terminal and which begin on a specific position.
-    , doneProBeg :: M.Map (Sym n, Pos) (S.Set (State n t))
+      doneExpEnd :: M.Map (Lab n t, Pos) (S.Set (State n t))
+    -- | Rules providing a specific non-terminal in the root
+    -- and spanning over a given range.
+    , doneProSpan :: M.Map (n, Pos, Pos) (S.Set (State n t))
     -- | The set of states waiting on the queue to be processed.
     -- Invariant: the intersection of `done' and `waiting' states
     -- is empty.
-    , waiting    :: S.Set (State n t) }
-    deriving (Show, Eq, Ord)
+    -- , waiting    :: S.Set (State n t) }
+    , waiting    :: Q.PSQ (State n t) Prio }
+    deriving (Show)
 
 
 -- | Make an initial `EarSt` from a set of states.
-mkEarSt :: S.Set (State n t) -> (EarSt n t)
+mkEarSt :: (Ord n, Ord t) => S.Set (State n t) -> (EarSt n t)
 mkEarSt s = EarSt
     { doneExpEnd = M.empty
-    , doneProBeg = M.empty
-    , waiting = s }
+    , doneProSpan = M.empty
+    , waiting = Q.fromList
+        [ p :-> prio p
+        | p <- S.toList s ] }
 
 
 -- | Earley parser monad.  Contains the input sentence (reader)
@@ -343,10 +358,9 @@ readInput i = do
 -- not already in the set of processed (`done') states.
 pushState :: (Ord t, Ord n) => State n t -> Earley n t ()
 pushState p = RWS.state $ \s ->
-    -- let waiting' = if S.member p (done s)
     let waiting' = if isProcessed p s
             then waiting s
-            else S.insert p (waiting s)
+            else Q.insert p (prio p) (waiting s)
     in  ((), s {waiting = waiting'})
 
 
@@ -354,9 +368,9 @@ pushState p = RWS.state $ \s ->
 -- will be probably replaced by a priority queue which will allow
 -- to order the computations in some smarter way.
 popState :: (Ord t, Ord n) => Earley n t (Maybe (State n t))
-popState = RWS.state $ \st -> case S.minView (waiting st) of
+popState = RWS.state $ \st -> case Q.minView (waiting st) of
     Nothing -> (Nothing, st)
-    Just (x, s) -> (Just x, st {waiting = s})
+    Just (x :-> _, s) -> (Just x, st {waiting = s})
 
 
 -- | Add the state to the set of processed (`done') states.
@@ -365,82 +379,45 @@ saveState p = RWS.state $ \s -> ((), doit s)
   where
     doit st@EarSt{..} = st
       { doneExpEnd = case expects' p of
-          Just (NonT x, _) -> M.insertWith S.union (x, end p)
+          Just (x, _) -> M.insertWith S.union (x, end p)
                               (S.singleton p) doneExpEnd
           Nothing -> doneExpEnd
-      , doneProBeg = if completed p
-          then M.insertWith S.union (root p, beg p)
-               (S.singleton p) doneProBeg
-          else doneProBeg }
+      , doneProSpan = if completed p
+          then M.insertWith S.union (fst $ root p, beg p, end p)
+               (S.singleton p) doneProSpan
+          else doneProSpan }
 
 
 -- | Check if the state is not already processed (i.e. in one of the
 -- done-related maps).
-isProcessed :: State n t -> EarSt n t -> Bool
-isProcessed = undefined
+isProcessed :: (Ord n, Ord t) => State n t -> EarSt n t -> Bool
+isProcessed p EarSt{..} = S.member p $ case expects' p of
+    Just (x, _) -> M.findWithDefault S.empty
+        (x, end p) doneExpEnd
+    Nothing -> M.findWithDefault S.empty
+        (fst $ root p, beg p, end p) doneProSpan
 
 
--- | Return all the states which (for `trySubst`)
--- * expect a given non-terminal,
+-- | Return all completed states which:
+-- * expect a given label,
 -- * end on the given position.
-expect_Sym_End :: Ord n => Sym n -> Pos -> P.ListT (Earley n t) (State n t)
-expect_Sym_End x i = do
+expectEnd
+    :: (Ord n, Ord t) => Lab n t -> Pos
+    -> P.ListT (Earley n t) (State n t)
+expectEnd x i = do
   EarSt{..} <- lift RWS.get
   listValues (x, i) doneExpEnd
 
 
--- | Return all states which (for `trySubst'`)
--- * provide a specific symbol,
--- * begin on the given position.
--- * TODO: Should be regular!!! (see `trySubst`); se also below (`tryAdjoinCont`)
-provide_Sym_Beg :: Ord n => Sym n -> Pos -> P.ListT (Earley n t) (State n t)
-provide_Sym_Beg x i = do
+-- | Return all completed states with:
+-- * the given root non-terminal value
+-- * the given span
+rootSpan
+    :: Ord n => n -> (Pos, Pos)
+    -> P.ListT (Earley n t) (State n t)
+rootSpan x (i, j) = do
   EarSt{..} <- lift RWS.get
-  listValues (x, i) doneProBeg
-
-
--- | Return all states which (for `tryAdjoinCont'`)
--- * Provide a specific symbol,
--- * Begin on a given position.
--- * Are auxiliary (Q: do we have to enforce this explicitely?
---     perhaps it will be guaranteed by the symbol which is already
---     related to auxiliary rules?)
-
-
--- | Return all states which (for `tryAdjoinCont`)
--- * Expect a specific symbol,
--- * End on a given position.
---   <== This function already exists!
--- expect_Sym_End :: Ord n => Sym n -> Pos -> P.ListT (Earley n t) (State n t)
-
-
--- | Return all states which (for `tryAdjoinInit`)
--- * Provide a specific non-terminal (with any ID value)
--- * Begins on a given position.
-provide_NT_Beg :: Ord n => n -> Pos -> P.ListT (Earley n t) (State n t)
-provide_NT_Beg = undefined
-
-
--- | Return all states which (for `tryAdjoinInit'`)
--- * Expect a real foot (i.e. Foot (u, Nothing)) with a specific `u` value.
--- * Ends on a given position,
-expect_RF_End :: Ord n => n -> Pos -> P.ListT (Earley n t) (State n t)
-expect_RF_End = undefined
-
-
--- | Return all states which (for `tryAdjoinTerm`)
--- * are completed (i.e. provide sth.),
--- * are either regular or intermediate auxiliary,
--- * begin and end on specific positions,
--- * have a specific non-terminal (ID irrelevant)
-
-
--- | Return all states which (for `tryAdjoinTerm'`)
--- * are completed (i.e. provide sth.) and top-level
---   (i.e. with underspecified ID),
--- * have a specific gap (=> are auxiliary),
--- * begin and end on specific positions,
--- * have a specific non-terminal (ID irrelevant)
+  listValues (x, i, j) doneProSpan
 
 
 -- | A utility function.
@@ -485,19 +462,11 @@ earley gram xs =
 -- the queue.
 step :: (VOrd t, VOrd n) => State n t -> Earley n t ()
 step p = do
-    -- lift $ putStr "PP:  " >> print p
-    -- try to scan the state
-    tryScan p
-    -- if the state is parsed, find all the states which could be
-    -- potentially completed by it (i.e. substitution)
-    trySubst p *> trySubst' p
---     P.runListT $ do
---         -- for each state in the set of the processed states
---         q <- each . S.toList =<< lift getDone
---         lift $ do
---             tryCompose p q
---             tryCompose q p
---     -- processing of the state is done, store it in `done'
+    sequence $ map ($p)
+      [ tryScan, trySubst
+      , tryAdjoinInit
+      , tryAdjoinCont
+      , tryAdjoinTerm ]
     saveState p
 
 
@@ -534,24 +503,13 @@ trySubst
 trySubst p = void $ P.runListT $ do
     -- make sure that `p' is a fully-parsed regular rule
     guard $ completed p && regular p
---     -- make sure `q' is not yet completed and expects
---     -- a non-terminal
---     (NonT x, right') <- expects q
---     -- make sure that `p' begins where `q' ends
---     guard $ beg p == end q
---     -- make sure that the root of `p' matches with the next
---     -- non-terminal of `q'; IDs of the symbols have to be
---     -- the same as well
---     guard $ root p == x
     -- find rules which end where `p' begins and which
-    -- expect a specific non-terminal
-    q <- expect_Sym_End (root p) (beg p)
+    -- expect the non-terminal provided by `p' (ID included)
+    q <- expectEnd (NonT $ root p) (beg p)
     -- construct the resultant state
     let q' = q
             { end = end p
-            -- , left = NonT x : left q
             , left = NonT (root p) : left q
-            -- , right = right' }
             , right = tail (right q) }
     -- print logging information
     lift . lift $ do
@@ -562,205 +520,61 @@ trySubst p = void $ P.runListT $ do
     lift $ pushState q'
 
 
--- | Inverse to `trySubst`.
-trySubst'
-    :: (VOrd t, VOrd n)
+-- | `tryAdjoinInit p q':
+-- * `p' is a completed state (regular or auxiliary)
+-- * `q' not completed and expects a *real* foot
+tryAdjoinInit
+    :: (VOrd n, VOrd t)
     => State n t
     -> Earley n t ()
-trySubst' q = void $ P.runListT $ do
---     -- make sure that `p' is a fully-parsed regular rule
---     guard $ completed p && regular p
-    -- make sure `q' is not yet completed and expects
-    -- a non-terminal
-    (NonT x, right') <- each $ maybeToList $ expects' q
---     -- make sure that `p' begins where `q' ends
---     guard $ beg p == end q
---     -- make sure that the root of `p' matches with the next
---     -- non-terminal of `q'; IDs of the symbols have to be
---     -- the same as well
---     guard $ root p == x
---     -- find rules which end where `p' begins and which
---     -- expect a specific non-terminal
---     q <- expect_Sym_End (root p) (beg p)
-
-    -- find rules which begin where `q` ends and which
-    -- provide a specific non-terminal
-    p <- provide_Sym_Beg x (end q)
+tryAdjoinInit p = void $ P.runListT $ do
+    -- make sure that `p' is fully-parsed
+    guard $ completed p
+    -- find all rules which expect a real foot (with ID == Nothing)
+    -- and which end where `p' begins.
+    let u = fst (root p)
+    q <- expectEnd (Foot (u, Nothing)) (beg p)  
     -- construct the resultant state
     let q' = q
-            { end = end p
-            , left = NonT x : left q
-            , right = right' }
+            { gap = Just (beg p, end p)
+            , end = end p
+            , left = Foot (u, Nothing) : left q
+            , right = tail (right q) }
     -- print logging information
     lift . lift $ do
-        putStr "[W]  " >> printState p
+        putStr "[A]  " >> printState p
         putStr "  +  " >> printState q
         putStr "  :  " >> printState q'
     -- push the resulting state into the waiting queue
     lift $ pushState q'
 
 
--- -- | `tryAdjoinInit p q':
--- -- * `p' is a completed state (regular or auxiliary)
--- -- * `q' not completed and expects a *real* foot
--- tryAdjoinInit
---     :: (VOrd n, VOrd t)
---     => State n t
---     -> Earley n t ()
--- tryAdjoinInit p = void $ P.runListT $ do
---     -- make sure that `p' is fully-parsed
---     guard $ completed p
---     -- find not-yet-completed rules which expect a specific, real
---     -- (with ID == Nothing) foot and which end where `p` begins
--- 
--- 
--- 
---     -- make sure `q' is not yet completed and expects
---     -- a real (with ID == Nothing) foot
---     (Foot (u, Nothing), right') <- expects q
---     -- make sure that `p' begins where `q' ends, so that the foot
---     -- node of `q' cab be eventually completed with `p', which
---     -- represents (a part of) an adjunction operation
---     guard $ beg p == end q
---     -- make sure that the root of `p' matches with the non-terminal
---     -- of the foot of `q'; IDs of the symbols *no not* have to be
---     -- the same
---     guard $ fst (root p) == u
---     -- construct the resultant state
---     let q' = q
---             { gap = Just (beg p, end p)
---             , end = end p
---             , left = Foot (u, Nothing) : left q
---             , right = right' }
---     -- print logging information
---     lift . lift $ do
---         putStr "[A]  " >> printState p
---         putStr "  +  " >> printState q
---         putStr "  :  " >> printState q'
---     -- push the resulting state into the waiting queue
---     lift $ pushState q'
-
-
--- -- | Try compose the two states using one of the possible
--- -- binary composition operations.
--- tryCompose
---     :: (VOrd t, VOrd n)
---     => State n t
---     -> State n t
---     -> Earley n t ()
--- tryCompose p q = do
---     trySubst p q
---     tryAdjoinInit p q
---     tryAdjoinCont p q
---     tryAdjoinTerm p q
---
---
--- -- | Try to substitute the non-terminal expected by the second
--- -- state/rule with the first state (if corresponding symbols
--- -- match).  While the first state has to represent a regular
--- -- (non-auxiliary) rule, the second state not necessarily.
--- trySubst
---     :: (VOrd t, VOrd n)
---     => State n t
---     -> State n t
---     -> Earley n t ()
--- trySubst p q = void $ runMaybeT $ do
---     -- make sure that `p' is a fully-parsed regular rule
---     guard $ completed p && regular p
---     -- make sure `q' is not yet completed and expects
---     -- a non-terminal
---     (NonT x, right') <- expects q
---     -- make sure that `p' begins where `q' ends
---     guard $ beg p == end q
---     -- make sure that the root of `p' matches with the next
---     -- non-terminal of `q'; IDs of the symbols have to be
---     -- the same as well
---     guard $ root p == x
---     -- construct the resultant state
---     let q' = q
---             { end = end p
---             , left = NonT x : left q
---             , right = right' }
---     -- print logging information
---     lift . lift $ do
---         putStr "[U]  " >> printState p
---         putStr "  +  " >> printState q
---         putStr "  :  " >> printState q'
---     -- push the resulting state into the waiting queue
---     lift $ pushState q'
-
-
--- -- | `tryAdjoinInit p q':
--- -- * `p' is a completed state (regular or auxiliary)
--- -- * `q' not completed and expects a *real* foot
--- tryAdjoinInit
---     :: (VOrd n, VOrd t)
---     => State n t
---     -> State n t
---     -> Earley n t ()
--- tryAdjoinInit p q = void $ runMaybeT $ do
---     -- make sure that `p' is fully-parsed
---     guard $ completed p
---     -- make sure `q' is not yet completed and expects
---     -- a real (with ID == Nothing) foot
---     (Foot (u, Nothing), right') <- expects q
---     -- make sure that `p' begins where `q' ends, so that the foot
---     -- node of `q' cab be eventually completed with `p', which
---     -- represents (a part of) an adjunction operation
---     guard $ beg p == end q
---     -- make sure that the root of `p' matches with the non-terminal
---     -- of the foot of `q'; IDs of the symbols *no not* have to be
---     -- the same
---     guard $ fst (root p) == u
---     -- construct the resultant state
---     let q' = q
---             { gap = Just (beg p, end p)
---             , end = end p
---             , left = Foot (u, Nothing) : left q
---             , right = right' }
---     -- print logging information
---     lift . lift $ do
---         putStr "[A]  " >> printState p
---         putStr "  +  " >> printState q
---         putStr "  :  " >> printState q'
---     -- push the resulting state into the waiting queue
---     lift $ pushState q'
-
-
--- -- | `tryAdjoinCont p q':
--- -- * `p' is a completed, auxiliary state
--- -- * `q' not completed and expects a *dummy* foot
--- tryAdjoinCont
---     :: (VOrd n, VOrd t)
---     => State n t
---     -> State n t
---     -> Earley n t ()
--- tryAdjoinCont p q = void $ runMaybeT $ do
---     -- make sure that `p' is a completed, auxiliary rule
---     guard $ completed p && auxiliary p
---     -- make sure `q' is not yet completed and expects
---     -- a dummy foot
---     (Foot x@(_, Just _), right') <- expects q
---     -- make sure that `p' begins where `q' ends, so that the foot
---     -- node of `q' cab be completed with `p'
---     guard $ beg p == end q
---     -- make sure that the root of `p' matches the non-terminal of
---     -- the foot of `q'; IDs of the symbols *must* match as well
---     guard $ root p == x
---     -- construct the resulting state; the span of the gap of the
---     -- inner state `p' is copied to the outer state based on `q'
---     let q' = q
---             { gap = gap p
---             , end = end p
---             , left = Foot x : left q
---             , right = right' }
---     -- logging info
---     lift . lift $ do
---         putStr "[B]  " >> printState p
---         putStr "  +  " >> printState q
---         putStr "  :  " >> printState q'
---     -- push the resulting state into the waiting queue
---     lift $ pushState q'
+-- | `tryAdjoinCont p q':
+-- * `p' is a completed, auxiliary state
+-- * `q' not completed and expects a *dummy* foot
+tryAdjoinCont
+    :: (VOrd n, VOrd t)
+    => State n t
+    -> Earley n t ()
+tryAdjoinCont p = void $ P.runListT $ do
+    -- make sure that `p' is a completed, sub-level auxiliary rule
+    guard $ completed p && subLevel p && auxiliary p
+    -- find all rules which expect a foot provided by `p'
+    -- and which end where `p' begins.
+    q <- expectEnd (Foot $ root p) (beg p)
+    -- construct the resulting state; the span of the gap of the
+    -- inner state `p' is copied to the outer state based on `q'
+    let q' = q
+            { gap = gap p, end = end p
+            , left = Foot (root p) : left q
+            , right = tail (right q) }
+    -- logging info
+    lift . lift $ do
+        putStr "[B]  " >> printState p
+        putStr "  +  " >> printState q
+        putStr "  :  " >> printState q'
+    -- push the resulting state into the waiting queue
+    lift $ pushState q'
 
 
 -- | Adjoin a fully-parsed auxiliary state to a partially parsed
@@ -768,21 +582,31 @@ trySubst' q = void $ P.runListT $ do
 tryAdjoinTerm
     :: (VOrd t, VOrd n)
     => State n t
-    -> State n t
     -> Earley n t ()
-tryAdjoinTerm p q = void $ runMaybeT $ do
+tryAdjoinTerm p = void $ P.runListT $ do
     -- make sure that `p' is a completed, top-level state ...
     guard $ completed p && topLevel p
     -- ... and that it is an auxiliary state
-    (gapBeg, gapEnd) <- maybeT $ gap p
+    -- (gapBeg, gapEnd) <- maybeT $ gap p
+    (gapBeg, gapEnd) <- each $ maybeToList $ gap p
+
+    -- take all completed rules with a given span
+    -- and a given root non-terminal (IDs irrelevant)
+    q <- rootSpan (fst $ root p) (gapBeg, gapEnd)
     -- make sure that `q' is completed as well and that it is
     -- either a regular rule or an intermediate auxiliary rule
     -- ((<=) used as an implication here!)
     guard $ completed q && auxiliary q <= subLevel q
-    -- finally, check that the spans match
-    guard $ gapBeg == beg q && gapEnd == end q
-    -- and that non-terminals match (not IDs)
-    guard $ fst (root p) == fst (root q)
+
+--     -- make sure that `q' is completed as well and that it is
+--     -- either a regular rule or an intermediate auxiliary rule
+--     -- ((<=) used as an implication here!)
+--     guard $ completed q && auxiliary q <= subLevel q
+--     -- finally, check that the spans match
+--     guard $ gapBeg == beg q && gapEnd == end q
+--     -- and that non-terminals match (not IDs)
+--     guard $ fst (root p) == fst (root q)
+
     let q' = q
             { beg = beg p
             , end = end p }
