@@ -484,7 +484,7 @@ tryAdjoinInit p q = void $ runMaybeT $ do
     -- represents (a part of) an adjunction operation
     guard $ beg p == end q
     -- make sure that the root of `p' matches with the non-terminal
-    -- of the foot of `q'; IDs of the symbols *no not* have to be
+    -- of the foot of `q'; IDs of the symbols *do not* have to be
     -- the same
     guard $ fst (root p) == u
     -- construct the resultant state

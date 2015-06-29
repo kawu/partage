@@ -60,8 +60,8 @@ testGram :: [String] -> IO ()
 testGram sent = do
     -- xs <- S.toList <$> earley gram sent
     -- mapM_ print $ sortBy (comparing ((-) <$> end <*> beg)) xs
-    void $ earley gram sent
---     mapM_ print $ S.toList gram
+--     void $ earley gram sent
+    mapM_ print $ S.toList gram
   where
     gram = S.fromList $ snd $ runRM $ do
         mapM_ (treeRules True) [jean, dort, aime]
