@@ -1,7 +1,4 @@
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DeriveFoldable #-}
-{-# LANGUAGE DeriveTraversable #-}
 
 
 module NLP.LTAG.Rule where
@@ -10,11 +7,7 @@ module NLP.LTAG.Rule where
 import           Control.Applicative ((<$>))
 import qualified Control.Monad.RWS.Strict   as RWS
 
-import           Data.Foldable (Foldable)
-import           Data.Traversable (Traversable)
-
 import qualified NLP.FeatureStructure.Tree as FT
-import qualified NLP.FeatureStructure.Graph as FG
 
 import           NLP.LTAG.Core
 import qualified NLP.LTAG.Tree2 as G
@@ -33,10 +26,6 @@ import qualified NLP.LTAG.Tree2 as G
 -- Within the context of substitution, both the non-terminal and
 -- the identifier have to agree.  In case of adjunction, only the
 -- non-terminals have to be equal.
-
-
--- | Additional symbol identifier.
-type SymID = Int
 
 
 -- | Symbol: a (non-terminal, maybe identifier) pair addorned with
@@ -176,100 +165,3 @@ auxRules b G.AuxTree{..} =
         doit acc 0 (x:xs) = (reverse acc, x, xs)
         doit acc k (x:xs) = doit (x:acc) (k-1) xs
         doit acc _ [] = error "auxRules.split: index to high"
-
-
---------------------------
--- Internal rule
---------------------------
-
-
--- | A feature graph identifier, i.e. an identifier used to refer
--- to individual nodes in a FS.
-type FID = Int
-
-
--- | Symbol: a (non-terminal, maybe identifier) pair addorned with
--- a feature structure. 
-data ISym n f a = ISym
-    { nonTermI :: n
-    , ideI     :: Maybe SymID
-    , fgID     :: FID }
-    deriving (Show, Eq, Ord)
-
-
--- | Label: a symbol, a terminal or a generalized foot node.
--- Generalized in the sense that it can represent not only a foot
--- note of an auxiliary tree, but also a non-terminal on the path
--- from the root to the real foot note of an auxiliary tree.
-data ILab n t f a
-    = INonT (ISym n f a)
-    | ITerm t
-    | IFoot (ISym n f a)
-    deriving (Show, Eq, Ord)
-
-
--- | A rule for an elementary tree.
-data IRule n t f a = IRule {
-    -- | The head of the rule
-      headI :: ISym n f a
-    -- | The body of the rule
-    , bodyI :: [ILab n t f a]
-    -- | The underlying feature graph.
-    , graphI :: FG.Graph f a
-    } deriving (Show, Eq, Ord)
-
-
--- | Compile a regular rule to an internal rule.
-compile :: (Ord i, Ord f, Eq a) => Rule n t i f a -> IRule n t f a
-compile Rule{..} = unJust $ do
-    (is, g) <- FT.compiles $ FNode
-        (featStr headR)
-        (fromBody bodyR) 
-    (rh, rb) <- unCons is
-    return $ IRule
-        { headI = mkISym headR rh
-        , bodyI = mergeBody bodyR rb
-        , graphI = g }
-  where
-    fromBody [] = FNil
-    fromBody (x:xs) = ($ fromBody xs) $ case x of
-        NonT y -> FNode $ featStr y
-        Term _ -> FGap
-        Foot y -> FNode $ featStr y
-    mergeBody (NonT x : xs) (FNode i is) =
-        INonT (mkISym x i) : mergeBody xs is
-    mergeBody (Term t : xs) (FGap is) =
-        ITerm t : mergeBody xs is
-    mergeBody (Foot x : xs) (FNode i is) =
-        IFoot (mkISym x i) : mergeBody xs is
-    mergeBody _ _ = error "compile.mergeBody: unexpected case"
-    mkISym Sym{..} i = ISym
-        { nonTermI = nonTerm
-        , ideI = ide
-        , fgID = i }
-
-
---------------------------
--- Utility
---------------------------
-
-
--- | Retrieve the Just value.  Error otherwise.
-unJust :: Maybe a -> a
-unJust (Just x) = x
-unJust Nothing = error "unJust: got Nothing!" 
-
-
--- | A list with potential gaps.
-data FList a
-    = FNil
-    | FGap (FList a)
-    | FNode a (FList a) 
-    deriving (Show, Eq, Ord, Functor, Foldable, Traversable)
-
-
--- | Uncons the FList.  Ignore the leading gaps.
-unCons :: FList a -> Maybe (a, FList a)
-unCons FNil = Nothing
-unCons (FGap xs) = unCons xs
-unCons (FNode x xs) = Just (x, xs)

@@ -37,3 +37,7 @@ instance (View a, Ord a) => VOrd a where
 
 -- | Position in the sentence.
 type Pos = Int
+
+
+-- | Additional symbol identifier.
+type SymID = Int
