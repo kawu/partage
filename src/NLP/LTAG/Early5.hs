@@ -50,66 +50,103 @@ import qualified NLP.LTAG.Rule as R
 type FID = Int
 
 
--- | Symbol: a (non-terminal, maybe identifier) pair addorned with
--- a feature structure. 
-data Sym n = Sym
-    { nonTerm :: n
-    , ide     :: Maybe SymID
-    , fgID    :: FID }
-    deriving (Show, Eq, Ord)
+-- -- | Symbol: a (non-terminal, maybe identifier) pair addorned with
+-- -- a feature structure. 
+-- data Sym n = Sym
+--     { nonTerm :: n
+--     , ide     :: Maybe SymID
+--     , fgID    :: FID }
+--     deriving (Show, Eq, Ord)
+-- 
+-- 
+-- -- | A simplified symbol without FID.
+-- type SSym n = (n, Maybe SymID)
+-- 
+-- 
+-- -- | Simplify symbol.
+-- simpSym :: Sym n -> SSym n
+-- simpSym Sym{..} = (nonTerm, ide)
+-- 
+-- 
+-- -- | Show the symbol.
+-- viewSym :: View n => Sym n -> String
+-- viewSym (Sym x (Just i) _) = "(" ++ view x ++ ", " ++ show i ++ ")"
+-- viewSym (Sym x Nothing _) = "(" ++ view x ++ ", _)"
 
 
--- | A simplified symbol without FID.
-type SSym n = (n, Maybe SymID)
+-- -- | Label: a symbol, a terminal or a generalized foot node.
+-- -- Generalized in the sense that it can represent not only a foot
+-- -- note of an auxiliary tree, but also a non-terminal on the path
+-- -- from the root to the real foot note of an auxiliary tree.
+-- data Lab n t
+--     = NonT (Sym n)
+--     | Term t
+--     | Foot (Sym n)
+--     deriving (Show, Eq, Ord)
 
 
--- | Simplify symbol.
-simpSym :: Sym n -> SSym n
-simpSym Sym{..} = (nonTerm, ide)
-
-
--- | Show the symbol.
-viewSym :: View n => Sym n -> String
-viewSym (Sym x (Just i) _) = "(" ++ view x ++ ", " ++ show i ++ ")"
-viewSym (Sym x Nothing _) = "(" ++ view x ++ ", _)"
-
-
--- | Label: a symbol, a terminal or a generalized foot node.
--- Generalized in the sense that it can represent not only a foot
--- note of an auxiliary tree, but also a non-terminal on the path
--- from the root to the real foot note of an auxiliary tree.
+-- | Label represent one of the following:
+-- * A non-terminal
+-- * A terminal
+-- * A root of an auxiliary tree
+-- * A foot node of an auxiliary tree
+-- * A vertebra of the spine of the auxiliary tree
 data Lab n t
-    = NonT (Sym n)
+    = NonT
+        { nonTerm   :: n
+        , labID     :: Maybe SymID
+        , featID    :: FID }
     | Term t
-    | Foot (Sym n)
+    | AuxRoot
+        { nonTerm   :: n
+        , featID    :: FID
+        , footID    :: FID }
+    | AuxFoot
+        { nonTerm   :: n }
+    | AuxVert
+        { nonTerm   :: n
+        , symID     :: SymID
+        , featID    :: FID }
     deriving (Show, Eq, Ord)
 
 
 -- | A simplified label.
 data SLab n t
-    = SNonT (SSym n)
+    = SNonT (n, Maybe SymID)
     | STerm t
-    | SFoot (SSym n)
+    | SAux (n, Maybe SymID)
     deriving (Show, Eq, Ord)
+
 
 -- | Simplify label.
 simpLab :: Lab n t -> SLab n t
-simpLab (NonT s) = SNonT $ simpSym s
+simpLab NonT{..} = SNonT (nonTerm, labID)
 simpLab (Term t) = STerm t
-simpLab (Foot s) = SFoot $ simpSym s
+simpLab AuxRoot{..} = SAux (nonTerm, Nothing)
+simpLab AuxFoot{..} = SAux (nonTerm, Nothing)
+simpLab AuxVert{..} = SAux (nonTerm, Just symID)
 
 
 -- | Show the label.
 viewLab :: (View n, View t) => Lab n t -> String
-viewLab (NonT s) = "N" ++ viewSym s
+viewLab NonT{..} = "N" ++ viewSym (nonTerm, labID)
 viewLab (Term t) = "T(" ++ view t ++ ")"
-viewLab (Foot s) = "F" ++ viewSym s
+viewLab AuxRoot{..} = "A" ++ viewSym (nonTerm, Nothing)
+viewLab AuxVert{..} = "V" ++ viewSym (nonTerm, Just symID)
+viewLab AuxFoot{..} = "F" ++ viewSym (nonTerm, Nothing)
+
+
+-- | View part of the label.  Utility function.
+viewSym :: View n => (n, Maybe SymID) -> String
+viewSym (x, Just i) = "(" ++ view x ++ ", " ++ show i ++ ")"
+viewSym (x, Nothing) = "(" ++ view x ++ ", _)"
 
 
 -- | A rule for an elementary tree.
 data Rule n t f a = Rule {
-    -- | The head of the rule
-      headR :: Sym n
+    -- | The head of the rule.  TODO: Should never be a foot or a
+    -- terminal <- can we enforce this constraint?
+      headR :: Lab n t
     -- | The body of the rule
     , bodyR :: [Lab n t]
     -- | The underlying feature graph.
@@ -120,31 +157,42 @@ data Rule n t f a = Rule {
 -- | Compile a regular rule to an internal rule.
 compile :: (Ord i, Ord f, Eq a) => R.Rule n t i f a -> Rule n t f a
 compile R.Rule{..} = unJust $ do
-    (is, g) <- FT.compiles $ FNode
-        (R.featStr headR)
-        (fromBody bodyR) 
+    (is, g) <- FT.compiles $ fromList $ (headR : bodyR)
     (rh, rb) <- unCons is
     return $ Rule
-        { headR = mkSym headR rh
+        { headR = mkLab headR rh
         , bodyR = mergeBody bodyR rb
         , graphR = g }
   where
-    fromBody [] = FNil
-    fromBody (x:xs) = ($ fromBody xs) $ case x of
-        R.NonT y -> FNode $ R.featStr y
-        R.Term _ -> FGap
-        R.Foot y -> FNode $ R.featStr y
-    mergeBody (R.NonT x : xs) (FNode i is) =
-        NonT (mkSym x i) : mergeBody xs is
+    fromList [] = FNil
+    fromList (x:xs) = ($ fromList xs) $ case x of
+        x@R.AuxRoot{}   -> FNode2 (R.featStr x) (R.footStr x)
+        x@R.NonT{}      -> FNode1 $ R.featStr x
+        x@R.AuxVert{}   -> FNode1 $ R.featStr x
+        R.AuxFoot{}     -> FGap
+        R.Term _        -> FGap
     mergeBody (R.Term t : xs) (FGap is) =
         Term t : mergeBody xs is
-    mergeBody (R.Foot x : xs) (FNode i is) =
-        Foot (mkSym x i) : mergeBody xs is
+    mergeBody (R.AuxFoot n : xs) (FGap is) =
+        AuxFoot n : mergeBody xs is
+    mergeBody (x : xs) (FNode1 i is) =
+        mkLab x (Left i) : mergeBody xs is
+    mergeBody (x : xs) (FNode2 i j is) =
+        mkLab x (Right (i, j)) : mergeBody xs is
     mergeBody _ _ = error "compile.mergeBody: unexpected case"
-    mkSym R.Sym{..} i = Sym
+    mkLab R.NonT{..} (Left i) = NonT
         { nonTerm = nonTerm
-        , ide = ide
-        , fgID = i }
+        , labID = labID
+        , featID = i }
+    mkLab R.AuxVert{..} (Left i) = AuxVert
+        { nonTerm = nonTerm
+        , symID = symID
+        , featID = i }
+    mkLab R.AuxRoot{..} (Right (i, j)) = AuxRoot
+        { nonTerm = nonTerm
+        , featID = i
+        , footID = j }
+    mkLab _ _ = error "compile.mkLab: unexpected case"
 
 
 --------------------------------------------------
@@ -158,7 +206,8 @@ compile R.Rule{..} = unJust $ do
 -- yet to process.
 data State n t f a = State {
     -- | The head of the rule represented by the state.
-      root  :: Sym n
+    -- TODO: Not a terminal nor a foot.
+      root  :: Lab n t
     -- | The list of processed elements of the rule, stored in an
     -- inverse order.
     , left  :: [Lab n t]
@@ -185,7 +234,7 @@ regular :: State n t f a -> Bool
 regular = isNothing . gap
 
 
--- | Does it represent a regular rule?
+-- | Does it represent an auxiliary rule?
 auxiliary :: State n t f a -> Bool
 auxiliary = isJust . gap
 
@@ -193,13 +242,19 @@ auxiliary = isJust . gap
 -- | Is it top-level?  All top-level states (regular or
 -- auxiliary) have an underspecified ID in the root symbol.
 topLevel :: State n t f a -> Bool
-topLevel = isNothing . ide . root
+-- topLevel = isNothing . ide . root
+topLevel = not . subLevel
 
 
 -- | Is it subsidiary (i.e. not top) level?
 subLevel :: State n t f a -> Bool
-subLevel = isJust . ide . root
-
+-- subLevel = isJust . ide . root
+subLevel x = case root x of
+    NonT{..}  -> isJust labID
+    AuxVert{} -> True
+    Term _    -> True
+    _         -> False
+    
 
 -- | Deconstruct the right part of the state (i.e. labels yet to
 -- process) within the MaybeT monad.
@@ -213,7 +268,7 @@ expects = maybeT . expects'
 -- | Print the state.
 printState :: (View n, View t) => State n t f a -> IO ()
 printState State{..} = do
-    putStr $ viewSym root
+    putStr $ viewLab root
     putStr " -> "
     putStr $ intercalate " " $
         map viewLab (reverse left) ++ ["*"] ++ map viewLab right
@@ -416,6 +471,11 @@ tryScan p = void $ runMaybeT $ do
     lift $ pushState p'
 
 
+--------------------------------------------------
+-- SUBST
+--------------------------------------------------
+
+
 -- | Try to use the state (only if fully parsed) to complement
 -- (=> substitution) other rules.
 trySubst
@@ -427,22 +487,17 @@ trySubst p = void $ P.runListT $ do
     guard $ completed p && regular p
     -- find rules which end where `p' begins and which
     -- expect the non-terminal provided by `p' (ID included)
-    -- q <- expectEnd (NonT $ root p) (beg p)
-    q <- expectEnd (SNonT $ simpSym $ root p) (beg p)
-    (NonT r, _) <- some $ expects' q
+    q <- expectEnd (simpLab $ root p) (beg p)
+    (r@NonT{}, _) <- some $ expects' q
     -- unify the corresponding feature structures
-    -- TODO: We assume here, that graph IDs are disjoint.
+    -- TODO: We assume here that graph IDs are disjoint.
     g' <- some $ J.execJoin
-        (J.join (fgID $ root p) (fgID r))
+        (J.join (featID $ root p) (featID r))
         (FG.fromTwo (graph p) (graph q))
     -- construct the resultant state
     let q' = q
             { end = end p
---             , left = (NonT $ Sym
---                 { nonTerm = nonTerm $ root p
---                 , ide  = ide $ root p
---                 , fgID = fgID $ root p }) : left q
-            , left = NonT (root p) : left q
+            , left = root p : left q
             , right = tail (right q)
             , graph = g' }
     -- print logging information
@@ -454,33 +509,124 @@ trySubst p = void $ P.runListT $ do
     lift $ pushState q'
 
 
--- -- | `tryAdjoinInit p q':
--- -- * `p' is a completed state (regular or auxiliary)
--- -- * `q' not completed and expects a *real* foot
--- tryAdjoinInit
---     :: (VOrd n, VOrd t)
---     => State n t
---     -> Earley n t ()
--- tryAdjoinInit p = void $ P.runListT $ do
---     -- make sure that `p' is fully-parsed
---     guard $ completed p
---     -- find all rules which expect a real foot (with ID == Nothing)
---     -- and which end where `p' begins.
---     let u = fst (root p)
---     q <- expectEnd (Foot (u, Nothing)) (beg p)  
---     -- construct the resultant state
---     let q' = q
---             { gap = Just (beg p, end p)
---             , end = end p
---             , left = Foot (u, Nothing) : left q
---             , right = tail (right q) }
---     -- print logging information
---     lift . lift $ do
---         putStr "[A]  " >> printState p
---         putStr "  +  " >> printState q
---         putStr "  :  " >> printState q'
---     -- push the resulting state into the waiting queue
---     lift $ pushState q'
+--------------------------------------------------
+-- ADJOIN
+--------------------------------------------------
+
+
+-- | `tryAdjoinInit p q':
+-- * `p' is a completed state (regular or auxiliary)
+-- * `q' not completed and expects a *real* foot
+--
+-- No FS unification is taking place here, it is performed at the
+-- level of `tryAdjoinTerm(inate)`.
+--
+tryAdjoinInit
+    :: (VOrd n, VOrd t, Ord a, Ord f)
+    => State n t f a
+    -> Earley n t f a ()
+tryAdjoinInit p = void $ P.runListT $ do
+    -- make sure that `p' is fully-parsed
+    guard $ completed p
+    -- find all rules which expect a real foot (with ID == Nothing)
+    -- and which end where `p' begins.
+    let u = nonTerm (root p)
+    q <- expectEnd (SAux (u, Nothing)) (beg p)  
+    (r@AuxFoot{}, _) <- some $ expects' q
+    -- construct the resultant state
+    let q' = q
+            { gap = Just (beg p, end p)
+            , end = end p
+            , left = r : left q
+            , right = tail (right q) }
+    -- print logging information
+    lift . lift $ do
+        putStr "[A]  " >> printState p
+        putStr "  +  " >> printState q
+        putStr "  :  " >> printState q'
+    -- push the resulting state into the waiting queue
+    lift $ pushState q'
+
+
+-- | `tryAdjoinCont p q':
+-- * `p' is a completed, auxiliary state
+-- * `q' not completed and expects a *dummy* foot
+tryAdjoinCont
+    :: (VOrd n, VOrd t, Ord f, Ord a)
+    => State n t f a
+    -> Earley n t f a ()
+tryAdjoinCont p = void $ P.runListT $ do
+    -- make sure that `p' is a completed, sub-level auxiliary rule
+    guard $ completed p && subLevel p && auxiliary p
+    -- find all rules which expect a foot provided by `p'
+    -- and which end where `p' begins.
+    q <- expectEnd (simpLab $ root p) (beg p)
+    (r@AuxVert{}, _) <- some $ expects' q
+    -- unify the feature structures corresponding to the 'p's
+    -- root and 'q's foot.  TODO: We assume here that graph IDs
+    -- are disjoint.
+    g' <- some $ J.execJoin
+        (J.join (featID $ root p) (featID r))
+        (FG.fromTwo (graph p) (graph q))
+    -- construct the resulting state; the span of the gap of the
+    -- inner state `p' is copied to the outer state based on `q'
+    let q' = q
+            { gap = gap p, end = end p
+            , left = r : left q
+            , right = tail (right q)
+            , graph = g' }
+    -- logging info
+    lift . lift $ do
+        putStr "[B]  " >> printState p
+        putStr "  +  " >> printState q
+        putStr "  :  " >> printState q'
+    -- push the resulting state into the waiting queue
+    lift $ pushState q'
+
+
+-- | Adjoin a fully-parsed auxiliary state to a partially parsed
+-- tree represented by a fully parsed rule/state.
+tryAdjoinTerm
+    :: (VOrd t, VOrd n, Ord a, Ord f)
+    => State n t f a
+    -> Earley n t f a ()
+tryAdjoinTerm p = void $ P.runListT $ do
+    -- make sure that `p' is a completed, top-level state ...
+    guard $ completed p && topLevel p
+    -- ... and that it is an auxiliary state
+    (gapBeg, gapEnd) <- each $ maybeToList $ gap p
+    -- it is top-level, so we can also make sure that the
+    -- root is an AuxRoot.
+    pRoot@AuxRoot{} <- some $ Just $ root p
+    -- take all completed rules with a given span
+    -- and a given root non-terminal (IDs irrelevant)
+    q <- rootSpan (nonTerm $ root p) (gapBeg, gapEnd)
+    -- make sure that `q' is completed as well and that it is
+    -- either a regular rule or an intermediate auxiliary rule
+    -- ((<=) used as an implication here!)
+    guard $ completed q && auxiliary q <= subLevel q
+    -- TODO: it seems that some of the constraints follow
+    -- from the code below:
+    qRoot <- some $ case root q of
+        x@NonT{}    -> Just x
+        x@AuxVert{} -> Just x
+        _           -> Nothing
+    -- unify the feature structures corresponding to the 'p's
+    -- foot *and* root (!?) with 'q's root.
+    -- TODO: We assume here that graph IDs are disjoint.
+    g' <- some $ flip J.execJoin
+        (FG.fromTwo (graph p) (graph q)) $ do
+            J.join (featID $ pRoot) (featID qRoot)
+            J.join (footID $ pRoot) (featID qRoot)
+    let q' = q
+            { beg = beg p
+            , end = end p
+            , graph = g' }
+    lift . lift $ do
+        putStr "[C]  " >> printState p
+        putStr "  +  " >> printState q
+        putStr "  :  " >> printState q'
+    lift $ pushState q'
 
 
 --------------------------------------------------
@@ -492,21 +638,6 @@ trySubst p = void $ P.runListT $ do
 unJust :: Maybe a -> a
 unJust (Just x) = x
 unJust Nothing = error "unJust: got Nothing!" 
-
-
--- | A list with potential gaps.
-data FList a
-    = FNil
-    | FGap (FList a)
-    | FNode a (FList a) 
-    deriving (Show, Eq, Ord, Functor, Foldable, Traversable)
-
-
--- | Uncons the FList.  Ignore the leading gaps.
-unCons :: FList a -> Maybe (a, FList a)
-unCons FNil = Nothing
-unCons (FGap xs) = unCons xs
-unCons (FNode x xs) = Just (x, xs)
 
 
 -- | Deconstruct list.  Utility function.  Similar to `unCons`.
@@ -528,3 +659,20 @@ each = P.Select . P.each
 -- | ListT from a maybe.
 some :: Monad m => Maybe a -> P.ListT m a
 some = each . maybeToList
+
+
+-- | A list with potential gaps.
+data FList a
+    = FNil
+    | FGap (FList a)
+    | FNode1 a (FList a)
+    | FNode2 a a (FList a)
+    deriving (Show, Eq, Ord, Functor, Foldable, Traversable)
+
+
+-- | Uncons the FList.  Ignore the leading gaps.
+unCons :: FList a -> Maybe (Either a (a, a), FList a)
+unCons FNil = Nothing
+unCons (FGap xs) = unCons xs
+unCons (FNode1 x xs) = Just (Left x, xs)
+unCons (FNode2 x y xs) = Just (Right (x, y), xs)

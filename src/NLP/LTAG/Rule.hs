@@ -28,13 +28,13 @@ import qualified NLP.LTAG.Tree2 as G
 -- non-terminals have to be equal.
 
 
--- | Symbol: a (non-terminal, maybe identifier) pair addorned with
--- a feature structure. 
-data Sym n i f a = Sym
-    { nonTerm :: n
-    , ide     :: Maybe SymID
-    , featStr :: FT.FN i f a }
-    deriving (Show, Eq, Ord)
+-- -- | Symbol: a (non-terminal, maybe identifier) pair addorned with
+-- -- a feature structure. 
+-- data Sym n i f a = Sym
+--     { nonTerm :: n
+--     , ide     :: Maybe SymID
+--     , featStr :: FT.FN i f a }
+--     deriving (Show, Eq, Ord)
 
 
 -- -- | Show the symbol.
@@ -43,14 +43,40 @@ data Sym n i f a = Sym
 -- viewSym (x, Nothing) = "(" ++ view x ++ ", _)"
 
 
--- | Label: a symbol, a terminal or a generalized foot node.
--- Generalized in the sense that it can represent not only a foot
--- note of an auxiliary tree, but also a non-terminal on the path
--- from the root to the real foot note of an auxiliary tree.
+-- -- | A spot of a node within an elementary tree.
+-- data Spot a
+--     = Root
+--     -- ^ A root
+--     | Vert
+--     -- ^ A vertebra of a spine
+--     | Leaf
+--     -- ^ A leaf (or a foot)
+
+
+-- | Label represent one of the following:
+-- * A non-terminal
+-- * A terminal
+-- * A root of an auxiliary tree
+-- * A foot node of an auxiliary tree
+-- * A vertebra of the spine of the auxiliary tree
 data Lab n t i f a
-    = NonT (Sym n i f a)
+    = NonT
+        { nonTerm   :: n
+        , labID     :: Maybe SymID
+        , featStr   :: FT.FN i f a }
     | Term t
-    | Foot (Sym n i f a)
+    | AuxRoot
+        { nonTerm   :: n
+        , featStr   :: FT.FN i f a
+        , footStr   :: FT.FN i f a }
+    | AuxFoot
+        -- ^ Feature structure of the foot is stored at the level
+        -- of a root label. 
+        { nonTerm   :: n }
+    | AuxVert
+        { nonTerm   :: n
+        , symID     :: SymID
+        , featStr   :: FT.FN i f a }
     deriving (Show, Eq, Ord)
 
 
@@ -63,10 +89,11 @@ data Lab n t i f a
 
 -- | A rule for an elementary tree.
 data Rule n t i f a = Rule {
-    -- | The head of the rule
-      headR :: Sym n i f a
+    -- | The head of the rule.  TODO: should not be allowed to be
+    -- a terminal or a foot.
+      headR :: Lab n t i f a
     -- | The body of the rule
-    , bodyR  :: [Lab n t i f a]
+    , bodyR :: [Lab n t i f a]
     } deriving (Show, Eq, Ord)
 
 
@@ -106,21 +133,21 @@ treeRules
     -> G.Tree n t i f a     -- ^ The tree itself
     -> RM n t i f a (Lab n t i f a)
 treeRules isTop G.INode{..} = case subTrees of
-    [] -> return $ NonT $ Sym
+    [] -> return $ NonT
         { nonTerm = labelI
-        , ide     = Nothing
+        , labID   = Nothing
         , featStr = fsTree }
     _  -> do
-        let xSym i = Sym 
+        let xSym i = NonT 
               { nonTerm = labelI
-              , ide = i
+              , labID   = i
               , featStr = fsTree }
         x <- if isTop
             then return $ xSym Nothing
             else xSym . Just <$> nextSymID
         xs <- mapM (treeRules False) subTrees
         keepRule $ Rule x xs
-        return $ NonT x
+        return x
 treeRules _ G.LNode{..} = return $ Term labelL
 
 
@@ -138,26 +165,27 @@ auxRules
     -> G.AuxTree n t i f a
     -> RM n t i f a (Lab n t i f a)
 auxRules b G.AuxTree{..} =
-    doit b auxTree auxFoot
+    fst <$> doit b auxTree auxFoot
   where
-    doit _ G.INode{..} [] = return $ Foot $ Sym
-        { nonTerm = labelI
-        , ide     = Nothing
-        , featStr = fsTree }
+    doit _ G.INode{..} [] = return $
+        ( AuxFoot {nonTerm = labelI}
+        , fsTree )
     doit isTop G.INode{..} (k:ks) = do
         let (ls, bt, rs) = split k subTrees
-        let xSym i = Sym 
-              { nonTerm = labelI
-              , ide = i
-              , featStr = fsTree }
-        x <- if isTop
-            then return $ xSym Nothing
-            else xSym . Just <$> nextSymID
         ls' <- mapM (treeRules False) ls
-        bt' <- doit False bt ks
+        (bt', _footStr) <- doit False bt ks
         rs' <- mapM (treeRules False) rs
+        x <- if isTop
+            then return $ AuxRoot
+                { nonTerm = labelI
+                , featStr = fsTree
+                , footStr = _footStr }
+            else nextSymID >>= \i -> return $ AuxVert
+                { nonTerm = labelI
+                , symID   = i
+                , featStr = fsTree }
         keepRule $ Rule x $ ls' ++ (bt' : rs')
-        return $ Foot x
+        return (x, _footStr)
     doit _ _ _ = error "auxRules: incorrect path"
     split =
         doit []
