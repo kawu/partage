@@ -63,21 +63,25 @@ data Lab n t i f a
     = NonT
         { nonTerm   :: n
         , labID     :: Maybe SymID
-        , featStr   :: FT.FN i f a }
+        , rootTopFS :: FT.FN i f a
+        , rootBotFS :: FT.FN i f a }
     | Term t
     | AuxRoot
         { nonTerm   :: n
-        , featStr   :: FT.FN i f a
-        , footStr   :: FT.FN i f a }
+        , rootTopFS :: FT.FN i f a
+        , rootBotFS :: FT.FN i f a
+        , footTopFS :: FT.FN i f a
+        , footBotFS :: FT.FN i f a }
     | AuxFoot
         -- ^ Feature structure of the foot is stored at the level
-        -- of a root label. 
+        -- of a root label.
         { nonTerm   :: n }
     | AuxVert
         { nonTerm   :: n
         , symID     :: SymID
-        , featStr   :: FT.FN i f a }
-    deriving (Show, Eq, Ord)
+        , rootTopFS :: FT.FN i f a
+        , rootBotFS :: FT.FN i f a }
+    deriving (Show)
 
 
 -- -- | Show the label.
@@ -94,7 +98,7 @@ data Rule n t i f a = Rule {
       headR :: Lab n t i f a
     -- | The body of the rule
     , bodyR :: [Lab n t i f a]
-    } deriving (Show, Eq, Ord)
+    } deriving (Show)
 
 
 --------------------------
@@ -136,12 +140,14 @@ treeRules isTop G.INode{..} = case subTrees of
     [] -> return $ NonT
         { nonTerm = labelI
         , labID   = Nothing
-        , featStr = fsTree }
+        , rootTopFS = topFS
+        , rootBotFS = botFS }
     _  -> do
         let xSym i = NonT 
               { nonTerm = labelI
               , labID   = i
-              , featStr = fsTree }
+              , rootTopFS = topFS
+              , rootBotFS = botFS }
         x <- if isTop
             then return $ xSym Nothing
             else xSym . Just <$> nextSymID
@@ -169,23 +175,28 @@ auxRules b G.AuxTree{..} =
   where
     doit _ G.INode{..} [] = return $
         ( AuxFoot {nonTerm = labelI}
-        , fsTree )
+        -- we thread feature structures corresponding to the foot
+        -- along the spine of the auxiliary tree.
+        , (topFS, botFS) )
     doit isTop G.INode{..} (k:ks) = do
         let (ls, bt, rs) = split k subTrees
         ls' <- mapM (treeRules False) ls
-        (bt', _footStr) <- doit False bt ks
+        (bt', topBotFS) <- doit False bt ks
         rs' <- mapM (treeRules False) rs
         x <- if isTop
             then return $ AuxRoot
                 { nonTerm = labelI
-                , featStr = fsTree
-                , footStr = _footStr }
+                , rootTopFS = topFS
+                , rootBotFS = botFS
+                , footTopFS = fst topBotFS
+                , footBotFS = snd topBotFS }
             else nextSymID >>= \i -> return $ AuxVert
                 { nonTerm = labelI
                 , symID   = i
-                , featStr = fsTree }
+                , rootTopFS = topFS
+                , rootBotFS = botFS }
         keepRule $ Rule x $ ls' ++ (bt' : rs')
-        return (x, _footStr)
+        return (x, topBotFS)
     doit _ _ _ = error "auxRules: incorrect path"
     split =
         doit []

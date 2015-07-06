@@ -101,18 +101,22 @@ data Lab n t
     = NonT
         { nonTerm   :: n
         , labID     :: Maybe SymID
-        , featID    :: FID }
+        , topID     :: FID
+        , botID     :: FID }
     | Term t
     | AuxRoot
         { nonTerm   :: n
-        , featID    :: FID
-        , footID    :: FID }
+        , topID     :: FID
+        , botID     :: FID
+        , footTopID :: FID
+        , footBotID :: FID }
     | AuxFoot
         { nonTerm   :: n }
     | AuxVert
         { nonTerm   :: n
         , symID     :: SymID
-        , featID    :: FID }
+        , topID     :: FID
+        , botID     :: FID }
     deriving (Show)
 
 
@@ -131,19 +135,23 @@ labEq p g q h =
     eq x@NonT{} y@NonT{}
         =  eqOn nonTerm x y
         && eqOn labID x y
-        && nodeEqOn featID x y
+        && nodeEqOn topID x y
+        && nodeEqOn botID x y
     eq (Term x) (Term y)
         =  x == y 
     eq x@AuxRoot{} y@AuxRoot{}
         =  eqOn nonTerm x y
-        && nodeEqOn featID x y
-        && nodeEqOn footID x y
+        && nodeEqOn topID x y
+        && nodeEqOn botID x y
+        && nodeEqOn footTopID x y
+        && nodeEqOn footBotID x y
     eq (AuxFoot x) (AuxFoot y)
         =  x == y
     eq x@AuxVert{} y@AuxVert{}
         =  eqOn nonTerm x y
         && eqOn symID x y
-        && nodeEqOn featID x y
+        && nodeEqOn topID x y
+        && nodeEqOn botID x y
     eq _ _ = False
     eqOn f = (==) `on` f
     nodeEqOn f = nodeEq `on` f
@@ -165,21 +173,25 @@ labCmp p g q h =
     cmp p q
   where
     cmp x@NonT{} y@NonT{} =
-        cmpOn nonTerm x y   `mappend`
-        cmpOn labID x y     `mappend`
-        nodeCmpOn featID x y
+        cmpOn nonTerm x y       `mappend`
+        cmpOn labID x y         `mappend`
+        nodeCmpOn topID x y `mappend`
+        nodeCmpOn botID x y
     cmp (Term x) (Term y) =
         compare x y
     cmp x@AuxRoot{} y@AuxRoot{} =
         cmpOn nonTerm x y       `mappend`
-        nodeCmpOn featID x y    `mappend`
-        nodeCmpOn footID x y
+        nodeCmpOn topID x y `mappend`
+        nodeCmpOn botID x y `mappend`
+        nodeCmpOn footTopID x y `mappend`
+        nodeCmpOn footBotID x y
     cmp (AuxFoot x) (AuxFoot y) =
         compare x y
     cmp x@AuxVert{} y@AuxVert{} =
         cmpOn nonTerm x y       `mappend`
         cmpOn symID x y         `mappend`
-        nodeCmpOn featID x y
+        nodeCmpOn topID x y `mappend`
+        nodeCmpOn botID x y
     cmp x y = cmpOn conID x y
     cmpOn f = compare `on` f
     nodeCmpOn f = nodeCmp `on` f
@@ -267,32 +279,40 @@ compile R.Rule{..} = unJust $ do
   where
     fromList [] = FNil
     fromList (x:xs) = ($ fromList xs) $ case x of
-        x@R.AuxRoot{}   -> FNode2 (R.featStr x) (R.footStr x)
-        x@R.NonT{}      -> FNode1 $ R.featStr x
-        x@R.AuxVert{}   -> FNode1 $ R.featStr x
+        x@R.AuxRoot{}   -> FNode2
+            (R.rootTopFS x) (R.rootBotFS x)
+            (R.footTopFS x) (R.footBotFS x)
+        x@R.NonT{}      -> FNode1
+            (R.rootTopFS x) (R.rootBotFS x)
+        x@R.AuxVert{}   -> FNode1
+            (R.rootTopFS x) (R.rootBotFS x)
         R.AuxFoot{}     -> FGap
         R.Term _        -> FGap
     mergeBody (R.Term t : xs) (FGap is) =
         Term t : mergeBody xs is
     mergeBody (R.AuxFoot n : xs) (FGap is) =
         AuxFoot n : mergeBody xs is
-    mergeBody (x : xs) (FNode1 i is) =
-        mkLab x (Left i) : mergeBody xs is
-    mergeBody (x : xs) (FNode2 i j is) =
-        mkLab x (Right (i, j)) : mergeBody xs is
+    mergeBody (x : xs) (FNode1 it ib is) =
+        mkLab x (Left (it, ib)) : mergeBody xs is
+    mergeBody (x : xs) (FNode2 it ib jt jb is) =
+        mkLab x (Right ((it, ib), (jt, jb))) : mergeBody xs is
     mergeBody _ _ = error "compile.mergeBody: unexpected case"
-    mkLab R.NonT{..} (Left i) = NonT
+    mkLab R.NonT{..} (Left (it, ib)) = NonT
         { nonTerm = nonTerm
         , labID = labID
-        , featID = i }
-    mkLab R.AuxVert{..} (Left i) = AuxVert
+        , topID = it
+        , botID = ib }
+    mkLab R.AuxVert{..} (Left (it, ib)) = AuxVert
         { nonTerm = nonTerm
         , symID = symID
-        , featID = i }
-    mkLab R.AuxRoot{..} (Right (i, j)) = AuxRoot
+        , topID = it
+        , botID = ib }
+    mkLab R.AuxRoot{..} (Right ((it, ib), (jt, jb))) = AuxRoot
         { nonTerm = nonTerm
-        , featID = i
-        , footID = j }
+        , topID = it
+        , botID = ib
+        , footTopID = jt
+        , footBotID = jb }
     mkLab _ _ = error "compile.mkLab: unexpected case"
 
 
@@ -621,9 +641,13 @@ trySubst p = void $ P.runListT $ do
     (r@NonT{}, _) <- some $ expects' q
     -- unify the corresponding feature structures
     -- TODO: We assume here that graph IDs are disjoint.
-    g' <- some $ J.execJoin
-        (J.join (featID $ root p) (featID r))
-        (FG.fromTwo (graph p) (graph q))
+    g' <- some $ flip J.execJoin
+        (FG.fromTwo (graph p) (graph q)) $ do
+            J.join (topID $ root p) (topID r)
+            -- in practice, `botID r` should be empty, but
+            -- it seems that we don't lose anything by taking
+            -- the other possibility into account.
+            J.join (botID $ root p) (botID r)
     -- construct the resultant state
     let q' = q
             { end = end p
@@ -695,9 +719,10 @@ tryAdjoinCont p = void $ P.runListT $ do
     -- unify the feature structures corresponding to the 'p's
     -- root and 'q's foot.  TODO: We assume here that graph IDs
     -- are disjoint.
-    g' <- some $ J.execJoin
-        (J.join (featID $ root p) (featID r))
-        (FG.fromTwo (graph p) (graph q))
+    g' <- some $ flip J.execJoin
+        (FG.fromTwo (graph p) (graph q)) $ do
+            J.join (topID $ root p) (topID r)
+            J.join (botID $ root p) (botID r)
     -- construct the resulting state; the span of the gap of the
     -- inner state `p' is copied to the outer state based on `q'
     let q' = q
@@ -735,19 +760,17 @@ tryAdjoinTerm p = void $ P.runListT $ do
     -- either a regular rule or an intermediate auxiliary rule
     -- ((<=) used as an implication here!)
     guard $ completed q && auxiliary q <= subLevel q
-    -- TODO: it seems that some of the constraints follow
-    -- from the code below:
+    -- TODO: it seems that some of the constraints given above
+    -- follow from the code below:
     qRoot <- some $ case root q of
         x@NonT{}    -> Just x
         x@AuxVert{} -> Just x
         _           -> Nothing
-    -- unify the feature structures corresponding to the 'p's
-    -- foot *and* root (!?) with 'q's root.
     -- TODO: We assume here that graph IDs are disjoint.
     g' <- some $ flip J.execJoin
         (FG.fromTwo (graph p) (graph q)) $ do
-            J.join (featID $ pRoot) (featID qRoot)
-            J.join (footID $ pRoot) (featID qRoot)
+            J.join (topID pRoot)     (topID qRoot)
+            J.join (footBotID pRoot) (botID qRoot)
     let q' = q
             { beg = beg p
             , end = end p
@@ -795,14 +818,14 @@ some = each . maybeToList
 data FList a
     = FNil
     | FGap (FList a)
-    | FNode1 a (FList a)
-    | FNode2 a a (FList a)
+    | FNode1 a a (FList a)
+    | FNode2 a a a a (FList a)
     deriving (Show, Eq, Ord, Functor, Foldable, Traversable)
 
 
 -- | Uncons the FList.  Ignore the leading gaps.
-unCons :: FList a -> Maybe (Either a (a, a), FList a)
+unCons :: FList a -> Maybe (Either (a, a) ((a, a), (a, a)), FList a)
 unCons FNil = Nothing
 unCons (FGap xs) = unCons xs
-unCons (FNode1 x xs) = Just (Left x, xs)
-unCons (FNode2 x y xs) = Just (Right (x, y), xs)
+unCons (FNode1 x x' xs) = Just (Left (x, x'), xs)
+unCons (FNode2 x x' y y' xs) = Just (Right ((x, x'), (y, y')), xs)

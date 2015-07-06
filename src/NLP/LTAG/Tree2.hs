@@ -21,11 +21,9 @@ import qualified NLP.FeatureStructure.Tree as FS
 data Tree n l i f a
     = INode -- ^ Interior node
         { labelI    :: n
-        , fsTree    :: FS.FN i f a
+        , topFS     :: FS.FN i f a
+        , botFS     :: FS.FN i f a
         , subTrees  :: [Tree n l i f a] }
---     | FNode -- ^ Foot node
---         { labelI    :: n
---         , fsTree    :: FS.FN i f a
     | LNode -- ^ Leaf node
         { labelL    :: l }
     deriving (Show, Eq, Ord)
@@ -42,62 +40,72 @@ data Tree n l i f a
 -- | Transform a tree into an equivalent tree with dummy attributes
 -- so that the relations between variables in the resultant tree are
 -- of a height-distance at most 1.
-dummify :: (Ord i, Ord f) => Tree n l i f a -> Tree n l i (Either f i) a
-dummify =
-    addIds S.empty
-  where
-    addIds ids n@INode{..} = n
-        { fsTree = addIdFeats ids fsTree
-        , subTrees = map doit subTrees }
-    addIds _ (LNode x) = LNode x
-    doit n@INode{..} =
-        addIds (ids' S.\\ ids) n
-      where
-        ids  = idsIn fsTree
-        ids' = S.unions $ map idsInTree subTrees
-    doit (LNode x) = LNode x
-
-
--- | Retrieve identifiers from an FS.
-idsIn :: Ord i => FS.FN i f a -> S.Set i
-idsIn FS.FN{..} =
-    here `S.union` below
-  where
-    here = case ide of
-        Just x -> S.singleton x
-        Nothing -> S.empty
-    below = case val of
-        FS.Subs av -> avIds av
-        FS.Atom x  -> S.empty
-    avIds av = S.unions $ map idsIn $ M.elems av
-
-
--- | Retrieve identifiers from an elementary tree.
-idsInTree :: Ord i => Tree n l i f a  -> S.Set i
-idsInTree INode{..} = S.unions $
-    idsIn fsTree :
-    map idsInTree subTrees
-idsInTree LNode{} = S.empty
-
-
--- | Add specifc ID features to an FS.
-addIdFeats
+dummify
     :: (Ord i, Ord f)
-    => S.Set i
-    -> FS.FN i f a
-    -> FS.FN i (Either f i) a
-addIdFeats is =
-    doFN
-  where
-    doFN fn@FS.FN{} = fn {FS.val = doFT (FS.val fn)}
-    doFT (FS.Subs av) = FS.Subs $ M.fromList $
-        [ (Right i, var i)
-        | i <- S.toList is ]
-            ++
-        [ (Left f, doFN fn)
-        | (f, fn) <- M.toList av ]
-    doFT (FS.Atom x) = FS.Atom x
-    var i = FS.FN (Just i) (FS.Subs M.empty)
+    => Tree n l i f a
+    -> Tree n l i (Either f i) a
+dummify = undefined
+
+
+-- -- | Transform a tree into an equivalent tree with dummy attributes
+-- -- so that the relations between variables in the resultant tree are
+-- -- of a height-distance at most 1.
+-- dummify :: (Ord i, Ord f) => Tree n l i f a -> Tree n l i (Either f i) a
+-- dummify =
+--     addIds S.empty
+--   where
+--     addIds ids n@INode{..} = n
+--         { fsTree = addIdFeats ids fsTree
+--         , subTrees = map doit subTrees }
+--     addIds _ (LNode x) = LNode x
+--     doit n@INode{..} =
+--         addIds (ids' S.\\ ids) n
+--       where
+--         ids  = idsIn fsTree
+--         ids' = S.unions $ map idsInTree subTrees
+--     doit (LNode x) = LNode x
+
+
+-- -- | Retrieve identifiers from an FS.
+-- idsIn :: Ord i => FS.FN i f a -> S.Set i
+-- idsIn FS.FN{..} =
+--     here `S.union` below
+--   where
+--     here = case ide of
+--         Just x -> S.singleton x
+--         Nothing -> S.empty
+--     below = case val of
+--         FS.Subs av -> avIds av
+--         FS.Atom x  -> S.empty
+--     avIds av = S.unions $ map idsIn $ M.elems av
+-- 
+-- 
+-- -- | Retrieve identifiers from an elementary tree.
+-- idsInTree :: Ord i => Tree n l i f a  -> S.Set i
+-- idsInTree INode{..} = S.unions $
+--     idsIn fsTree :
+--     map idsInTree subTrees
+-- idsInTree LNode{} = S.empty
+-- 
+-- 
+-- -- | Add specifc ID features to an FS.
+-- addIdFeats
+--     :: (Ord i, Ord f)
+--     => S.Set i
+--     -> FS.FN i f a
+--     -> FS.FN i (Either f i) a
+-- addIdFeats is =
+--     doFN
+--   where
+--     doFN fn@FS.FN{} = fn {FS.val = doFT (FS.val fn)}
+--     doFT (FS.Subs av) = FS.Subs $ M.fromList $
+--         [ (Right i, var i)
+--         | i <- S.toList is ]
+--             ++
+--         [ (Left f, doFN fn)
+--         | (f, fn) <- M.toList av ]
+--     doFT (FS.Atom x) = FS.Atom x
+--     var i = FS.FN (Just i) (FS.Subs M.empty)
 
 
 ---------------------------------------------------------------------
