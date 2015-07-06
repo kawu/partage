@@ -43,6 +43,8 @@ import qualified NLP.FeatureStructure.Reid as Reid
 import           NLP.LTAG.Core
 import qualified NLP.LTAG.Rule as R
 
+import           Debug.Trace (trace)
+
 
 --------------------------
 -- Internal rule
@@ -270,7 +272,9 @@ instance (Ord n, Ord t, Ord f, Ord a) => Ord (Rule n t f a) where
 
 
 -- | Compile a regular rule to an internal rule.
-compile :: (Ord i, Ord f, Eq a) => R.Rule n t i f a -> Rule n t f a
+compile
+    :: (View n, View t, Ord i, Ord f, Eq a)
+    => R.Rule n t i f a -> Rule n t f a
 compile R.Rule{..} = unJust $ do
     (is, g) <- FT.compiles $ fromList $ (headR : bodyR)
     (rh, rb) <- unCons is
@@ -298,6 +302,7 @@ compile R.Rule{..} = unJust $ do
         mkLab x (Left (it, ib)) : mergeBody xs is
     mergeBody (x : xs) (FNode2 it ib jt jb is) =
         mkLab x (Right ((it, ib), (jt, jb))) : mergeBody xs is
+    mergeBody [] FNil = []
     mergeBody _ _ = error "compile.mergeBody: unexpected case"
     mkLab R.NonT{..} (Left (it, ib)) = NonT
         { nonTerm = nonTerm
