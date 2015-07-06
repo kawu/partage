@@ -245,6 +245,31 @@ viewSym (x, Just i) = "(" ++ view x ++ ", " ++ show i ++ ")"
 viewSym (x, Nothing) = "(" ++ view x ++ ", _)"
 
 
+-- | Show full info about the label.
+viewLabFS
+    :: (View n, View t, View f, View a)
+    => Lab n t
+    -> FG.Graph f a
+    -> String
+viewLabFS lab gr = case lab of
+    NonT{..} -> "N(" ++ view nonTerm
+        ++ ( case labID of
+                Nothing -> ""
+                Just i  -> ", " ++ view i ) ++ ")"
+        ++ "[t=" ++ FG.showFlat gr topID
+        ++ ",b=" ++ FG.showFlat gr botID ++ "]"
+    Term t -> "T(" ++ view t ++ ")"
+    AuxRoot{..} -> "A(" ++ view nonTerm ++ ")"
+        ++ "[t=" ++ FG.showFlat gr topID
+        ++ ",b=" ++ FG.showFlat gr botID
+        ++ ",ft=" ++ FG.showFlat gr footTopID
+        ++ ",fb=" ++ FG.showFlat gr footBotID ++ "]"
+    AuxFoot x -> "F(" ++ view x ++ ")"
+    AuxVert{..} -> "V(" ++ view nonTerm ++ ", " ++ view symID ++ ")"
+        ++ "[t=" ++ FG.showFlat gr topID
+        ++ ",b=" ++ FG.showFlat gr botID ++ "]"
+
+
 -- | A rule for an elementary tree.
 data Rule n t f a = Rule {
     -- | The head of the rule.  TODO: Should never be a foot or a
@@ -423,8 +448,8 @@ expects = maybeT . expects'
 
 
 -- | Print the state.
-printState :: (View n, View t) => State n t f a -> IO ()
-printState State{..} = do
+printStateRaw :: (View n, View t) => State n t f a -> IO ()
+printStateRaw State{..} = do
     putStr $ viewLab root
     putStr " -> "
     putStr $ intercalate " " $
@@ -441,6 +466,38 @@ printState State{..} = do
             putStr ", "
     putStr $ show end
     putStrLn ">"
+
+
+-- | Print the state.
+printStateFS
+    :: (View n, View t, View f, View a)
+    => State n t f a -> IO ()
+printStateFS State{..} = do
+    putStr $ viewl root
+    putStr " -> "
+    putStr $ intercalate " " $
+        map viewl (reverse left) ++ ["*"] ++ map viewl right
+    putStr " <"
+    putStr $ show beg
+    putStr ", "
+    case gap of
+        Nothing -> return ()
+        Just (p, q) -> do
+            putStr $ show p
+            putStr ", "
+            putStr $ show q
+            putStr ", "
+    putStr $ show end
+    putStrLn ">"
+  where
+    viewl x = viewLabFS x graph
+
+
+-- | Print the state.
+printState
+    :: (View n, View t, View f, View a)
+    => State n t f a -> IO ()
+printState = printStateFS
 
 
 -- | Deconstruct the right part of the state (i.e. labels yet to
@@ -655,7 +712,7 @@ listValues x m = each $ case M.lookup x m of
 
 -- | Try to perform SCAN on the given state.
 tryScan
-    :: (VOrd t, VOrd n, Ord a, Ord f)
+    :: (VOrd t, VOrd n, VOrd a, VOrd f)
     => State n t f a
     -> Earley n t f a ()
 tryScan p = void $ runMaybeT $ do
@@ -688,7 +745,7 @@ tryScan p = void $ runMaybeT $ do
 -- | Try to use the state (only if fully parsed) to complement
 -- (=> substitution) other rules.
 trySubst
-    :: (VOrd t, VOrd n, Ord a, Ord f)
+    :: (VOrd t, VOrd n, VOrd a, VOrd f)
     => State n t f a
     -> Earley n t f a ()
 trySubst p = void $ P.runListT $ do
@@ -735,7 +792,7 @@ trySubst p = void $ P.runListT $ do
 -- level of `tryAdjoinTerm(inate)`.
 --
 tryAdjoinInit
-    :: (VOrd n, VOrd t, Ord a, Ord f)
+    :: (VOrd n, VOrd t, VOrd a, VOrd f)
     => State n t f a
     -> Earley n t f a ()
 tryAdjoinInit p = void $ P.runListT $ do
@@ -765,7 +822,7 @@ tryAdjoinInit p = void $ P.runListT $ do
 -- * `p' is a completed, auxiliary state
 -- * `q' not completed and expects a *dummy* foot
 tryAdjoinCont
-    :: (VOrd n, VOrd t, Ord f, Ord a)
+    :: (VOrd n, VOrd t, VOrd f, VOrd a)
     => State n t f a
     -> Earley n t f a ()
 tryAdjoinCont p = void $ P.runListT $ do
@@ -801,7 +858,7 @@ tryAdjoinCont p = void $ P.runListT $ do
 -- | Adjoin a fully-parsed auxiliary state to a partially parsed
 -- tree represented by a fully parsed rule/state.
 tryAdjoinTerm
-    :: (VOrd t, VOrd n, Ord a, Ord f)
+    :: (VOrd t, VOrd n, VOrd a, VOrd f)
     => State n t f a
     -> Earley n t f a ()
 tryAdjoinTerm p = void $ P.runListT $ do
@@ -831,7 +888,10 @@ tryAdjoinTerm p = void $ P.runListT $ do
             J.join (topID pRoot)     (topID qRoot)
             J.join (footBotID pRoot) (botID qRoot)
     let q' = q
-            { beg = beg p
+            { root = qRoot 
+                { topID = topID pRoot
+                , botID = botID pRoot }
+            , beg = beg p
             , end = end p
             , graph = g' }
     lift . lift $ do
@@ -849,7 +909,7 @@ tryAdjoinTerm p = void $ P.runListT $ do
 -- | Perform the earley-style computation given the grammar and
 -- the input sentence.
 earley
-    :: (VOrd t, VOrd n, Ord f, Ord a)
+    :: (VOrd t, VOrd n, VOrd f, VOrd a)
     => S.Set (Rule n t f a) -- ^ The grammar (set of rules)
     -> [t]                  -- ^ Input sentence
     -- -> IO (S.Set (State n t))
@@ -882,7 +942,7 @@ earley gram xs =
 -- | Step of the algorithm loop.  `p' is the state popped up from
 -- the queue.
 step
-    :: (VOrd t, VOrd n, Ord f, Ord a)
+    :: (VOrd t, VOrd n, VOrd f, VOrd a)
     => State n t f a
     -> Earley n t f a ()
 step p = do
