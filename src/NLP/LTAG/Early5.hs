@@ -22,6 +22,7 @@ import           Control.Monad.Trans.Maybe  (MaybeT (..))
 import qualified Control.Monad.RWS.Strict   as RWS
 
 import           Data.Function              (on)
+import           Data.Monoid                (mappend, mconcat)
 import           Data.List                  (intercalate)
 import           Data.Foldable (Foldable)
 import           Data.Traversable (Traversable)
@@ -184,12 +185,50 @@ instance (Eq n, Eq t, Eq f, Eq a) => Eq (Rule n t f a) where
             && nodeEqOn featID x y
         labEq _ _ = False
         eqOn f = (==) `on` f
-        -- assumption: the first index belongs to the first
-        -- graph, the second to the second graph.
         nodeEqOn f = nodeEq `on` f
         nodeEq i j = FG.equal
+            -- assumption: the first index belongs to the first
+            -- graph, the second to the second graph.
             (graphR r) i
-            (graphR s) j 
+            (graphR s) j
+
+
+instance (Ord n, Ord t, Ord f, Ord a) => Ord (Rule n t f a) where
+    r `compare` s = (labCmp `on` headR) r s `mappend`
+        cmpOn (length.bodyR) r s            `mappend`
+        mconcat [labCmp x y | (x, y) <- zip (bodyR r) (bodyR s)]
+      where
+        labCmp x@NonT{} y@NonT{} =
+            cmpOn nonTerm x y   `mappend`
+            cmpOn labID x y     `mappend`
+            nodeCmpOn featID x y
+        labCmp (Term x) (Term y) =
+            compare x y
+        labCmp x@AuxRoot{} y@AuxRoot{} =
+            cmpOn nonTerm x y       `mappend`
+            nodeCmpOn featID x y    `mappend`
+            nodeCmpOn footID x y
+        labCmp (AuxFoot x) (AuxFoot y) =
+            compare x y
+        labCmp x@AuxVert{} y@AuxVert{} =
+            cmpOn nonTerm x y       `mappend`
+            cmpOn symID x y         `mappend`
+            nodeCmpOn featID x y
+        labCmp x y = cmpOn conID x y
+        cmpOn f = compare `on` f
+        nodeCmpOn f = nodeCmp `on` f
+        nodeCmp i j = FG.compare'
+            -- assumption: the first index belongs to the first
+            -- graph, the second to the second graph.
+            (graphR r) i
+            (graphR s) j
+        -- data constructur identifier
+        conID x = case x of
+            NonT{}      -> 1
+            Term _      -> 2
+            AuxRoot{}   -> 3
+            AuxFoot{}   -> 4
+            AuxVert{}   -> 5
 
 
 -- -- | Compile a regular rule to an internal rule.
