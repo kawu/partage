@@ -15,6 +15,7 @@
 module NLP.LTAG.Early5 where
 
 
+import           Control.Applicative        (pure, (<*>), (<$>), (*>))
 import           Control.Monad              (guard, void)
 import qualified Control.Monad.State.Strict as ST
 import           Control.Monad.Trans.Class  (lift)
@@ -37,6 +38,7 @@ import qualified Pipes                      as P
 import qualified NLP.FeatureStructure.Tree as FT
 import qualified NLP.FeatureStructure.Graph as FG
 import qualified NLP.FeatureStructure.Join as J
+import qualified NLP.FeatureStructure.Reid as Reid
 
 import           NLP.LTAG.Core
 import qualified NLP.LTAG.Rule as R
@@ -455,6 +457,58 @@ prio p = end p
 
 
 --------------------------------------------------
+-- REID
+--------------------------------------------------
+
+
+-- | `Reid.split` and reidentify the state.  The gole is to assign
+-- distinct sets of identifiers to individual instantiations of
+-- rules w.r.t. to the given sentence.
+reidState
+    :: (Functor m, Monad m)
+    => State n t f a
+    -> Reid.ReidT m (State n t f a)
+-- reidState s@State{..} = Reid.split *> ( State
+--     <$> reidLab root
+--     <*> mapM reidLab left
+--     <*> mapM reidLab right
+--     <*> pure beg <*> pure end
+--     <*> pure gap
+--     <*> Reid.reidGraph graph )
+reidState s@State{..} = do
+    Reid.split
+    root'  <- reidLab root
+    left'  <- mapM reidLab left
+    right' <- mapM reidLab right
+    graph' <- Reid.reidGraph graph
+    return $ s
+        { root = root', left = left'
+        , right = right', graph = graph' }
+
+
+-- | Reidentify the given label.
+reidLab :: (Functor m, Monad m) => Lab n t -> Reid.ReidT m (Lab n t)
+reidLab NonT{..} = NonT
+    <$> pure nonTerm
+    <*> pure labID
+    <*> Reid.reid topID
+    <*> Reid.reid botID
+reidLab (Term x) = return $ Term x
+reidLab AuxRoot{..} = AuxRoot
+    <$> pure nonTerm
+    <*> Reid.reid topID
+    <*> Reid.reid botID
+    <*> Reid.reid footTopID
+    <*> Reid.reid footBotID
+reidLab (AuxFoot x) = return $ AuxFoot x
+reidLab AuxVert{..} = AuxVert
+    <$> pure nonTerm
+    <*> pure symID
+    <*> Reid.reid topID
+    <*> Reid.reid botID
+
+
+--------------------------------------------------
 -- Earley monad
 --------------------------------------------------
 
@@ -780,6 +834,59 @@ tryAdjoinTerm p = void $ P.runListT $ do
         putStr "  +  " >> printState q
         putStr "  :  " >> printState q'
     lift $ pushState q'
+
+
+--------------------------------------------------
+-- EARLEY
+--------------------------------------------------
+
+
+-- | Perform the earley-style computation given the grammar and
+-- the input sentence.
+earley
+    :: (VOrd t, VOrd n, Ord f, Ord a)
+    => S.Set (Rule n t f a) -- ^ The grammar (set of rules)
+    -> [t]                  -- ^ Input sentence
+    -- -> IO (S.Set (State n t))
+    -> IO ()
+earley gram xs =
+    -- done . fst <$> RWS.execRWST loop xs st0
+    void $ RWS.execRWST loop xs st0
+  where
+    -- we put in the initial state all the states with the dot on
+    -- the left of the body of the rule (-> left = []) on all
+    -- positions of the input sentence.
+    st0 = mkEarSt $ S.fromList $ Reid.runReid $ mapM reidState
+        [ State
+            { root  = headR
+            , left  = []
+            , right = bodyR
+            , beg   = i
+            , end   = i
+            , gap   = Nothing
+            , graph = graphR }
+        | Rule{..} <- S.toList gram
+        , i <- [0 .. length xs - 1] ]
+    -- the computation is performed as long as the waiting queue
+    -- is non-empty.
+    loop = popState >>= \mp -> case mp of
+        Nothing -> return ()
+        Just p -> step p >> loop
+
+
+-- | Step of the algorithm loop.  `p' is the state popped up from
+-- the queue.
+step
+    :: (VOrd t, VOrd n, Ord f, Ord a)
+    => State n t f a
+    -> Earley n t f a ()
+step p = do
+    sequence $ map ($p)
+      [ tryScan, trySubst
+      , tryAdjoinInit
+      , tryAdjoinCont
+      , tryAdjoinTerm ]
+    saveState p
 
 
 --------------------------------------------------
