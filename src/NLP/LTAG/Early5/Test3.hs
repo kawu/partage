@@ -59,8 +59,7 @@ type AuxTr = AuxTree String String String String String
 
 
 alpha :: Tr
--- alpha = INode "S" colX empty
-alpha = INode "S" empty empty
+alpha = INode "S" colX empty
     [ LNode "p"
     , INode "X" colX empty
         [LNode "e"]
