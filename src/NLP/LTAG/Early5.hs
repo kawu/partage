@@ -1,10 +1,15 @@
-{-# LANGUAGE FlexibleInstances    #-}
+-- {-# LANGUAGE FlexibleInstances    #-}
+-- {-# LANGUAGE TupleSections        #-}
+-- {-# LANGUAGE UndecidableInstances #-}
+-- {-# LANGUAGE DeriveFunctor #-}
+-- {-# LANGUAGE DeriveFoldable #-}
+-- {-# LANGUAGE DeriveTraversable #-}
+-- {-# LANGUAGE NoMonomorphismRestriction #-}
+
 {-# LANGUAGE RecordWildCards      #-}
-{-# LANGUAGE TupleSections        #-}
-{-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DeriveFoldable #-}
-{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE GADTs #-}
 
 
 {-
@@ -36,14 +41,13 @@ import           Data.PSQueue (Binding(..))
 import qualified Pipes                      as P
 
 import qualified NLP.FeatureStructure.Tree as FT
-import qualified NLP.FeatureStructure.Graph as FG
-import qualified NLP.FeatureStructure.Join as J
-import qualified NLP.FeatureStructure.Reid as Reid
+import qualified NLP.FeatureStructure.Graph2 as FG
+import qualified NLP.FeatureStructure.Join2 as J
+import qualified NLP.FeatureStructure.Unify as U
+-- import qualified NLP.FeatureStructure.Reid2 as Reid
 
 import           NLP.LTAG.Core
 import qualified NLP.LTAG.Rule as R
-
-import           Debug.Trace (trace)
 
 
 --------------------------
@@ -53,7 +57,7 @@ import           Debug.Trace (trace)
 
 -- | A feature graph identifier, i.e. an identifier used to refer
 -- to individual nodes in a FS.
-type FID = Int
+type ID = FG.ID
 
 
 -- -- | Symbol: a (non-terminal, maybe identifier) pair addorned with
@@ -101,37 +105,65 @@ type FID = Int
 -- It has neither Eq nor Ord instances, because the comparison of
 -- feature graph identifiers without context doesn't make much
 -- sense.
-data Lab n t
+data Lab n t i
     = NonT
         { nonTerm   :: n
         , labID     :: Maybe SymID
-        , topID     :: FID
-        , botID     :: FID }
+        , topID     :: i
+        , botID     :: i }
     | Term t
     | AuxRoot
         { nonTerm   :: n
-        , topID     :: FID
-        , botID     :: FID
-        , footTopID :: FID
-        , footBotID :: FID }
+        , topID     :: i
+        , botID     :: i
+        , footTopID :: i
+        , footBotID :: i }
     | AuxFoot
         { nonTerm   :: n }
     | AuxVert
         { nonTerm   :: n
         , symID     :: SymID
-        , topID     :: FID
-        , botID     :: FID }
+        , topID     :: i
+        , botID     :: i }
     deriving (Show)
+
+
+-- | Map IDs given a mapping function.
+mapID :: (i -> j) -> Lab n t i -> Lab n t j
+mapID f lab = case lab of
+    NonT{..} -> NonT
+        { nonTerm = nonTerm
+        , labID = labID
+        , topID = f topID
+        , botID = f botID }
+    Term x -> Term x
+    AuxRoot{..} -> AuxRoot
+        { nonTerm = nonTerm
+        , topID = f topID
+        , botID = f botID
+        , footTopID = f footTopID
+        , footBotID = f footBotID }
+    AuxFoot x -> AuxFoot x
+    AuxVert{..} -> AuxVert
+        { nonTerm = nonTerm
+        , symID = symID
+        , topID = f topID
+        , botID = f botID }
 
 
 -- | Label equality within the context of corresponding
 -- feature graphs.
 labEq
-    :: (Eq n, Eq t, Eq f, Eq a)
-    => Lab n t      -- ^ First label `x`
-    -> FG.Graph f a -- ^ Graph corresponding to `x`
-    -> Lab n t      -- ^ Second label `y`
-    -> FG.Graph f a -- ^ Graph corresponding to `y`
+    :: forall n t i j f a
+     -- We have to use scoped type variables in order to be able
+     -- to refer to them from the internal functions.  The usage
+     -- of the internal `nodeEq` is most likely responsible for
+     -- this. 
+     . (Eq n, Eq t, Ord i, Ord j, Eq f, Eq a)
+    => Lab n t i        -- ^ First label `x`
+    -> FG.Graph i f a   -- ^ Graph corresponding to `x`
+    -> Lab n t j        -- ^ Second label `y`
+    -> FG.Graph j f a   -- ^ Graph corresponding to `y`
     -> Bool
 labEq p g q h =
     eq p q
@@ -157,8 +189,14 @@ labEq p g q h =
         && nodeEqOn topID x y
         && nodeEqOn botID x y
     eq _ _ = False
-    eqOn f = (==) `on` f
-    nodeEqOn f = nodeEq `on` f
+    -- if we don't write `forall k.` then compiler tries to match
+    -- it with both `i` and `j` at the same time.
+    eqOn :: Eq z => (forall k . Lab n t k -> z)
+         -> Lab n t i -> Lab n t j -> Bool
+    eqOn f x y = f x == f y
+    nodeEqOn :: (forall k . Lab n t k -> k)
+        -> Lab n t i -> Lab n t j -> Bool
+    nodeEqOn f x y = nodeEq (f x) (f y)
     -- assumption: the first index belongs to the first
     -- graph, the second to the second graph.
     nodeEq i j = FG.equal g i h j
@@ -167,11 +205,12 @@ labEq p g q h =
 -- | Label comparison within the context of corresponding
 -- feature graphs.
 labCmp
-    :: (Ord n, Ord t, Ord f, Ord a)
-    => Lab n t      -- ^ First label `x`
-    -> FG.Graph f a -- ^ Graph corresponding to `x`
-    -> Lab n t      -- ^ Second label `y`
-    -> FG.Graph f a -- ^ Graph corresponding to `y`
+    :: forall n t i j f a
+     . (Ord n, Ord t, Ord i, Ord j, Ord f, Ord a)
+    => Lab n t i      -- ^ First label `x`
+    -> FG.Graph i f a -- ^ Graph corresponding to `x`
+    -> Lab n t j      -- ^ Second label `y`
+    -> FG.Graph j f a -- ^ Graph corresponding to `y`
     -> Ordering
 labCmp p g q h =
     cmp p q
@@ -197,8 +236,12 @@ labCmp p g q h =
         nodeCmpOn topID x y `mappend`
         nodeCmpOn botID x y
     cmp x y = cmpOn conID x y
-    cmpOn f = compare `on` f
-    nodeCmpOn f = nodeCmp `on` f
+    cmpOn :: Ord z => (forall k . Lab n t k -> z)
+          -> Lab n t i -> Lab n t j -> Ordering
+    cmpOn f x y = compare (f x) (f y)
+    nodeCmpOn :: (forall k . Lab n t k -> k)
+              -> Lab n t i -> Lab n t j -> Ordering
+    nodeCmpOn f x y = nodeCmp (f x) (f y)
     -- assumption: the first index belongs to the first
     -- graph, the second to the second graph.
     nodeCmp i j = FG.compare' g i h j
@@ -222,7 +265,7 @@ data SLab n t
 
 
 -- | Simplify label.
-simpLab :: Lab n t -> SLab n t
+simpLab :: Lab n t i -> SLab n t
 simpLab NonT{..} = SNonT (nonTerm, labID)
 simpLab (Term t) = STerm t
 simpLab AuxRoot{..} = SAux (nonTerm, Nothing)
@@ -231,7 +274,7 @@ simpLab AuxVert{..} = SAux (nonTerm, Just symID)
 
 
 -- | Show the label.
-viewLab :: (View n, View t) => Lab n t -> String
+viewLab :: (View n, View t) => Lab n t i -> String
 viewLab NonT{..} = "N" ++ viewSym (nonTerm, labID)
 viewLab (Term t) = "T(" ++ view t ++ ")"
 viewLab AuxRoot{..} = "A" ++ viewSym (nonTerm, Nothing)
@@ -247,9 +290,9 @@ viewSym (x, Nothing) = "(" ++ view x ++ ", _)"
 
 -- | Show full info about the label.
 viewLabFS
-    :: (View n, View t, View f, View a)
-    => Lab n t
-    -> FG.Graph f a
+    :: (Ord i, View n, View t, View i, View f, View a)
+    => Lab n t i
+    -> FG.Graph i f a
     -> String
 viewLabFS lab gr = case lab of
     NonT{..} -> "N(" ++ view nonTerm
@@ -271,25 +314,28 @@ viewLabFS lab gr = case lab of
 
 
 -- | A rule for an elementary tree.
-data Rule n t f a = Rule {
+data Rule n t i f a = Rule {
     -- | The head of the rule.  TODO: Should never be a foot or a
     -- terminal <- can we enforce this constraint?
-      headR :: Lab n t
+      headR :: Lab n t i
     -- | The body of the rule
-    , bodyR :: [Lab n t]
+    , bodyR :: [Lab n t i]
     -- | The underlying feature graph.
-    , graphR :: FG.Graph f a
+    , graphR :: FG.Graph i f a
     } deriving (Show)
 
 
-instance (Eq n, Eq t, Eq f, Eq a) => Eq (Rule n t f a) where
+-- TODO: we could also compare two rules with different
+-- identifier types, but Eq class doesn't allow this.
+instance (Eq n, Eq t, Ord i, Eq f, Eq a) => Eq (Rule n t i f a) where
     r == s = (eq `on` headR) r s
         && ((==) `on` length.bodyR) r s
         && and [eq x y | (x, y) <- zip (bodyR r) (bodyR s)]
         where eq x y = labEq x (graphR r) y (graphR s)
 
 
-instance (Ord n, Ord t, Ord f, Ord a) => Ord (Rule n t f a) where
+-- TODO: The same as for Eq.
+instance (Ord n, Ord t, Ord i, Ord f, Ord a) => Ord (Rule n t i f a) where
     r `compare` s = (cmp `on` headR) r s    `mappend`
         (compare `on` length.bodyR) r s     `mappend`
         mconcat [cmp x y | (x, y) <- zip (bodyR r) (bodyR s)]
@@ -299,53 +345,29 @@ instance (Ord n, Ord t, Ord f, Ord a) => Ord (Rule n t f a) where
 -- | Compile a regular rule to an internal rule.
 compile
     :: (View n, View t, Ord i, Ord f, Eq a)
-    => R.Rule n t i f a -> Rule n t f a
+    => R.Rule n t i f a -> Rule n t ID f a
 compile R.Rule{..} = unJust $ do
-    (is, g) <- FT.compiles $ fromList $ (headR : bodyR)
-    (rh, rb) <- unCons is
+    ((x, xs), FG.Res{..}) <- FT.runCon $ (,)
+        <$> conLab headR
+        <*> mapM conLab bodyR
     return $ Rule
-        { headR = mkLab headR rh
-        , bodyR = mergeBody bodyR rb
-        , graphR = g }
+        (mapID convID x)
+        (map (mapID convID) xs)
+        resGraph
   where
-    fromList [] = FNil
-    fromList (x:xs) = ($ fromList xs) $ case x of
-        x@R.AuxRoot{}   -> FNode2
-            (R.rootTopFS x) (R.rootBotFS x)
-            (R.footTopFS x) (R.footBotFS x)
-        x@R.NonT{}      -> FNode1
-            (R.rootTopFS x) (R.rootBotFS x)
-        x@R.AuxVert{}   -> FNode1
-            (R.rootTopFS x) (R.rootBotFS x)
-        R.AuxFoot{}     -> FGap
-        R.Term _        -> FGap
-    mergeBody (R.Term t : xs) (FGap is) =
-        Term t : mergeBody xs is
-    mergeBody (R.AuxFoot n : xs) (FGap is) =
-        AuxFoot n : mergeBody xs is
-    mergeBody (x : xs) (FNode1 it ib is) =
-        mkLab x (Left (it, ib)) : mergeBody xs is
-    mergeBody (x : xs) (FNode2 it ib jt jb is) =
-        mkLab x (Right ((it, ib), (jt, jb))) : mergeBody xs is
-    mergeBody [] FNil = []
-    mergeBody _ _ = error "compile.mergeBody: unexpected case"
-    mkLab R.NonT{..} (Left (it, ib)) = NonT
-        { nonTerm = nonTerm
-        , labID = labID
-        , topID = it
-        , botID = ib }
-    mkLab R.AuxVert{..} (Left (it, ib)) = AuxVert
-        { nonTerm = nonTerm
-        , symID = symID
-        , topID = it
-        , botID = ib }
-    mkLab R.AuxRoot{..} (Right ((it, ib), (jt, jb))) = AuxRoot
-        { nonTerm = nonTerm
-        , topID = it
-        , botID = ib
-        , footTopID = jt
-        , footBotID = jb }
-    mkLab _ _ = error "compile.mkLab: unexpected case"
+    conLab R.NonT{..} = NonT nonTerm labID
+        <$> FT.fromFN rootTopFS
+        <*> FT.fromFN rootBotFS
+    conLab (R.Term x) = return $ Term x
+    conLab R.AuxRoot{..} = AuxRoot nonTerm
+        <$> FT.fromFN rootTopFS
+        <*> FT.fromFN rootBotFS
+        <*> FT.fromFN footTopFS
+        <*> FT.fromFN footBotFS
+    conLab (R.AuxFoot x) = return $ AuxFoot x
+    conLab R.AuxVert{..} = AuxVert nonTerm symID
+        <$> FT.fromFN rootTopFS
+        <*> FT.fromFN rootBotFS
 
 
 --------------------------------------------------
@@ -357,15 +379,15 @@ compile R.Rule{..} = unJust $ do
 
 -- | Parsing state: processed initial rule elements and the elements
 -- yet to process.
-data State n t f a = State {
+data State n t i f a = State {
     -- | The head of the rule represented by the state.
     -- TODO: Not a terminal nor a foot.
-      root  :: Lab n t
+      root  :: Lab n t i
     -- | The list of processed elements of the rule, stored in an
     -- inverse order.
-    , left  :: [Lab n t]
+    , left  :: [Lab n t i]
     -- | The list of elements yet to process.
-    , right :: [Lab n t]
+    , right :: [Lab n t i]
     -- | The starting position.
     , beg   :: Pos
     -- | The ending position (or rather the position of the dot).
@@ -373,63 +395,87 @@ data State n t f a = State {
     -- | Coordinates of the gap (if applies)
     , gap   :: Maybe (Pos, Pos)
     -- | The underlying feature graph.
-    , graph :: FG.Graph f a
+    , graph :: FG.Graph i f a
     } deriving (Show)
 
 
-instance (Eq n, Eq t, Eq f, Eq a) => Eq (State n t f a) where
-    r == s
-         = eqOn beg r s
-        && eqOn end r s
-        && eqOn gap r s
-        && (leq `on` root) r s
-        && eqOn (length.left) r s
-        && eqOn (length.right) r s
-        && and [leq x y | (x, y) <- zip (left r) (left s)]
-        && and [leq x y | (x, y) <- zip (right r) (right s)]
-      where
-        leq x y = labEq x (graph r) y (graph s)
-        eqOn f = (==) `on` f
+-- | Equality of states.
+statEq
+    :: forall n t i j f a
+     . (Eq n, Eq t, Ord i, Ord j, Eq f, Eq a)
+    => State n t i f a
+    -> State n t j f a
+    -> Bool
+statEq r s
+     = eqOn beg r s
+    && eqOn end r s
+    && eqOn gap r s
+    && leq (root r) (root s)
+    && eqOn (length.left) r s
+    && eqOn (length.right) r s
+    && and [leq x y | (x, y) <- zip (left r) (left s)]
+    && and [leq x y | (x, y) <- zip (right r) (right s)]
+  where
+    leq x y = labEq x (graph r) y (graph s)
+    eqOn :: Eq z => (forall k . State n t k f a -> z)
+         -> State n t i f a -> State n t j f a -> Bool
+    eqOn f x y = f x == f y
 
 
-instance (Ord n, Ord t, Ord f, Ord a) => Ord (State n t f a) where
-    compare r s = cmpOn beg r s
-        `mappend` cmpOn end r s
-        `mappend` cmpOn gap r s
-        `mappend` (lcmp `on` root) r s
-        `mappend` cmpOn (length.left) r s
-        `mappend` cmpOn (length.right) r s
-        `mappend` mconcat [lcmp x y | (x, y) <- zip (left r) (left s)]
-        `mappend` mconcat [lcmp x y | (x, y) <- zip (right r) (right s)]
-      where
-        lcmp x y = labCmp x (graph r) y (graph s)
-        cmpOn f = compare `on` f
+instance (Eq n, Eq t, Ord i, Eq f, Eq a) => Eq (State n t i f a) where
+    (==) = statEq
+
+
+-- | Equality of states.
+statCmp
+    :: forall n t i j f a
+     . (Ord n, Ord t, Ord i, Ord j, Ord f, Ord a)
+    => State n t i f a
+    -> State n t j f a
+    -> Ordering
+statCmp r s = cmpOn beg r s
+    `mappend` cmpOn end r s
+    `mappend` cmpOn gap r s
+    `mappend` lcmp (root r) (root s)
+    `mappend` cmpOn (length.left) r s
+    `mappend` cmpOn (length.right) r s
+    `mappend` mconcat [lcmp x y | (x, y) <- zip (left r) (left s)]
+    `mappend` mconcat [lcmp x y | (x, y) <- zip (right r) (right s)]
+  where
+    lcmp x y = labCmp x (graph r) y (graph s)
+    cmpOn :: Ord z => (forall k . State n t k f a -> z)
+         -> State n t i f a -> State n t j f a -> Ordering
+    cmpOn f x y = compare (f x) (f y)
+
+
+instance (Ord n, Ord t, Ord i, Ord f, Ord a) => Ord (State n t i f a) where
+    compare = statCmp
 
 
 -- | Is it a completed (fully-parsed) state?
-completed :: State n t f a -> Bool
+completed :: State n t i f a -> Bool
 completed = null . right
 
 
 -- | Does it represent a regular rule?
-regular :: State n t f a -> Bool
+regular :: State n t i f a -> Bool
 regular = isNothing . gap
 
 
 -- | Does it represent an auxiliary rule?
-auxiliary :: State n t f a -> Bool
+auxiliary :: State n t i f a -> Bool
 auxiliary = isJust . gap
 
 
 -- | Is it top-level?  All top-level states (regular or
 -- auxiliary) have an underspecified ID in the root symbol.
-topLevel :: State n t f a -> Bool
+topLevel :: State n t i f a -> Bool
 -- topLevel = isNothing . ide . root
 topLevel = not . subLevel
 
 
 -- | Is it subsidiary (i.e. not top) level?
-subLevel :: State n t f a -> Bool
+subLevel :: State n t i f a -> Bool
 -- subLevel = isJust . ide . root
 subLevel x = case root x of
     NonT{..}  -> isJust labID
@@ -442,13 +488,21 @@ subLevel x = case root x of
 -- process) within the MaybeT monad.
 expects
     :: Monad m
-    => State n t f a
-    -> MaybeT m (Lab n t, [Lab n t])
+    => State n t i f a
+    -> MaybeT m (Lab n t i, [Lab n t i])
 expects = maybeT . expects'
 
 
+-- | Deconstruct the right part of the state (i.e. labels yet to
+-- process) within the MaybeT monad.
+expects'
+    :: State n t i f a
+    -> Maybe (Lab n t i, [Lab n t i])
+expects' = decoList . right
+
+
 -- | Print the state.
-printStateRaw :: (View n, View t) => State n t f a -> IO ()
+printStateRaw :: (View n, View i, View t) => State n t i f a -> IO ()
 printStateRaw State{..} = do
     putStr $ viewLab root
     putStr " -> "
@@ -470,8 +524,9 @@ printStateRaw State{..} = do
 
 -- | Print the state.
 printStateFS
-    :: (View n, View t, View f, View a)
-    => State n t f a -> IO ()
+    :: ( Ord i, View n, View t
+       , View i, View f, View a )
+    => State n t i f a -> IO ()
 printStateFS State{..} = do
     putStr $ viewl root
     putStr " -> "
@@ -495,17 +550,10 @@ printStateFS State{..} = do
 
 -- | Print the state.
 printState
-    :: (View n, View t, View f, View a)
-    => State n t f a -> IO ()
+    :: ( Ord i, View n, View t
+       , View i, View f, View a )
+    => State n t i f a -> IO ()
 printState = printStateFS
-
-
--- | Deconstruct the right part of the state (i.e. labels yet to
--- process) within the MaybeT monad.
-expects'
-    :: State n t f a
-    -> Maybe (Lab n t, [Lab n t])
-expects' = decoList . right
 
 
 -- | Priority type.
@@ -514,60 +562,31 @@ type Prio = Int
 
 -- | Priority of a state.  Crucial for the algorithm -- states have
 -- to be removed from the queue in a specific order.
-prio :: State n t f a -> Prio
+prio :: State n t i f a -> Prio
 prio p = end p
 
 
 --------------------------------------------------
--- REID
+-- StateE
 --------------------------------------------------
 
 
--- | `Reid.split` and reidentify the state.  The gole is to assign
--- distinct sets of identifiers to individual instantiations of
--- rules w.r.t. to the given sentence.
-reidState
-    :: (Functor m, Monad m)
-    => State n t f a
-    -> Reid.ReidT m (State n t f a)
--- reidState s@State{..} = Reid.split *> ( State
---     <$> reidLab root
---     <*> mapM reidLab left
---     <*> mapM reidLab right
---     <*> pure beg <*> pure end
---     <*> pure gap
---     <*> Reid.reidGraph graph )
-reidState s@State{..} = do
-    Reid.split
-    root'  <- reidLab root
-    left'  <- mapM reidLab left
-    right' <- mapM reidLab right
-    graph' <- Reid.reidGraph graph
-    return $ s
-        { root = root', left = left'
-        , right = right', graph = graph' }
+-- | A state existentially quantified over the ID type.
+data StateE n t f a where
+    StateE :: VOrd i => State n t i f a -> StateE n t f a
 
 
--- | Reidentify the given label.
-reidLab :: (Functor m, Monad m) => Lab n t -> Reid.ReidT m (Lab n t)
-reidLab NonT{..} = NonT
-    <$> pure nonTerm
-    <*> pure labID
-    <*> Reid.reid topID
-    <*> Reid.reid botID
-reidLab (Term x) = return $ Term x
-reidLab AuxRoot{..} = AuxRoot
-    <$> pure nonTerm
-    <*> Reid.reid topID
-    <*> Reid.reid botID
-    <*> Reid.reid footTopID
-    <*> Reid.reid footBotID
-reidLab (AuxFoot x) = return $ AuxFoot x
-reidLab AuxVert{..} = AuxVert
-    <$> pure nonTerm
-    <*> pure symID
-    <*> Reid.reid topID
-    <*> Reid.reid botID
+instance (Eq n, Eq t, Eq f, Eq a) => Eq (StateE n t f a) where
+    StateE r == StateE s = statEq r s
+
+
+instance (Ord n, Ord t, Ord f, Ord a) => Ord (StateE n t f a) where
+    StateE r `compare` StateE s = statCmp r s
+
+
+-- | Priority of a StateE.
+prioE :: StateE n t f a -> Prio
+prioE (StateE s) = prio s
 
 
 --------------------------------------------------
@@ -579,27 +598,26 @@ reidLab AuxVert{..} = AuxVert
 data EarSt n t f a = EarSt {
     -- | Rules which expect a specific label and which end on a
     -- specific position.
-      doneExpEnd :: M.Map (SLab n t, Pos) (S.Set (State n t f a))
+      doneExpEnd :: M.Map (SLab n t, Pos) (S.Set (StateE n t f a))
     -- | Rules providing a specific non-terminal in the root
     -- and spanning over a given range.
-    , doneProSpan :: M.Map (n, Pos, Pos) (S.Set (State n t f a))
+    , doneProSpan :: M.Map (n, Pos, Pos) (S.Set (StateE n t f a))
     -- | The set of states waiting on the queue to be processed.
     -- Invariant: the intersection of `done' and `waiting' states
     -- is empty.
-    , waiting    :: Q.PSQ (State n t f a) Prio }
-    deriving (Show)
+    , waiting    :: Q.PSQ (StateE n t f a) Prio }
 
 
 -- | Make an initial `EarSt` from a set of states.
 mkEarSt
     :: (Ord n, Ord t, Ord a, Ord f)
-    => S.Set (State n t f a)
+    => S.Set (StateE n t f a)
     -> (EarSt n t f a)
 mkEarSt s = EarSt
     { doneExpEnd = M.empty
     , doneProSpan = M.empty
     , waiting = Q.fromList
-        [ p :-> prio p
+        [ p :-> prioE p
         | p <- S.toList s ] }
 
 
@@ -621,26 +639,29 @@ readInput i = do
 -- done-related maps).
 isProcessed
     :: (Ord n, Ord t, Ord a, Ord f)
-    => State n t f a
+    => StateE n t f a
     -> EarSt n t f a
     -> Bool
-isProcessed p EarSt{..} = S.member p $ case expects' p of
-    Just (x, _) -> M.findWithDefault S.empty
-        (simpLab x, end p) doneExpEnd
-    Nothing -> M.findWithDefault S.empty
-        (nonTerm $ root p, beg p, end p) doneProSpan
+isProcessed pE EarSt{..} =
+    S.member pE $ chooseSet pE
+  where
+    chooseSet (StateE p) = case expects' p of
+        Just (x, _) -> M.findWithDefault S.empty
+            (simpLab x, end p) doneExpEnd
+        Nothing -> M.findWithDefault S.empty
+            (nonTerm $ root p, beg p, end p) doneProSpan
 
 
 -- | Add the state to the waiting queue.  Check first if it is
 -- not already in the set of processed (`done') states.
 pushState
     :: (Ord t, Ord n, Ord a, Ord f)
-    => State n t f a
+    => StateE n t f a
     -> Earley n t f a ()
 pushState p = RWS.state $ \s ->
     let waiting' = if isProcessed p s
             then waiting s
-            else Q.insert p (prio p) (waiting s)
+            else Q.insert p (prioE p) (waiting s)
     in  ((), s {waiting = waiting'})
 
 
@@ -649,7 +670,7 @@ pushState p = RWS.state $ \s ->
 -- to order the computations in some smarter way.
 popState
     :: (Ord t, Ord n, Ord a, Ord f)
-    => Earley n t f a (Maybe (State n t f a))
+    => Earley n t f a (Maybe (StateE n t f a))
 popState = RWS.state $ \st -> case Q.minView (waiting st) of
     Nothing -> (Nothing, st)
     Just (x :-> _, s) -> (Just x, st {waiting = s})
@@ -658,18 +679,19 @@ popState = RWS.state $ \st -> case Q.minView (waiting st) of
 -- | Add the state to the set of processed (`done') states.
 saveState
     :: (Ord t, Ord n, Ord a, Ord f)
-    => State n t f a
+    => StateE n t f a
     -> Earley n t f a ()
-saveState p = RWS.state $ \s -> ((), doit s)
+saveState pE =
+    RWS.state $ \s -> ((), doit pE s)
   where
-    doit st@EarSt{..} = st
+    doit (StateE p) st@EarSt{..} = st
       { doneExpEnd = case expects' p of
           Just (x, _) -> M.insertWith S.union (simpLab x, end p)
-                              (S.singleton p) doneExpEnd
+                              (S.singleton pE) doneExpEnd
           Nothing -> doneExpEnd
       , doneProSpan = if completed p
           then M.insertWith S.union (nonTerm $ root p, beg p, end p)
-               (S.singleton p) doneProSpan
+               (S.singleton pE) doneProSpan
           else doneProSpan }
 
 
@@ -678,7 +700,7 @@ saveState p = RWS.state $ \s -> ((), doit s)
 -- * end on the given position.
 expectEnd
     :: (Ord n, Ord t) => SLab n t -> Pos
-    -> P.ListT (Earley n t f a) (State n t f a)
+    -> P.ListT (Earley n t f a) (StateE n t f a)
 expectEnd x i = do
   EarSt{..} <- lift RWS.get
   listValues (x, i) doneExpEnd
@@ -689,7 +711,7 @@ expectEnd x i = do
 -- * the given span
 rootSpan
     :: Ord n => n -> (Pos, Pos)
-    -> P.ListT (Earley n t f a) (State n t f a)
+    -> P.ListT (Earley n t f a) (StateE n t f a)
 rootSpan x (i, j) = do
   EarSt{..} <- lift RWS.get
   listValues (x, i, j) doneProSpan
@@ -713,9 +735,9 @@ listValues x m = each $ case M.lookup x m of
 -- | Try to perform SCAN on the given state.
 tryScan
     :: (VOrd t, VOrd n, VOrd a, VOrd f)
-    => State n t f a
+    => StateE n t f a
     -> Earley n t f a ()
-tryScan p = void $ runMaybeT $ do
+tryScan (StateE p) = void $ runMaybeT $ do
     -- check that the state expects a terminal on the right
     (Term t, right') <- expects p
     -- read the word immediately following the ending position of
@@ -734,7 +756,7 @@ tryScan p = void $ runMaybeT $ do
         putStr "[S]  " >> printState p
         putStr "  :  " >> printState p'
     -- push the resulting state into the waiting queue
-    lift $ pushState p'
+    lift $ pushState $ StateE p'
 
 
 --------------------------------------------------
@@ -746,37 +768,38 @@ tryScan p = void $ runMaybeT $ do
 -- (=> substitution) other rules.
 trySubst
     :: (VOrd t, VOrd n, VOrd a, VOrd f)
-    => State n t f a
+    => StateE n t f a
     -> Earley n t f a ()
-trySubst p = void $ P.runListT $ do
+trySubst (StateE p) = void $ P.runListT $ do
     -- make sure that `p' is a fully-parsed regular rule
     guard $ completed p && regular p
     -- find rules which end where `p' begins and which
     -- expect the non-terminal provided by `p' (ID included)
-    q <- expectEnd (simpLab $ root p) (beg p)
+    StateE q <- expectEnd (simpLab $ root p) (beg p)
     (r@NonT{}, _) <- some $ expects' q
     -- unify the corresponding feature structures
     -- TODO: We assume here that graph IDs are disjoint.
-    g' <- some $ flip J.execJoin
-        (FG.fromTwo (graph p) (graph q)) $ do
-            J.join (topID $ root p) (topID r)
+    FG.Res{..} <- some $ U.unify (graph p) (graph q)
+            [ (topID $ root p, topID r)
             -- in practice, `botID r` should be empty, but
             -- it seems that we don't lose anything by taking
             -- the other possibility into account.
-            J.join (botID $ root p) (botID r)
+            , (botID $ root p, botID r) ]
     -- construct the resultant state
-    let q' = q
+    let conv = mapID $ convID . Right
+        q' = q
             { end = end p
-            , left = root p : left q
-            , right = tail (right q)
-            , graph = g' }
+            , root  = conv $ root q
+            , left  = map conv $ r : left q
+            , right = map conv $ tail $ right q
+            , graph = resGraph }
     -- print logging information
     lift . lift $ do
         putStr "[U]  " >> printState p
         putStr "  +  " >> printState q
         putStr "  :  " >> printState q'
     -- push the resulting state into the waiting queue
-    lift $ pushState q'
+    lift $ pushState $ StateE q'
 
 
 --------------------------------------------------
@@ -793,15 +816,15 @@ trySubst p = void $ P.runListT $ do
 --
 tryAdjoinInit
     :: (VOrd n, VOrd t, VOrd a, VOrd f)
-    => State n t f a
+    => StateE n t f a
     -> Earley n t f a ()
-tryAdjoinInit p = void $ P.runListT $ do
+tryAdjoinInit (StateE p) = void $ P.runListT $ do
     -- make sure that `p' is fully-parsed
     guard $ completed p
     -- find all rules which expect a real foot (with ID == Nothing)
     -- and which end where `p' begins.
     let u = nonTerm (root p)
-    q <- expectEnd (SAux (u, Nothing)) (beg p)  
+    StateE q <- expectEnd (SAux (u, Nothing)) (beg p)
     (r@AuxFoot{}, _) <- some $ expects' q
     -- construct the resultant state
     let q' = q
@@ -815,7 +838,7 @@ tryAdjoinInit p = void $ P.runListT $ do
         putStr "  +  " >> printState q
         putStr "  :  " >> printState q'
     -- push the resulting state into the waiting queue
-    lift $ pushState q'
+    lift $ pushState $ StateE q'
 
 
 -- | `tryAdjoinCont p q':
@@ -823,45 +846,48 @@ tryAdjoinInit p = void $ P.runListT $ do
 -- * `q' not completed and expects a *dummy* foot
 tryAdjoinCont
     :: (VOrd n, VOrd t, VOrd f, VOrd a)
-    => State n t f a
+    => StateE n t f a
     -> Earley n t f a ()
-tryAdjoinCont p = void $ P.runListT $ do
+tryAdjoinCont (StateE p) = void $ P.runListT $ do
     -- make sure that `p' is a completed, sub-level auxiliary rule
     guard $ completed p && subLevel p && auxiliary p
     -- find all rules which expect a foot provided by `p'
     -- and which end where `p' begins.
-    q <- expectEnd (simpLab $ root p) (beg p)
+    StateE q <- expectEnd (simpLab $ root p) (beg p)
     (r@AuxVert{}, _) <- some $ expects' q
     -- unify the feature structures corresponding to the 'p's
     -- root and 'q's foot.  TODO: We assume here that graph IDs
     -- are disjoint.
-    g' <- some $ flip J.execJoin
-        (FG.fromTwo (graph p) (graph q)) $ do
-            J.join (topID $ root p) (topID r)
-            J.join (botID $ root p) (botID r)
+    FG.Res{..} <- some $ U.unify (graph p) (graph q)
+            [ (topID $ root p, topID r)
+            , (botID $ root p, botID r) ]
     -- construct the resulting state; the span of the gap of the
     -- inner state `p' is copied to the outer state based on `q'
-    let q' = q
+    let conv = mapID $ convID . Right
+        q' = q
             { gap = gap p, end = end p
-            , left = r : left q
-            , right = tail (right q)
-            , graph = g' }
+            , root  = conv $ root q 
+            , left  = map conv $ r : left q
+            , right = map conv $ tail $ right q
+            -- , left = r : left q
+            -- , right = tail (right q)
+            , graph = resGraph }
     -- logging info
     lift . lift $ do
         putStr "[B]  " >> printState p
         putStr "  +  " >> printState q
         putStr "  :  " >> printState q'
     -- push the resulting state into the waiting queue
-    lift $ pushState q'
+    lift $ pushState $ StateE q'
 
 
 -- | Adjoin a fully-parsed auxiliary state to a partially parsed
 -- tree represented by a fully parsed rule/state.
 tryAdjoinTerm
     :: (VOrd t, VOrd n, VOrd a, VOrd f)
-    => State n t f a
+    => StateE n t f a
     -> Earley n t f a ()
-tryAdjoinTerm p = void $ P.runListT $ do
+tryAdjoinTerm (StateE p) = void $ P.runListT $ do
     -- make sure that `p' is a completed, top-level state ...
     guard $ completed p && topLevel p
     -- ... and that it is an auxiliary state
@@ -871,7 +897,7 @@ tryAdjoinTerm p = void $ P.runListT $ do
     pRoot@AuxRoot{} <- some $ Just $ root p
     -- take all completed rules with a given span
     -- and a given root non-terminal (IDs irrelevant)
-    q <- rootSpan (nonTerm $ root p) (gapBeg, gapEnd)
+    StateE q <- rootSpan (nonTerm $ root p) (gapBeg, gapEnd)
     -- make sure that `q' is completed as well and that it is
     -- either a regular rule or an intermediate auxiliary rule
     -- ((<=) used as an implication here!)
@@ -882,23 +908,35 @@ tryAdjoinTerm p = void $ P.runListT $ do
         x@NonT{}    -> Just x
         x@AuxVert{} -> Just x
         _           -> Nothing
-    -- TODO: We assume here that graph IDs are disjoint.
-    g' <- some $ flip J.execJoin
-        (FG.fromTwo (graph p) (graph q)) $ do
-            J.join (topID pRoot)     (topID qRoot)
-            J.join (footBotID pRoot) (botID qRoot)
+    FG.Res{..} <- some $ U.unify (graph p) (graph q)
+            [ (topID pRoot,     topID qRoot)
+            , (footBotID pRoot, botID qRoot) ]
+    let convR = mapID $ convID . Right
+        convL = convID . Left
+    newRoot <- some $ case qRoot of
+        NonT{} -> Just $ NonT
+            { nonTerm = nonTerm qRoot
+            , labID = labID qRoot
+            , topID = convL $ topID pRoot
+            , botID = convL $ botID pRoot }
+        AuxVert{} -> Just $ AuxVert
+            { nonTerm = nonTerm qRoot
+            , symID = symID qRoot
+            , topID = convL $ topID pRoot
+            , botID = convL $ botID pRoot }
+        _           -> Nothing
     let q' = q
-            { root = qRoot 
-                { topID = topID pRoot
-                , botID = botID pRoot }
+            { root = newRoot 
+            , left  = map convR $ left q
+            , right = map convR $ right q
             , beg = beg p
             , end = end p
-            , graph = g' }
+            , graph = resGraph }
     lift . lift $ do
         putStr "[C]  " >> printState p
         putStr "  +  " >> printState q
         putStr "  :  " >> printState q'
-    lift $ pushState q'
+    lift $ pushState $ StateE q'
 
 
 --------------------------------------------------
@@ -910,8 +948,8 @@ tryAdjoinTerm p = void $ P.runListT $ do
 -- the input sentence.
 earley
     :: (VOrd t, VOrd n, VOrd f, VOrd a)
-    => S.Set (Rule n t f a) -- ^ The grammar (set of rules)
-    -> [t]                  -- ^ Input sentence
+    => S.Set (Rule n t ID f a) -- ^ The grammar (set of rules)
+    -> [t]                     -- ^ Input sentence
     -- -> IO (S.Set (State n t))
     -> IO ()
 earley gram xs =
@@ -921,8 +959,8 @@ earley gram xs =
     -- we put in the initial state all the states with the dot on
     -- the left of the body of the rule (-> left = []) on all
     -- positions of the input sentence.
-    st0 = mkEarSt $ S.fromList $ Reid.runReid $ mapM reidState
-        [ State
+    st0 = mkEarSt $ S.fromList -- $ Reid.runReid $ mapM reidState
+        [ StateE $ State
             { root  = headR
             , left  = []
             , right = bodyR
@@ -943,7 +981,7 @@ earley gram xs =
 -- the queue.
 step
     :: (VOrd t, VOrd n, VOrd f, VOrd a)
-    => State n t f a
+    => StateE n t f a
     -> Earley n t f a ()
 step p = do
     sequence $ map ($p)
@@ -984,20 +1022,3 @@ each = P.Select . P.each
 -- | ListT from a maybe.
 some :: Monad m => Maybe a -> P.ListT m a
 some = each . maybeToList
-
-
--- | A list with potential gaps.
-data FList a
-    = FNil
-    | FGap (FList a)
-    | FNode1 a a (FList a)
-    | FNode2 a a a a (FList a)
-    deriving (Show, Eq, Ord, Functor, Foldable, Traversable)
-
-
--- | Uncons the FList.  Ignore the leading gaps.
-unCons :: FList a -> Maybe (Either (a, a) ((a, a), (a, a)), FList a)
-unCons FNil = Nothing
-unCons (FGap xs) = unCons xs
-unCons (FNode1 x x' xs) = Just (Left (x, x'), xs)
-unCons (FNode2 x x' y y' xs) = Just (Right ((x, x'), (y, y')), xs)

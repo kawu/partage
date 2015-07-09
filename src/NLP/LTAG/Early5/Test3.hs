@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 
-module NLP.LTAG.Early4.Test3 where
+module NLP.LTAG.Early5.Test3 where
 
 
 import           Control.Applicative ((<$>), (<*>))
