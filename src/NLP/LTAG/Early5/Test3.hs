@@ -43,6 +43,12 @@ black :: FN
 black = A.avm $ A.feat "col" "black" 
 
 
+-- | Variable 'x' color.
+colX :: FN
+colX = A.avm $ A.feat "col" "?x"
+-- colX = A.avm $ A.feat "col" $ A.empty
+
+
 ---------------------------------------------------------------------
 -- Grammar
 ---------------------------------------------------------------------
@@ -53,9 +59,10 @@ type AuxTr = AuxTree String String String String String
 
 
 alpha :: Tr
+-- alpha = INode "S" colX empty
 alpha = INode "S" empty empty
     [ LNode "p"
-    , INode "X" empty empty
+    , INode "X" colX empty
         [LNode "e"]
     , LNode "q" ]
 

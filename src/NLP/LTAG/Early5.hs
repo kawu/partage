@@ -325,8 +325,6 @@ data Rule n t i f a = Rule {
     } deriving (Show)
 
 
--- TODO: we could also compare two rules with different
--- identifier types, but Eq class doesn't allow this.
 instance (Eq n, Eq t, Ord i, Eq f, Eq a) => Eq (Rule n t i f a) where
     r == s = (eq `on` headR) r s
         && ((==) `on` length.bodyR) r s
@@ -334,7 +332,6 @@ instance (Eq n, Eq t, Ord i, Eq f, Eq a) => Eq (Rule n t i f a) where
         where eq x y = labEq x (graphR r) y (graphR s)
 
 
--- TODO: The same as for Eq.
 instance (Ord n, Ord t, Ord i, Ord f, Ord a) => Ord (Rule n t i f a) where
     r `compare` s = (cmp `on` headR) r s    `mappend`
         (compare `on` length.bodyR) r s     `mappend`
@@ -784,6 +781,10 @@ trySubst (StateE p) = void $ P.runListT $ do
             -- in practice, `botID r` should be empty, but
             -- it seems that we don't lose anything by taking
             -- the other possibility into account.
+            -- BUT :=> In our case, `botID r` can very well be
+            -- non-empty.  The reason is that trees are broken
+            -- down into flat rules and therefore intermediary
+            -- nodes are split.
             , (botID $ root p, botID r) ]
     -- construct the resultant state
     let conv = mapID $ convID . Right
@@ -901,6 +902,12 @@ tryAdjoinTerm (StateE p) = void $ P.runListT $ do
     -- make sure that `q' is completed as well and that it is
     -- either a regular rule or an intermediate auxiliary rule
     -- ((<=) used as an implication here!)
+    -- NOTE: root auxiliary rules are of no interest to us but they
+    -- are all the same taken into account in an indirect manner.
+    -- We can assume here that such rules are already adjoined thus
+    -- creating either regular or intermediate auxiliary.
+    -- NOTE: similar reasoning can be used to explain why foot
+    -- auxiliary rules are likewise ignored.
     guard $ completed q && auxiliary q <= subLevel q
     -- TODO: it seems that some of the constraints given above
     -- follow from the code below:

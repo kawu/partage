@@ -7,6 +7,9 @@ module NLP.LTAG.Rule where
 import           Control.Applicative ((<$>))
 import qualified Control.Monad.RWS.Strict   as RWS
 
+import qualified Data.Set as S
+import qualified Data.Map.Strict as M
+
 import qualified NLP.FeatureStructure.Tree as FT
 
 import           NLP.LTAG.Core
@@ -132,28 +135,57 @@ runRM rm = RWS.evalRWS rm () 0
 
 -- | Take an initial tree and factorize it into a list of rules.
 treeRules
-    :: Bool         -- ^ Is it a top level tree?  `True' for
+    :: (Ord i, Ord f)
+    => Bool         -- ^ Is it a top level tree?  `True' for
                     -- an entire initial tree, `False' otherwise.
     -> G.Tree n t i f a     -- ^ The tree itself
-    -> RM n t i f a (Lab n t i f a)
-treeRules isTop G.INode{..} = case subTrees of
-    [] -> return $ NonT
+    -> RM n t i (Either f i) a
+        (Lab n t i (Either f i) a)
+treeRules isTop G.INode{..} = case (subTrees, isTop) of
+    ([], _) -> return $ NonT
+        -- Foot or substitution node:
         { nonTerm = labelI
         , labID   = Nothing
-        , rootTopFS = topFS
-        , rootBotFS = botFS }
-    _  -> do
-        let xSym i = NonT 
+        -- In theory one of the following should be an empty FS, but
+        -- we can adopt a more general definition where both are
+        -- non-empty.
+        , rootTopFS = addNoFeats topFS
+        , rootBotFS = addNoFeats botFS }
+    (_, True) -> do
+        -- Root node:
+        let x = NonT 
               { nonTerm = labelI
-              , labID   = i
-              , rootTopFS = topFS
-              , rootBotFS = botFS }
-        x <- if isTop
-            then return $ xSym Nothing
-            else xSym . Just <$> nextSymID
+              , labID   = Nothing
+              , rootTopFS = addNoFeats topFS
+              , rootBotFS = addNoFeats botFS }
         xs <- mapM (treeRules False) subTrees
         keepRule $ Rule x xs
         return x
+    (_, False) -> do
+        -- Internal node; top and bottom feature structures
+        -- are split between different rules, dummy attributes
+        -- have to be added in order to preserve relations between
+        -- tree-local variables.
+        i <- nextSymID
+        -- First compute the set of all identifiers which occur
+        -- in the `botFS` and the sub-trees.  These IDs will be
+        -- kept as special attribute values in `rootTopFS`.
+        let is = S.unions
+                $ idsIn botFS
+                : map idsInTree subTrees
+            x0 = NonT 
+                { nonTerm = labelI
+                , labID   = Just i
+                , rootTopFS = FT.empty
+                , rootBotFS = FT.empty }
+            xb = x0
+                { rootTopFS = addIdFeats is FT.empty
+                , rootBotFS = addNoFeats botFS }
+            xt = x0
+                { rootTopFS = addIdFeats is topFS }
+        xs <- mapM (treeRules False) subTrees
+        keepRule $ Rule xb xs
+        return xt
 treeRules _ G.LNode{..} = return $ Term labelL
 
 
@@ -167,36 +199,62 @@ treeRules _ G.LNode{..} = return $ Term labelL
 -- represent the "substitution" trees on the left and on the
 -- right of the spine.
 auxRules
-    :: Bool
+    :: (Ord i, Ord f)
+    => Bool
     -> G.AuxTree n t i f a
-    -> RM n t i f a (Lab n t i f a)
+    -- -> RM n t i f a (Lab n t i f a)
+    -> RM n t i (Either f i) a
+        (Lab n t i (Either f i) a)
 auxRules b G.AuxTree{..} =
     fst <$> doit b auxTree auxFoot
   where
     doit _ G.INode{..} [] = return $
         ( AuxFoot {nonTerm = labelI}
-        -- we thread feature structures corresponding to the foot
+        -- We thread feature structures corresponding to the foot
         -- along the spine of the auxiliary tree.
-        , (topFS, botFS) )
+        -- We thread the set of utilized identifiers as well.
+        -- Foot FSs are only taken into account at the level of
+        -- the root.
+        , ((topFS, botFS), S.empty) )
     doit isTop G.INode{..} (k:ks) = do
         let (ls, bt, rs) = split k subTrees
         ls' <- mapM (treeRules False) ls
-        (bt', topBotFS) <- doit False bt ks
+        (bt', (topBotFS, is0)) <- doit False bt ks
         rs' <- mapM (treeRules False) rs
-        x <- if isTop
-            then return $ AuxRoot
-                { nonTerm = labelI
-                , rootTopFS = topFS
-                , rootBotFS = botFS
-                , footTopFS = fst topBotFS
-                , footBotFS = snd topBotFS }
-            else nextSymID >>= \i -> return $ AuxVert
-                { nonTerm = labelI
-                , symID   = i
-                , rootTopFS = topFS
-                , rootBotFS = botFS }
-        keepRule $ Rule x $ ls' ++ (bt' : rs')
-        return (x, topBotFS)
+        let is = S.unions
+               $ idsIn botFS : is0
+               : map idsInTree (ls ++ rs)
+        -- In case of an internal node `xt` and `xb` are slighly
+        -- different; for a root, they are the same:
+        (xt, xb) <- if isTop
+            then do
+                let x = AuxRoot
+                        { nonTerm = labelI
+                        , rootTopFS = addNoFeats topFS
+                        , rootBotFS = addNoFeats botFS
+                        , footTopFS = addNoFeats $ fst topBotFS
+                        , footBotFS = addNoFeats $ snd topBotFS }
+                return (x, x)
+            else nextSymID >>= \i -> do
+                let x0 = AuxVert
+                        { nonTerm = labelI
+                        , symID   = i
+                        , rootTopFS = FT.empty
+                        , rootBotFS = FT.empty }
+                    xb = x0
+                        { rootTopFS = addIdFeats is FT.empty
+                        , rootBotFS = addNoFeats botFS }
+                    xt = x0
+                        { rootTopFS = addIdFeats is topFS }
+                return (xt, xb)
+        keepRule $ Rule xb $ ls' ++ (bt' : rs')
+        return ( xt,
+            ( topBotFS
+            -- We need to add the set of IDs from `topFS` here in
+            -- order to keep the invariant that the set contains all
+            -- IDs from the subtree corresponding to the currently
+            -- visited node.
+            , S.union is $ idsIn topFS ) )
     doit _ _ _ = error "auxRules: incorrect path"
     split =
         doit []
@@ -204,3 +262,58 @@ auxRules b G.AuxTree{..} =
         doit acc 0 (x:xs) = (reverse acc, x, xs)
         doit acc k (x:xs) = doit (x:acc) (k-1) xs
         doit acc _ [] = error "auxRules.split: index to high"
+
+
+-----------------------------------------
+-- Dumm identifiers
+-----------------------------------------
+
+
+-- | Retrieve identifiers from an FS.
+idsIn :: Ord i => FT.FN i f a -> S.Set i
+idsIn FT.FN{..} =
+    here `S.union` below
+  where
+    here = case ide of
+        Just x -> S.singleton x
+        Nothing -> S.empty
+    below = case val of
+        FT.Subs av -> avIds av
+        FT.Atom x  -> S.empty
+    avIds av = S.unions $ map idsIn $ M.elems av
+
+
+-- | Retrieve identifiers from an elementary tree.
+idsInTree :: Ord i => G.Tree n l i f a  -> S.Set i
+idsInTree G.INode{..} = S.unions $
+    idsIn topFS : idsIn botFS :
+    map idsInTree subTrees
+idsInTree G.LNode{} = S.empty
+
+
+-- | Add specifc ID features to an FS.
+addIdFeats
+    :: (Ord i, Ord f)
+    => S.Set i
+    -> FT.FN i f a
+    -> FT.FN i (Either f i) a
+addIdFeats is =
+    doFN
+  where
+    doFN fn@FT.FN{} = fn {FT.val = doFT (FT.val fn)}
+    doFT (FT.Subs av) = FT.Subs $ M.fromList $
+        [ (Right i, var i)
+        | i <- S.toList is ]
+            ++
+        [ (Left f, doFN fn)
+        | (f, fn) <- M.toList av ]
+    doFT (FT.Atom x) = FT.Atom x
+    var i = FT.FN (Just i) (FT.Subs M.empty)
+
+
+-- | Add no specific ID features to an FS.
+addNoFeats
+    :: (Ord i, Ord f)
+    => FT.FN i f a
+    -> FT.FN i (Either f i) a
+addNoFeats = addIdFeats S.empty

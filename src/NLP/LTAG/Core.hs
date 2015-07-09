@@ -19,6 +19,10 @@ instance View String where
 instance View Int where
     view = show
 
+instance (View a, View b) => View (Either a b) where
+    view (Left x) = "L " ++ view x
+    view (Right x) = "R " ++ view x
+
 
 --------------------------------------------------
 -- VIEW + ORD
