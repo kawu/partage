@@ -17,13 +17,18 @@ build-type:         Simple
 library
     hs-source-dirs: src
     build-depends:
-        base            >= 4        && < 5
-      , containers      >= 0.4      && < 0.6
+        base                >= 4        && < 5
+      , containers          >= 0.4      && < 0.6
+      , mtl                 >= 2.1      && < 2.2
+      , transformers        >= 0.3      && < 0.4
+      , feature-structure   >= 0.2      && < 0.3
+      , pipes               >= 4.1      && < 4.2
+      , PSQueue             >= 1.1      && < 1.2
 
     exposed-modules:
-        NLP.LTAG.V1
-      , NLP.LTAG.Tree
-      , NLP.LTAG.Early
+        NLP.LTAG.Tree2
+      , NLP.LTAG.Rule
+      , NLP.LTAG.Early5
 
     ghc-options: -Wall
 
