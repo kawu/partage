@@ -5,11 +5,14 @@ module NLP.LTAG.Rule where
 
 
 import           Control.Applicative ((<$>))
-import qualified Control.Monad.RWS.Strict   as RWS
+-- import qualified Control.Monad.RWS.Strict   as RWS
+import qualified Control.Monad.State.Strict   as E
 
 import qualified Data.Set as S
 import qualified Data.Map.Strict as M
 import           Data.List (intercalate)
+
+import qualified Pipes as P
 
 import qualified NLP.FeatureStructure.Tree as FT
 
@@ -147,22 +150,26 @@ printRuleFS Rule{..} = do
 
 
 -- | Identifier generation monad.
-type RM n t i f a = RWS.RWS () [Rule n t i f a] Int
+-- type RM n t i f a = RWS.RWS () [Rule n t i f a] Int
+type RM n t i f a m = P.Producer (Rule n t i f a) (E.StateT Int m)
 
 
 -- | Pull the next identifier.
-nextSymID :: RM n t i f a SymID
-nextSymID = RWS.state $ \i -> (i, i + 1)
+nextSymID :: Monad m => RM n t i f a m SymID
+nextSymID = E.state $ \i -> (i, i + 1)
 
 
 -- | Save the rule in the writer component of the monad.
-keepRule :: Rule n t i f a -> RM n t i f a ()
-keepRule = RWS.tell . (:[])
+keepRule :: Monad m => Rule n t i f a -> RM n t i f a m ()
+-- keepRule = RWS.tell . (:[])
+keepRule = P.yield
 
 
 -- | Evaluate the RM monad.
-runRM :: RM n t i f a b -> (b, [Rule n t i f a])
-runRM rm = RWS.evalRWS rm () 0
+-- runRM :: RM n t i f a b -> (b, [Rule n t i f a])
+-- runRM rm = RWS.evalRWS rm () 0
+runRM :: Monad m => P.Effect (E.StateT Int m) a -> m a
+runRM = flip E.evalStateT 0 . P.runEffect
 
 
 -----------------------------------------
@@ -172,11 +179,11 @@ runRM rm = RWS.evalRWS rm () 0
 
 -- | Take an initial tree and factorize it into a list of rules.
 treeRules
-    :: (Ord i, Ord f)
+    :: (Monad m, Ord i, Ord f)
     => Bool         -- ^ Is it a top level tree?  `True' for
                     -- an entire initial tree, `False' otherwise.
     -> G.Tree n t i f a     -- ^ The tree itself
-    -> RM n t i (Either f i) a
+    -> RM n t i (Either f i) a m
         (Lab n t i (Either f i) a)
 treeRules isTop G.INode{..} = case (subTrees, isTop) of
     ([], _) -> return $ NonT
@@ -236,11 +243,11 @@ treeRules _ G.LNode{..} = return $ Term labelL
 -- represent the "substitution" trees on the left and on the
 -- right of the spine.
 auxRules
-    :: (Ord i, Ord f)
+    :: (Monad m, Ord i, Ord f)
     => Bool
     -> G.AuxTree n t i f a
     -- -> RM n t i f a (Lab n t i f a)
-    -> RM n t i (Either f i) a
+    -> RM n t i (Either f i) a m
         (Lab n t i (Either f i) a)
 auxRules b G.AuxTree{..} =
     fst <$> doit b auxTree auxFoot
