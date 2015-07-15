@@ -367,6 +367,21 @@ compile R.Rule{..} = unJust $ do
         <*> FT.fromFN rootBotFS
 
 
+-- | Print the state.
+printRuleFS
+    :: ( Ord i, View n, View t
+       , View i, View f, View a )
+    => Rule n t i f a -> IO ()
+printRuleFS Rule{..} = do
+    putStr $ viewl headR
+    putStr " -> "
+    putStr $ intercalate " " $ map viewl bodyR
+  where
+    viewl x = viewLabFS x graphR
+
+
+
+
 --------------------------------------------------
 -- CHART STATE ...
 --

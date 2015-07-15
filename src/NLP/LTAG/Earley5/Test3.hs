@@ -17,7 +17,7 @@ import qualified NLP.FeatureStructure.AVM as A
 
 import           NLP.LTAG.Tree2
 import           NLP.LTAG.Rule
-import           NLP.LTAG.Early5
+import           NLP.LTAG.Earley5
 
 
 ---------------------------------------------------------------------
