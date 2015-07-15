@@ -17,12 +17,12 @@
  -}
 
 
-module NLP.LTAG.Early5 where
+module NLP.LTAG.Earley5 where
 
 
-import           Control.Applicative        (pure, (<*>), (<$>), (*>))
+import           Control.Applicative        ((<*>), (<$>))
 import           Control.Monad              (guard, void)
-import qualified Control.Monad.State.Strict as ST
+-- import qualified Control.Monad.State.Strict as ST
 import           Control.Monad.Trans.Class  (lift)
 import           Control.Monad.Trans.Maybe  (MaybeT (..))
 import qualified Control.Monad.RWS.Strict   as RWS
@@ -30,8 +30,8 @@ import qualified Control.Monad.RWS.Strict   as RWS
 import           Data.Function              (on)
 import           Data.Monoid                (mappend, mconcat)
 import           Data.List                  (intercalate)
-import           Data.Foldable (Foldable)
-import           Data.Traversable (Traversable)
+-- import           Data.Foldable (Foldable)
+-- import           Data.Traversable (Traversable)
 import           Data.Maybe     ( isJust, isNothing
                                 , listToMaybe, maybeToList)
 import qualified Data.Map.Strict            as M
@@ -41,8 +41,8 @@ import           Data.PSQueue (Binding(..))
 import qualified Pipes                      as P
 
 import qualified NLP.FeatureStructure.Tree as FT
-import qualified NLP.FeatureStructure.Graph2 as FG
-import qualified NLP.FeatureStructure.Join2 as J
+import qualified NLP.FeatureStructure.Graph as FG
+import qualified NLP.FeatureStructure.Join as J
 import qualified NLP.FeatureStructure.Unify as U
 -- import qualified NLP.FeatureStructure.Reid2 as Reid
 
@@ -57,7 +57,7 @@ import qualified NLP.LTAG.Rule as R
 
 -- | A feature graph identifier, i.e. an identifier used to refer
 -- to individual nodes in a FS.
-type ID = FG.ID
+type ID = FT.ID
 
 
 -- -- | Symbol: a (non-terminal, maybe identifier) pair addorned with
@@ -247,7 +247,7 @@ labCmp p g q h =
     nodeCmp i j = FG.compare' g i h j
     -- data constructur identifier
     conID x = case x of
-        NonT{}      -> 1
+        NonT{}      -> 1 :: Int
         Term _      -> 2
         AuxRoot{}   -> 3
         AuxFoot{}   -> 4
@@ -341,10 +341,10 @@ instance (Ord n, Ord t, Ord i, Ord f, Ord a) => Ord (Rule n t i f a) where
 
 -- | Compile a regular rule to an internal rule.
 compile
-    :: (View n, View t, Ord i, Ord f, Eq a)
+    :: (View n, View t, Ord i, Ord f, Ord a)
     => R.Rule n t i f a -> Rule n t ID f a
 compile R.Rule{..} = unJust $ do
-    ((x, xs), FG.Res{..}) <- FT.runCon $ (,)
+    ((x, xs), J.Res{..}) <- FT.runCon $ (,)
         <$> conLab headR
         <*> mapM conLab bodyR
     return $ Rule
@@ -776,7 +776,7 @@ trySubst (StateE p) = void $ P.runListT $ do
     (r@NonT{}, _) <- some $ expects' q
     -- unify the corresponding feature structures
     -- TODO: We assume here that graph IDs are disjoint.
-    FG.Res{..} <- some $ U.unify (graph p) (graph q)
+    J.Res{..} <- some $ U.unify (graph p) (graph q)
             [ (topID $ root p, topID r)
             -- in practice, `botID r` should be empty, but
             -- it seems that we don't lose anything by taking
@@ -859,7 +859,7 @@ tryAdjoinCont (StateE p) = void $ P.runListT $ do
     -- unify the feature structures corresponding to the 'p's
     -- root and 'q's foot.  TODO: We assume here that graph IDs
     -- are disjoint.
-    FG.Res{..} <- some $ U.unify (graph p) (graph q)
+    J.Res{..} <- some $ U.unify (graph p) (graph q)
             [ (topID $ root p, topID r)
             , (botID $ root p, botID r) ]
     -- construct the resulting state; the span of the gap of the
@@ -915,7 +915,7 @@ tryAdjoinTerm (StateE p) = void $ P.runListT $ do
         x@NonT{}    -> Just x
         x@AuxVert{} -> Just x
         _           -> Nothing
-    FG.Res{..} <- some $ U.unify (graph p) (graph q)
+    J.Res{..} <- some $ U.unify (graph p) (graph q)
             [ (topID pRoot,     topID qRoot)
             , (footBotID pRoot, botID qRoot) ]
     let convR = mapID $ convID . Right
@@ -991,7 +991,7 @@ step
     => StateE n t f a
     -> Earley n t f a ()
 step p = do
-    sequence $ map ($p)
+    sequence_ $ map ($p)
       [ tryScan, trySubst
       , tryAdjoinInit
       , tryAdjoinCont

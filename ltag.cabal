@@ -28,7 +28,7 @@ library
     exposed-modules:
         NLP.LTAG.Tree2
       , NLP.LTAG.Rule
-      , NLP.LTAG.Early5
+      , NLP.LTAG.Earley5
 
     ghc-options: -Wall
 
