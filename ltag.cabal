@@ -26,7 +26,8 @@ library
       , PSQueue             >= 1.1      && < 1.2
 
     exposed-modules:
-        NLP.LTAG.Tree2
+        NLP.LTAG.Core
+      , NLP.LTAG.Tree2
       , NLP.LTAG.Rule
       , NLP.LTAG.Earley5
 
