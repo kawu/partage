@@ -177,14 +177,44 @@ runRM = flip E.evalStateT 0 . P.runEffect
 -----------------------------------------
 
 
+-- | A feature is either a regular feature 'f' or a special feature.
+type Feat f = Either f (Spec f)
+
+
+-- A special feature contains a path to the "first" (to be defined
+-- precisely) usage of the respective variable within the sub-forest.
+data Spec f = Spec {
+    -- | A path to the first occurance of the variable.
+      path  :: [Int]
+    -- | A feature path which leads to the variable.
+    , feat  :: [f]
+    -- | In top or bottom feature structure.
+    , inTop :: Bool }
+    deriving (Show, Eq, Ord)
+
+
+instance View f => View (Spec f) where
+    view = show
+
+
+-- | Add a step to the path.
+addStep :: Int -> Spec f -> Spec f
+addStep x s = s {path = x : path s}
+
+
+-- | Add a feature to the feature path.
+addFeat :: f -> Spec f -> Spec f
+addFeat x s = s {feat = x : feat s}
+
+
 -- | Take an initial tree and factorize it into a list of rules.
 treeRules
     :: (Monad m, Ord i, Ord f)
     => Bool         -- ^ Is it a top level tree?  `True' for
                     -- an entire initial tree, `False' otherwise.
     -> G.Tree n t i f a     -- ^ The tree itself
-    -> RM n t i (Either f i) a m
-        (Lab n t i (Either f i) a)
+    -> RM n t i (Feat f) a m
+        (Lab n t i (Feat f) a)
 treeRules isTop G.INode{..} = case (subTrees, isTop) of
     ([], _) -> return $ NonT
         -- Foot or substitution node:
@@ -214,9 +244,16 @@ treeRules isTop G.INode{..} = case (subTrees, isTop) of
         -- First compute the set of all identifiers which occur
         -- in the `botFS` and the sub-trees.  These IDs will be
         -- kept as special attribute values in `rootTopFS`.
-        let is = S.unions
-                $ idsIn botFS
-                : map idsInTree subTrees
+        --
+        -- Compute the map from identifiers (occuring in the `botFS`
+        -- and the sub-trees) to their addresses.  These IDs will be
+        -- kept as special attribute values in `rootTopFS`.
+--         let is = S.unions
+--                 $ idsIn botFS
+--                 : map idsInTree subTrees
+        let is = M.union
+                (idsInBot botFS)
+                (idsInFor subTrees)
             x0 = NonT 
                 { nonTerm = labelI
                 , labID   = Just i
@@ -247,8 +284,8 @@ auxRules
     => Bool
     -> G.AuxTree n t i f a
     -- -> RM n t i f a (Lab n t i f a)
-    -> RM n t i (Either f i) a m
-        (Lab n t i (Either f i) a)
+    -> RM n t i (Feat f) a m
+        (Lab n t i (Feat f) a)
 auxRules b G.AuxTree{..} =
     fst <$> doit b auxTree auxFoot
   where
@@ -259,15 +296,18 @@ auxRules b G.AuxTree{..} =
         -- We thread the set of utilized identifiers as well.
         -- Foot FSs are only taken into account at the level of
         -- the root.
-        , ((topFS, botFS), S.empty) )
+        , ((topFS, botFS), M.empty) )
     doit isTop G.INode{..} (k:ks) = do
         let (ls, bt, rs) = split k subTrees
         ls' <- mapM (treeRules False) ls
         (bt', (topBotFS, is0)) <- doit False bt ks
         rs' <- mapM (treeRules False) rs
-        let is = S.unions
-               $ idsIn botFS : is0
-               : map idsInTree (ls ++ rs)
+        let is = M.unions
+               [ idsInBot botFS
+               -- TODO: This (-1) is a bit adhoc and dangeruos...
+               -- Is it at least correct?
+               , fmap (addStep (-1)) is0
+               , idsInFor (ls ++ rs) ]
         -- In case of an internal node `xt` and `xb` are slighly
         -- different; for a root, they are the same:
         (xt, xb) <- if isTop
@@ -298,7 +338,7 @@ auxRules b G.AuxTree{..} =
             -- order to keep the invariant that the set contains all
             -- IDs from the subtree corresponding to the currently
             -- visited node.
-            , S.union is $ idsIn topFS ) )
+            , M.union (idsInTop topFS) is ) )
     doit _ _ _ = error "auxRules: incorrect path"
     split =
         doit []
@@ -314,42 +354,64 @@ auxRules b G.AuxTree{..} =
 
 
 -- | Retrieve identifiers from an FS.
-idsIn :: Ord i => FT.FN i f a -> S.Set i
-idsIn FT.FN{..} =
-    here `S.union` below
+idsIn :: Ord i => Bool -> FT.FN i f a -> M.Map i (Spec f)
+idsIn isTop FT.FN{..} =
+    here `M.union` below
   where
     here = case ide of
-        Just x -> S.singleton x
-        Nothing -> S.empty
+        Just i -> M.singleton i $ Spec [] [] isTop
+        Nothing -> M.empty
     below = case val of
         FT.Subs av -> avIds av
-        FT.Atom x  -> S.empty
-    avIds av = S.unions $ map idsIn $ M.elems av
+        FT.Atom x  -> M.empty
+    avIds av = M.unions
+        [ fmap (addFeat f) (idsIn isTop fn)
+        | (f, fn) <- M.toList av ]
+
+
+idsInTop :: Ord i => FT.FN i f a -> M.Map i (Spec f)
+idsInTop = idsIn True
+
+
+idsInBot :: Ord i => FT.FN i f a -> M.Map i (Spec f)
+idsInBot = idsIn False
 
 
 -- | Retrieve identifiers from an elementary tree.
-idsInTree :: Ord i => G.Tree n l i f a  -> S.Set i
-idsInTree G.INode{..} = S.unions $
-    idsIn topFS : idsIn botFS :
-    map idsInTree subTrees
-idsInTree G.LNode{} = S.empty
+idsInTree :: Ord i => G.Tree n l i f a  -> M.Map i (Spec f)
+idsInTree G.INode{..} = M.unions
+    [ idsInTop topFS
+    , idsInBot botFS
+    , idsInFor subTrees ]
+idsInTree G.LNode{} = M.empty
+
+
+-- | Retrieve identifiers in a forest.
+idsInFor :: Ord i => [G.Tree n l i f a]  -> M.Map i (Spec f)
+idsInFor
+    = M.unions
+    . map addStep'
+    . zip [0..] 
+    . map idsInTree
+  where
+    addStep' (i, ms) = fmap (addStep i) ms
 
 
 -- | Add specifc ID features to an FS.
 addIdFeats
     :: (Ord i, Ord f)
-    => S.Set i
+    => M.Map i (Spec f)
     -> FT.FN i f a
-    -> FT.FN i (Either f i) a
+    -> FT.FN i (Feat f) a
 addIdFeats =
     doFN
   where
     doFN is fn@FT.FN{} = fn {FT.val = doFT is (FT.val fn)}
     doFT is (FT.Subs av) = FT.Subs $ M.fromList $
-        [ (Right i, var i)
-        | i <- S.toList is ]
+        [ (Right sp, var i)
+        | (i, sp) <- M.toList is ]
             ++
-        [ (Left f, doFN S.empty fn)
+        [ (Left f, doFN M.empty fn)
         | (f, fn) <- M.toList av ]
     doFT _ (FT.Atom x) = FT.Atom x
     var i = FT.FN (Just i) (FT.Subs M.empty)
@@ -359,5 +421,5 @@ addIdFeats =
 addNoFeats
     :: (Ord i, Ord f)
     => FT.FN i f a
-    -> FT.FN i (Either f i) a
-addNoFeats = addIdFeats S.empty
+    -> FT.FN i (Feat f) a
+addNoFeats = addIdFeats M.empty
