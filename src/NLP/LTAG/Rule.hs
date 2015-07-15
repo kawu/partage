@@ -9,6 +9,7 @@ import qualified Control.Monad.RWS.Strict   as RWS
 
 import qualified Data.Set as S
 import qualified Data.Map.Strict as M
+import           Data.List (intercalate)
 
 import qualified NLP.FeatureStructure.Tree as FT
 
@@ -87,6 +88,31 @@ data Lab n t i f a
     deriving (Show)
 
 
+-- | Show full info about the label.
+viewLabFS
+    :: (Ord i, View n, View t, View i, View f, View a)
+    => Lab n t i f a
+    -> String
+viewLabFS lab = case lab of
+    NonT{..} -> "N(" ++ view nonTerm
+        ++ ( case labID of
+                Nothing -> ""
+                Just i  -> ", " ++ view i ) ++ ")"
+        ++ "[t=" ++ showFS rootTopFS
+        ++ ",b=" ++ showFS rootBotFS ++ "]"
+    Term t -> "T(" ++ view t ++ ")"
+    AuxRoot{..} -> "A(" ++ view nonTerm ++ ")"
+        ++ "[t=" ++ showFS rootTopFS
+        ++ ",b=" ++ showFS rootBotFS
+        ++ ",ft=" ++ showFS footTopFS
+        ++ ",fb=" ++ showFS footBotFS ++ "]"
+    AuxFoot x -> "F(" ++ view x ++ ")"
+    AuxVert{..} -> "V(" ++ view nonTerm ++ ", " ++ view symID ++ ")"
+        ++ "[t=" ++ showFS rootTopFS
+        ++ ",b=" ++ showFS rootBotFS ++ "]"
+    where showFS = FT.showFN
+
+
 -- -- | Show the label.
 -- viewLab :: (View n, View t) => Lab n t -> String
 -- viewLab (NonT s) = "N" ++ viewSym s
@@ -102,6 +128,17 @@ data Rule n t i f a = Rule {
     -- | The body of the rule
     , bodyR :: [Lab n t i f a]
     } deriving (Show)
+
+
+-- | Print the state.
+printRuleFS
+    :: ( Ord i, View n, View t
+       , View i, View f, View a )
+    => Rule n t i f a -> IO ()
+printRuleFS Rule{..} = do
+    putStr $ viewLabFS headR
+    putStr " -> "
+    putStr $ intercalate " " $ map viewLabFS bodyR
 
 
 --------------------------
@@ -297,17 +334,17 @@ addIdFeats
     => S.Set i
     -> FT.FN i f a
     -> FT.FN i (Either f i) a
-addIdFeats is =
+addIdFeats =
     doFN
   where
-    doFN fn@FT.FN{} = fn {FT.val = doFT (FT.val fn)}
-    doFT (FT.Subs av) = FT.Subs $ M.fromList $
+    doFN is fn@FT.FN{} = fn {FT.val = doFT is (FT.val fn)}
+    doFT is (FT.Subs av) = FT.Subs $ M.fromList $
         [ (Right i, var i)
         | i <- S.toList is ]
             ++
-        [ (Left f, doFN fn)
+        [ (Left f, doFN S.empty fn)
         | (f, fn) <- M.toList av ]
-    doFT (FT.Atom x) = FT.Atom x
+    doFT _ (FT.Atom x) = FT.Atom x
     var i = FT.FN (Just i) (FT.Subs M.empty)
 
 
