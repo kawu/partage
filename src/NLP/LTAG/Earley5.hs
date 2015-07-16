@@ -21,11 +21,13 @@ module NLP.LTAG.Earley5 where
 
 
 import           Control.Applicative        ((<*>), (<$>))
-import           Control.Monad              (guard, void)
--- import qualified Control.Monad.State.Strict as ST
+import           Control.Arrow              (second)
+import           Control.Monad              (guard, void, forever)
+import qualified Control.Monad.State.Strict as E
 import           Control.Monad.Trans.Class  (lift)
 import           Control.Monad.Trans.Maybe  (MaybeT (..))
 import qualified Control.Monad.RWS.Strict   as RWS
+import           Control.Monad.Identity     (Identity(..))
 
 import           Data.Function              (on)
 import           Data.Monoid                (mappend, mconcat)
@@ -38,7 +40,9 @@ import qualified Data.Map.Strict            as M
 import qualified Data.Set                   as S
 import qualified Data.PSQueue               as Q
 import           Data.PSQueue (Binding(..))
+import qualified Data.Partition             as Part
 import qualified Pipes                      as P
+-- import qualified Pipes.Prelude              as P
 
 import qualified NLP.FeatureStructure.Tree as FT
 import qualified NLP.FeatureStructure.Graph as FG
@@ -153,6 +157,8 @@ mapID f lab = case lab of
 
 -- | Label equality within the context of corresponding
 -- feature graphs.
+--
+-- TODO: Reimplement based on `labEq'`
 labEq
     :: forall n t i j f a
      -- We have to use scoped type variables in order to be able
@@ -202,6 +208,58 @@ labEq p g q h =
     nodeEq i j = FG.equal g i h j
 
 
+-- | Label equality within the context of corresponding feature
+-- graphs.  Concerning the `SymID` values, it is only checked if
+-- either both are `Nothing` or both are `Just`.
+labEq'
+    :: forall n t i j f a
+     -- We have to use scoped type variables in order to be able
+     -- to refer to them from the internal functions.  The usage
+     -- of the internal `nodeEq` is most likely responsible for
+     -- this. 
+     . (Eq n, Eq t, Ord i, Ord j, Eq f, Eq a)
+    => Lab n t i        -- ^ First label `x`
+    -> FG.Graph i f a   -- ^ Graph corresponding to `x`
+    -> Lab n t j        -- ^ Second label `y`
+    -> FG.Graph j f a   -- ^ Graph corresponding to `y`
+    -> Bool
+labEq' p g q h =
+    eq p q
+  where
+    eq x@NonT{} y@NonT{}
+        =  eqOn nonTerm x y
+        && eqOn (isJust . labID) x y
+        && nodeEqOn topID x y
+        && nodeEqOn botID x y
+    eq (Term x) (Term y)
+        =  x == y 
+    eq x@AuxRoot{} y@AuxRoot{}
+        =  eqOn nonTerm x y
+        && nodeEqOn topID x y
+        && nodeEqOn botID x y
+        && nodeEqOn footTopID x y
+        && nodeEqOn footBotID x y
+    eq (AuxFoot x) (AuxFoot y)
+        =  x == y
+    eq x@AuxVert{} y@AuxVert{}
+        =  eqOn nonTerm x y
+        -- && eqOn symID x y
+        && nodeEqOn topID x y
+        && nodeEqOn botID x y
+    eq _ _ = False
+    -- if we don't write `forall k.` then compiler tries to match
+    -- it with both `i` and `j` at the same time.
+    eqOn :: Eq z => (forall k . Lab n t k -> z)
+         -> Lab n t i -> Lab n t j -> Bool
+    eqOn f x y = f x == f y
+    nodeEqOn :: (forall k . Lab n t k -> k)
+        -> Lab n t i -> Lab n t j -> Bool
+    nodeEqOn f x y = nodeEq (f x) (f y)
+    -- assumption: the first index belongs to the first
+    -- graph, the second to the second graph.
+    nodeEq i j = FG.equal g i h j
+
+
 -- | Label comparison within the context of corresponding
 -- feature graphs.
 labCmp
@@ -233,6 +291,59 @@ labCmp p g q h =
     cmp x@AuxVert{} y@AuxVert{} =
         cmpOn nonTerm x y       `mappend`
         cmpOn symID x y         `mappend`
+        nodeCmpOn topID x y `mappend`
+        nodeCmpOn botID x y
+    cmp x y = cmpOn conID x y
+    cmpOn :: Ord z => (forall k . Lab n t k -> z)
+          -> Lab n t i -> Lab n t j -> Ordering
+    cmpOn f x y = compare (f x) (f y)
+    nodeCmpOn :: (forall k . Lab n t k -> k)
+              -> Lab n t i -> Lab n t j -> Ordering
+    nodeCmpOn f x y = nodeCmp (f x) (f y)
+    -- assumption: the first index belongs to the first
+    -- graph, the second to the second graph.
+    nodeCmp i j = FG.compare' g i h j
+    -- data constructur identifier
+    conID x = case x of
+        NonT{}      -> 1 :: Int
+        Term _      -> 2
+        AuxRoot{}   -> 3
+        AuxFoot{}   -> 4
+        AuxVert{}   -> 5
+
+
+-- | Label comparison within the context of corresponding
+-- feature graphs.  Concerning the `SymID` values, it is only
+-- checked if either both are `Nothing` or both are `Just`.
+labCmp'
+    :: forall n t i j f a
+     . (Ord n, Ord t, Ord i, Ord j, Ord f, Ord a)
+    => Lab n t i      -- ^ First label `x`
+    -> FG.Graph i f a -- ^ Graph corresponding to `x`
+    -> Lab n t j      -- ^ Second label `y`
+    -> FG.Graph j f a -- ^ Graph corresponding to `y`
+    -> Ordering
+labCmp' p g q h =
+    cmp p q
+  where
+    cmp x@NonT{} y@NonT{} =
+        cmpOn nonTerm x y       `mappend`
+        cmpOn (isJust . labID) x y        `mappend`
+        nodeCmpOn topID x y     `mappend`
+        nodeCmpOn botID x y
+    cmp (Term x) (Term y) =
+        compare x y
+    cmp x@AuxRoot{} y@AuxRoot{} =
+        cmpOn nonTerm x y       `mappend`
+        nodeCmpOn topID x y `mappend`
+        nodeCmpOn botID x y `mappend`
+        nodeCmpOn footTopID x y `mappend`
+        nodeCmpOn footBotID x y
+    cmp (AuxFoot x) (AuxFoot y) =
+        compare x y
+    cmp x@AuxVert{} y@AuxVert{} =
+        cmpOn nonTerm x y       `mappend`
+        -- cmpOn symID x y         `mappend`
         nodeCmpOn topID x y `mappend`
         nodeCmpOn botID x y
     cmp x y = cmpOn conID x y
@@ -325,18 +436,162 @@ data Rule n t i f a = Rule {
     } deriving (Show)
 
 
+-- Let us take a rule and let us assume that all identifiers it
+-- contains point to rules which have already been processed (for
+-- this assumption to be valid we just need to order the set of
+-- rules properly).  So we have a rule `r`, a set of processed
+-- rules `rs` and a clustering (disjoint-set) over `SymID`s
+-- present in `rs`.
+--
+-- Now we want to process `r` and, in particular, check if it is
+-- not already in `rs` and update its `SymID`s.
+--
+-- First we translate the body w.r.t. the existing clustering of
+-- `SymID`s (thanks to our assumption, these `SymID`s are already
+-- known and processed).  The `SymID` in the root of the rule (if
+-- present) is the new one and it should not yet have been mentioned
+-- in `rs`.  Even when `SymID` is not present in the root, we can
+-- still try to check if `r` is not present in `rs` -- after all, there
+-- may be some duplicates in the input grammar.
+--
+-- Case 1: we have a rule with a `SymID` in the root.  We want to
+-- check if there is already a rule in `rs` which:
+-- * Has identical body (remember that we have already
+--   transformed `SymID`s of the body of the rule in question)
+-- * Has the same non-terminal in the root and some `SymID`
+--
+-- Case 2: the same as case 1 with the difference that we look
+-- for the rules which have an empty `SymID` in the root.
+--
+-- For this to work we just need a specific comparison function
+-- which works as specified in the two cases desribed above
+-- (i.e. either there are some `SymID`s in the roots, or there
+-- are no `SymID`s in both roots.) 
+--
+-- Once we have this comparison, we simply process the set of
+-- rules incrementally.
+
+
+
+-- | Duplication-removal state.
+data DupS n t i f a = DupS {
+    -- | A disjoint set for `SymID`s
+      symDisj   :: Part.Partition SymID
+    -- | Rules already saved
+    , rulDepo   :: S.Set (Rule n t i f a)
+    } 
+
+
+-- | Duplication-removal transformer.
+type DupT n t i f a m = E.StateT (DupS n t i f a) m
+
+
+-- | Duplication-removal monad.
+type DupM n t i f a = DupT n t i f a Identity
+
+
+-- | Run the transformer.
+runDupT
+    :: (Functor m, Monad m)
+    => DupT n t i f a m b
+    -> m (b, S.Set (Rule n t i f a))
+runDupT = fmap (second rulDepo) . flip E.runStateT
+    (DupS Part.empty S.empty)
+
+
+-- | Update the body of the rule by replacing old `SymID`s with
+-- their representatives.
+updateBody
+    :: Rule n t i f a
+    -> DupM n t i f a (Rule n t i f a)
+updateBody r = do
+    d <- E.gets symDisj
+    let body' = map (updLab d) (bodyR r)
+    return $ r { bodyR = body' }
+  where
+    updLab d x@NonT{..}     = x { labID = updSym d <$> labID }
+    updLab d x@AuxVert{..}  = x { symID = updSym d symID }
+    updLab _ x              = x
+    updSym                  = Part.rep
+
+
+-- | Find a rule if already present.
+findRule 
+    :: (Ord n, Ord t, Ord i, Ord f, Ord a)
+    => Rule n t i f a
+    -> DupM n t i f a (Maybe (Rule n t i f a))
+findRule x = do
+    s <- E.gets rulDepo
+    return $ lookupSet x s
+
+
+-- | Join two `SymID`s.
+joinSym :: SymID -> SymID -> DupM n t i f a ()
+joinSym x y = E.modify $ \s@DupS{..} -> s
+    { symDisj = Part.joinElems x y symDisj }
+    
+
+
+-- | Save the rule in the underlying deposit. 
+keepRule
+    :: (Ord n, Ord t, Ord i, Ord f, Ord a)
+    => Rule n t i f a
+    -> DupM n t i f a ()
+keepRule r = E.modify $ \s@DupS{..} -> s
+    { rulDepo = S.insert r rulDepo }
+
+
+-- | Retrieve the symbol of the head of the rule.
+headSym :: Rule n t i f a -> Maybe SymID
+headSym r = case headR r of
+    NonT{..}    -> labID
+    AuxVert{..} -> Just symID
+    _           -> Nothing
+
+
+-- | Removing duplicates updating `SymID`s at the same time.
+-- WARNING: The pipe assumes that `SymID`s to which the present
+-- rule refers have already been processed -- in other words,
+-- that rule on which the present rule depends have been
+-- processed earlier.
+rmDups
+    :: (Ord n, Ord t, Ord i, Ord f, Ord a)
+    => P.Pipe
+        (Rule n t i f a)    -- Input
+        (Rule n t i f a)    -- Output 
+        (DupM n t i f a)    -- Underlying state
+        ()                  -- No result
+rmDups = forever $ do
+    r <- P.await >>= lift . updateBody
+    lift (findRule r) >>= \mr -> case mr of
+        Nothing -> do
+            lift $ keepRule r
+            P.yield r
+        Just r' -> case (headSym r, headSym r') of
+            (Just x, Just y)    -> lift $ joinSym x y
+            _                   -> return ()
+--         Just r' -> void $ runMaybeT $ joinSym
+--             <$> headSymT r
+--             <*> headSymT r'
+    -- where headSymT = maybeT . headSym
+
+
 instance (Eq n, Eq t, Ord i, Eq f, Eq a) => Eq (Rule n t i f a) where
-    r == s = (eq `on` headR) r s
+    r == s = (hdEq `on` headR) r s
         && ((==) `on` length.bodyR) r s
         && and [eq x y | (x, y) <- zip (bodyR r) (bodyR s)]
-        where eq x y = labEq x (graphR r) y (graphR s)
+      where
+        eq x y   = labEq  x (graphR r) y (graphR s)
+        hdEq x y = labEq' x (graphR r) y (graphR s)
 
 
 instance (Ord n, Ord t, Ord i, Ord f, Ord a) => Ord (Rule n t i f a) where
-    r `compare` s = (cmp `on` headR) r s    `mappend`
+    r `compare` s = (hdCmp `on` headR) r s    `mappend`
         (compare `on` length.bodyR) r s     `mappend`
         mconcat [cmp x y | (x, y) <- zip (bodyR r) (bodyR s)]
-        where cmp x y = labCmp x (graphR r) y (graphR s)
+      where
+        cmp x y   = labCmp  x (graphR r) y (graphR s)
+        hdCmp x y = labCmp' x (graphR r) y (graphR s)
 
 
 -- | Compile a regular rule to an internal rule.
@@ -1044,3 +1299,11 @@ each = P.Select . P.each
 -- | ListT from a maybe.
 some :: Monad m => Maybe a -> P.ListT m a
 some = each . maybeToList
+
+
+-- | Lookup an element in a set.
+lookupSet :: Ord a => a -> S.Set a -> Maybe a
+lookupSet x s = do    
+    y <- S.lookupLE x s
+    guard $ x == y
+    return y
