@@ -1251,7 +1251,10 @@ earley gram xs =
     -- is non-empty.
     loop = popState >>= \mp -> case mp of
         Nothing -> return ()
-        Just p -> step p >> loop
+        Just p -> do
+            -- lift $ case p of
+            --     (StateE q) -> putStr "POPED: " >> printState q
+            step p >> loop
 
 
 -- | Step of the algorithm loop.  `p' is the state popped up from
