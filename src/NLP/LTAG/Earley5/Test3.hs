@@ -6,11 +6,14 @@ module NLP.LTAG.Early5.Test3 where
 
 import           Control.Applicative ((<$>), (<*>))
 import           Control.Monad (void)
+import qualified Control.Monad.State.Strict as E
 
 import qualified Data.IntMap as I
 import qualified Data.Set as S
 import           Data.List (sortBy)
 import           Data.Ord (comparing)
+import qualified Pipes as P
+import qualified Pipes.Prelude as P
 
 import qualified NLP.FeatureStructure.Tree as FS
 import qualified NLP.FeatureStructure.AVM as A
@@ -86,9 +89,8 @@ beta2 = AuxTree (INode "X" red red
 
 testGram :: [String] -> IO ()
 testGram sent = do
-    void $ earley gram sent
-    -- mapM_ print $ S.toList gram
-  where
-    gram = S.fromList $ map compile $ snd $ runRM $ do
+    rs <- flip E.evalStateT 0 $ P.toListM $ do
         mapM_ (treeRules True) [alpha]
         mapM_ (auxRules True) [beta1, beta2]
+    let gram = S.fromList $ map compile rs
+    void $ earley gram sent

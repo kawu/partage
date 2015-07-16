@@ -1,23 +1,26 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 
-module NLP.LTAG.Early5.Test4 where
+module NLP.LTAG.Earlye5.Test4 where
 
 
 import           Control.Applicative ((<$>), (<*>))
 import           Control.Monad (void)
+import qualified Control.Monad.State.Strict as E
 
 import qualified Data.IntMap as I
 import qualified Data.Set as S
 import           Data.List (sortBy)
 import           Data.Ord (comparing)
+import qualified Pipes as P
+import qualified Pipes.Prelude as P
 
 import qualified NLP.FeatureStructure.Tree as FS
 import qualified NLP.FeatureStructure.AVM as A
 
 import           NLP.LTAG.Tree2
 import           NLP.LTAG.Rule
-import           NLP.LTAG.Early5
+import           NLP.LTAG.Earley5
 
 
 ---------------------------------------------------------------------
@@ -62,7 +65,7 @@ alpha :: Tr
 alpha = INode "S" colX empty
     [ LNode "p"
     , INode "Z" empty empty
-        [ INode "X" colX empty
+        [ INode "X" empty colX
             [ LNode "e" ] ]
     , LNode "q" ]
 
@@ -70,10 +73,11 @@ alpha = INode "S" colX empty
 beta1 :: AuxTr
 beta1 = AuxTree (INode "X" red red
     [ LNode "a"
-    , INode "X" empty empty
+    , INode "X" colX empty
+      [ INode "Q" empty colX
         [ INode "X" black black []
-        , LNode "a" ] ]
-    ) [1,0]
+        , LNode "a" ] ] ]
+    ) [1,0,0]
 
 
 beta2 :: AuxTr
@@ -87,9 +91,8 @@ beta2 = AuxTree (INode "X" red red
 
 testGram :: [String] -> IO ()
 testGram sent = do
-    void $ earley gram sent
-    -- mapM_ print $ S.toList gram
-  where
-    gram = S.fromList $ map compile $ snd $ runRM $ do
+    rs <- flip E.evalStateT 0 $ P.toListM $ do
         mapM_ (treeRules True) [alpha]
         mapM_ (auxRules True) [beta1, beta2]
+    let gram = S.fromList $ map compile rs
+    void $ earley gram sent

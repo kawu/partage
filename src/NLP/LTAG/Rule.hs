@@ -244,13 +244,12 @@ treeRules isTop G.INode{..} = case (subTrees, isTop) of
         -- First compute the set of all identifiers which occur
         -- in the `botFS` and the sub-trees.  These IDs will be
         -- kept as special attribute values in `rootTopFS`.
-        --
-        -- Compute the map from identifiers (occuring in the `botFS`
-        -- and the sub-trees) to their addresses.  These IDs will be
-        -- kept as special attribute values in `rootTopFS`.
 --         let is = S.unions
 --                 $ idsIn botFS
 --                 : map idsInTree subTrees
+        -- Compute the map from identifiers (occuring in the `botFS`
+        -- and the sub-trees) to their addresses.  These IDs will be
+        -- kept as special attribute values in `rootTopFS`.
         let is = M.union
                 (idsInBot botFS)
                 (idsInFor subTrees)
