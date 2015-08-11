@@ -133,7 +133,7 @@ data Rule n t i f a = Rule {
     } deriving (Show)
 
 
--- | Print the state.
+-- | Print the rule.
 printRuleFS
     :: ( Ord i, View n, View t
        , View i, View f, View a )
