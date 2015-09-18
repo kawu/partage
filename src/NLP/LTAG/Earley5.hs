@@ -1227,12 +1227,15 @@ earley
     :: (VOrd t, VOrd n, VOrd f, VOrd a)
     => S.Set (Rule n t ID f a) -- ^ The grammar (set of rules)
     -> [t]                     -- ^ Input sentence
-    -- -> IO (S.Set (State n t))
-    -> IO ()
+    -> IO (S.Set (StateE n t f a))
+    -- -> IO ()
 earley gram xs =
-    -- done . fst <$> RWS.execRWST loop xs st0
-    void $ RWS.execRWST loop xs st0
+    agregate . doneProSpan . fst <$> RWS.execRWST loop xs st0
+    -- void $ RWS.execRWST loop xs st0
   where
+    -- Agregate the results from the `doneProSpan` part of the
+    -- result.
+    agregate = S.unions . M.elems
     -- we put in the initial state all the states with the dot on
     -- the left of the body of the rule (-> left = []) on all
     -- positions of the input sentence.

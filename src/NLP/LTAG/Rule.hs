@@ -11,6 +11,7 @@ import qualified Control.Monad.State.Strict   as E
 import qualified Data.Set as S
 import qualified Data.Map.Strict as M
 import           Data.List (intercalate)
+import           Data.String.ToString (ToString(..))
 
 import qualified Pipes as P
 
@@ -195,6 +196,13 @@ data Spec f = Spec {
 
 instance View f => View (Spec f) where
     view = show
+
+instance View f => ToString (Spec f) where
+    toString = view
+
+instance (ToString a, ToString b) => ToString (Either a b) where
+    toString (Left x)  = "L " ++ toString x
+    toString (Right x) = "R " ++ toString x
 
 
 -- | Add a step to the path.

@@ -25,15 +25,28 @@ library
       , pipes               >= 4.1      && < 4.2
       , PSQueue             >= 1.1      && < 1.2
       , data-partition      >= 0.3      && < 0.4
+      -- for using diagrams framework
+      , SVGFonts                >= 1.5      && < 2.0
+      , diagrams-svg            >= 1.3      && < 2.0
+      , diagrams-lib            >= 1.3      && < 2.0
+      , tostring                >= 0.2      && < 1.0
 
     exposed-modules:
         NLP.LTAG.Core
       , NLP.LTAG.Tree2
       , NLP.LTAG.Rule
       , NLP.LTAG.Earley5
+      , NLP.LTAG.Earley5.Draw
 
     ghc-options: -Wall
 
 source-repository head
     type: git
     location: https://github.com/kawu/ltag.git
+
+
+executable test1
+    -- build-depends:
+    hs-source-dirs: tools, src
+    main-is: test1.hs
+    ghc-options: -Wall -O2 -threaded -rtsopts
