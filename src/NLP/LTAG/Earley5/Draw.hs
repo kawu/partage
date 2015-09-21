@@ -72,20 +72,32 @@ drawState
     -> QDiagram b V2 Double Any
 drawState State{..} = D.runDiag $ do
     rootDiag  <- drawLab' root
-    leftDiag  <- mapM drawLab' left
+    leftDiag  <- mapM drawLab' $ reverse left
     rightDiag <- mapM drawLab' right
-    return $ hcat' (with & sep .~ 5) $ 
-        [ rootDiag, D.drawText' labelSize black "->"
+    -- return $ hcat' (with & sep .~ 5) $ 
+    return $ hcat $ divide
+        [ spanDiag
+        , strutX gapSize, strutX gapSize
+        , rootDiag
+        , D.drawText' labelSize black "->"
         , hcat (divide leftDiag)
-        , circle 3 # fc black # lw none
+        , case gapDiag of
+            Nothing -> circle
+                (labelSize / 10.0) # fc black # lw none
+            Just dg -> dg
         , hcat (divide rightDiag) ]
   where
     drawLab' = drawLab graph
 --     drawLab' x = do
 --         y <- drawLab graph x
 --         return $ y # centerXY # showOrigin
-    divide = intersperse $ strutX 5
+    divide = intersperse $ strutX gapSize
     -- vrule 20
+    spanDiag = D.drawText' labelSize grey (show (beg, end))
+    gapDiag = case gap of
+        Nothing -> Nothing 
+        Just gp -> Just . D.drawText' labelSize black $ show gp
+    gapSize = labelSize / 3.0
 
 
 --------------------------

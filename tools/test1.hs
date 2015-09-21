@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 
 
@@ -25,7 +26,7 @@ import           NLP.LTAG.Rule
 import           NLP.LTAG.Earley5
 import           NLP.LTAG.Earley5.Draw (drawState)
 
-import           Diagrams.Prelude hiding ((##), (|>))
+import           Diagrams.Prelude hiding ((##), (|>), end)
 import           Diagrams.Backend.SVG.CmdLine
 
 
@@ -129,6 +130,7 @@ jean = mkN "N"
         "det"   ## "+"
         "pers"  ## "3"
         "num"   ## "sing"
+        "genre" ## "masc"
     ) |>
     [ mkL "Jean" ]
 
@@ -207,14 +209,17 @@ main = do
     let gram = S.fromList $ map compile rs
     -- The set of done states (entirely processed rules)
     done <- earley gram sent
+    -- Sort the diagrams appropriately
+    let doneSorted = sortBy (comparing sortKey) (S.toList done)
     -- Draw all the state diagrams
-    let statDiags = flip map (S.toList done) $ \(StateE p) ->
-            drawState p # centerXY -- # showOrigin
+    let statDiags = flip map doneSorted $ \(StateE p) ->
+            drawState p # centerY -- # showOrigin
         statDiags' = flip intersperse statDiags $ hrule 50
     mainWith (vcat' (with & sep .~ 10) statDiags' :: Diagram B)
   where
     getRules (Left x)  = treeRules True x
     getRules (Right x) = auxRules  True x
+    sortKey (StateE p) = (end p, end p - beg p)
 
 
 -- doTest = do
