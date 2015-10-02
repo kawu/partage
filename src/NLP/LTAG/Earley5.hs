@@ -365,9 +365,10 @@ labCmp' p g q h =
         AuxVert{}   -> 5
 
 
--- | A simplified label.  In contrast to `Lab n t`, it provides
--- Eq and Ord instances.  TODO: note that we lose the distinction
--- between `AuxRoot` and `AuxFoot` here.
+-- | A simplified label which does not contain any information
+-- about FSs.  In contrast to `Lab n t`, it provides Eq and Ord
+-- instances.  TODO: note that we lose the distinction between
+-- `AuxRoot` and `AuxFoot` here.
 data SLab n t
     = SNonT (n, Maybe SymID)
     | STerm t
