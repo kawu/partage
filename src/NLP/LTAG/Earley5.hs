@@ -437,6 +437,29 @@ data Rule n t i f a = Rule {
     } deriving (Show)
 
 
+--------------------------------------------------
+-- Substructure Sharing
+--------------------------------------------------
+
+
+-- | Duplication-removal state serves to share common
+-- substructures.
+--
+-- The idea is to remove redundant rules equivalent to other
+-- rules already present in the set of processed rules
+-- `rulDepo`(sit).
+--
+-- Note that rules have to be processed in an appropriate order
+-- so that lower-level rules are processed before the
+-- higher-level rules from which they are referenced.
+data DupS n t i f a = DupS {
+    -- | A disjoint set for `SymID`s
+      symDisj   :: Part.Partition SymID
+    -- | Rules already saved
+    , rulDepo   :: S.Set (Rule n t i f a)
+    } 
+
+
 -- Let us take a rule and let us assume that all identifiers it
 -- contains point to rules which have already been processed (for
 -- this assumption to be valid we just need to order the set of
@@ -471,16 +494,6 @@ data Rule n t i f a = Rule {
 --
 -- Once we have this comparison, we simply process the set of
 -- rules incrementally.
-
-
-
--- | Duplication-removal state.
-data DupS n t i f a = DupS {
-    -- | A disjoint set for `SymID`s
-      symDisj   :: Part.Partition SymID
-    -- | Rules already saved
-    , rulDepo   :: S.Set (Rule n t i f a)
-    } 
 
 
 -- | Duplication-removal transformer.

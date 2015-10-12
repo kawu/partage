@@ -230,7 +230,7 @@ treeRules isTop G.INode{..} = case (subTrees, isTop) of
         , labID   = Nothing
         -- In theory one of the following should be an empty FS, but
         -- we can adopt a more general definition where both are
-        -- non-empty.
+        -- possibly non-empty.
         , rootTopFS = addNoFeats topFS
         , rootBotFS = addNoFeats botFS }
     (_, True) -> do
