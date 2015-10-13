@@ -1104,8 +1104,12 @@ tryAdjoinInit
     => StateE n t f a
     -> Earley n t f a ()
 tryAdjoinInit (StateE p) = void $ P.runListT $ do
-    -- make sure that `p' is fully-parsed
-    guard $ completed p
+    -- make sure that `p' is fully-matched and that it is either
+    -- a regular rule or an intermediate auxiliary rule ((<=)
+    -- used as an implication here!); look at `tryAdjoinTerm`
+    -- for motivations.
+    guard $ completed p && auxiliary p <= subLevel p
+    -- before: guard $ completed p
     -- find all rules which expect a real foot (with ID == Nothing)
     -- and which end where `p' begins.
     let u = nonTerm (root p)
