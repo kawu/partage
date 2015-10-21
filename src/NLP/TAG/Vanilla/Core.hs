@@ -2,7 +2,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 
-module NLP.LTAG.Core where
+module NLP.TAG.Vanilla.Core where
 
 
 --------------------------------------------------
