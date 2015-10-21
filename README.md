@@ -1,4 +1,2 @@
-ltag
-====
-
-Fun with LTAGs
+tag-vanilla
+===========
