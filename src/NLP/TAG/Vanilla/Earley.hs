@@ -7,7 +7,7 @@
 module NLP.TAG.Vanilla.Earley where
 
 
-import           Control.Applicative        ((<*>), (<$>))
+import           Control.Applicative        ((<$>))
 import           Control.Arrow              (second)
 import           Control.Monad              (guard, void, forever)
 import qualified Control.Monad.State.Strict as E
@@ -32,7 +32,7 @@ import qualified Pipes                      as P
 -- import qualified Pipes.Prelude              as P
 
 import           NLP.TAG.Vanilla.Core
-import qualified NLP.TAG.Vanilla.Rule as R
+-- import qualified NLP.TAG.Vanilla.Rule as R
 import           NLP.TAG.Vanilla.Rule
     ( Lab(..), viewLab, Rule(..) )
 
@@ -722,179 +722,149 @@ tryAdjoinInit p = void $ P.runListT $ do
     lift $ pushState q'
 
 
--- -- | `tryAdjoinCont p q':
--- -- * `p' is a completed, auxiliary state
--- -- * `q' not completed and expects a *dummy* foot
--- tryAdjoinCont
---     :: (VOrd n, VOrd t, VOrd f, VOrd a)
---     => StateE n t f a
---     -> Earley n t f a ()
--- tryAdjoinCont (StateE p) = void $ P.runListT $ do
---     -- make sure that `p' is a completed, sub-level auxiliary rule
---     guard $ completed p && subLevel p && auxiliary p
---     -- find all rules which expect a foot provided by `p'
---     -- and which end where `p' begins.
---     StateE q <- expectEnd (simpLab $ root p) (beg p)
---     (r@AuxVert{}, _) <- some $ expects' q
---     -- unify the feature structures corresponding to the 'p's
---     -- root and 'q's foot.  TODO: We assume here that graph IDs
---     -- are disjoint.
---     J.Res{..} <- some $ U.unify (graph p) (graph q)
---             [ (topID $ root p, topID r)
---             , (botID $ root p, botID r) ]
---     -- construct the resulting state; the span of the gap of the
---     -- inner state `p' is copied to the outer state based on `q'
---     let conv = mapID $ convID . Right
---         q' = q
---             { gap = gap p, end = end p
---             , root  = conv $ root q 
---             , left  = map conv $ r : left q
---             , right = map conv $ tail $ right q
---             -- , left = r : left q
---             -- , right = tail (right q)
---             , graph = resGraph }
---     -- logging info
---     lift . lift $ do
---         putStr "[B]  " >> printState p
---         putStr "  +  " >> printState q
---         putStr "  :  " >> printState q'
---     -- push the resulting state into the waiting queue
---     lift $ pushState $ StateE q'
--- 
--- 
--- -- | Adjoin a fully-parsed auxiliary state `p` to a partially parsed
--- -- tree represented by a fully parsed rule/state `q`.
--- tryAdjoinTerm
---     :: (VOrd t, VOrd n, VOrd a, VOrd f)
---     => StateE n t f a
---     -> Earley n t f a ()
--- tryAdjoinTerm (StateE p) = void $ P.runListT $ do
---     -- make sure that `p' is a completed, top-level state ...
---     guard $ completed p && topLevel p
---     -- ... and that it is an auxiliary state (by definition only
---     -- auxiliary states have gaps)
---     (gapBeg, gapEnd) <- each $ maybeToList $ gap p
---     -- it is top-level, so we can also make sure that the
---     -- root is an AuxRoot.
---     pRoot@AuxRoot{} <- some $ Just $ root p
---     -- take all completed rules with a given span
---     -- and a given root non-terminal (IDs irrelevant)
---     StateE q <- rootSpan (nonTerm $ root p) (gapBeg, gapEnd)
---     -- make sure that `q' is completed as well and that it is either
---     -- a regular (perhaps intermediate) rule or an intermediate
---     -- auxiliary rule (note that (<=) is used as an implication
---     -- here and can be read as `implies`).
---     -- NOTE: root auxiliary rules are of no interest to us but they
---     -- are all the same taken into account in an indirect manner.
---     -- We can assume here that such rules are already adjoined thus
---     -- creating either regular or intermediate auxiliary.
---     -- NOTE: similar reasoning can be used to explain why foot
---     -- auxiliary rules are likewise ignored.
---     -- Q: don't get this second remark -- how could a foot node
---     -- be a root of a state/rule `q`?  What `foot auxiliary rules`
---     -- could actually mean?
---     guard $ completed q && auxiliary q <= subLevel q
---     -- TODO: it seems that some of the constraints given above
---     -- follow from the code below:
---     qRoot <- some $ case root q of
---         x@NonT{}    -> Just x
---         x@AuxVert{} -> Just x
---         _           -> Nothing
---     J.Res{..} <- some $ U.unify (graph p) (graph q)
---             [ (topID pRoot,     topID qRoot)
---             , (footBotID pRoot, botID qRoot) ]
---     let convR = mapID $ convID . Right
---         convL = convID . Left
---     newRoot <- some $ case qRoot of
---         NonT{} -> Just $ NonT
---             { nonTerm = nonTerm qRoot
---             , labID = labID qRoot
---             , topID = convL $ topID pRoot
---             , botID = convL $ botID pRoot }
---         AuxVert{} -> Just $ AuxVert
---             { nonTerm = nonTerm qRoot
---             , symID = symID qRoot
---             , topID = convL $ topID pRoot
---             , botID = convL $ botID pRoot }
---         _           -> Nothing
---     let q' = q
---             { root = newRoot 
---             , left  = map convR $ left q
---             , right = map convR $ right q
---             , beg = beg p
---             , end = end p
---             , graph = resGraph }
---     lift . lift $ do
---         putStr "[C]  " >> printState p
---         putStr "  +  " >> printState q
---         putStr "  :  " >> printState q'
---     lift $ pushState $ StateE q'
--- 
--- 
--- --------------------------------------------------
--- -- EARLEY
--- --------------------------------------------------
--- 
--- 
--- -- | Perform the earley-style computation given the grammar and
--- -- the input sentence.
--- earley
---     :: (VOrd t, VOrd n, VOrd f, VOrd a)
---     => S.Set (Rule n t ID f a) -- ^ The grammar (set of rules)
---     -> [t]                     -- ^ Input sentence
---     -> IO (S.Set (StateE n t f a))
---     -- -> IO ()
--- earley gram xs =
---     agregate . doneProSpan . fst <$> RWS.execRWST loop xs st0
---     -- void $ RWS.execRWST loop xs st0
---   where
---     -- Agregate the results from the `doneProSpan` part of the
---     -- result.
---     agregate = S.unions . M.elems
---     -- we put in the initial state all the states with the dot on
---     -- the left of the body of the rule (-> left = []) on all
---     -- positions of the input sentence.
---     st0 = mkEarSt $ S.fromList -- $ Reid.runReid $ mapM reidState
---         [ StateE $ State
---             { root  = headR
---             , left  = []
---             , right = bodyR
---             , beg   = i
---             , end   = i
---             , gap   = Nothing
---             , graph = graphR }
---         | Rule{..} <- S.toList gram
---         , i <- [0 .. length xs - 1] ]
---     -- the computation is performed as long as the waiting queue
---     -- is non-empty.
---     loop = popState >>= \mp -> case mp of
---         Nothing -> return ()
---         Just p -> do
---             -- lift $ case p of
---             --     (StateE q) -> putStr "POPED: " >> printState q
---             step p >> loop
--- 
--- 
--- -- | Step of the algorithm loop.  `p' is the state popped up from
--- -- the queue.
--- step
---     :: (VOrd t, VOrd n, VOrd f, VOrd a)
---     => StateE n t f a
---     -> Earley n t f a ()
--- step p = do
---     sequence_ $ map ($p)
---       [ tryScan, trySubst
---       , tryAdjoinInit
---       , tryAdjoinCont
---       , tryAdjoinTerm ]
---     saveState p
--- 
--- 
--- --------------------------------------------------
--- -- Utility
--- --------------------------------------------------
--- 
--- 
+-- | `tryAdjoinCont p q':
+-- * `p' is a completed, auxiliary state
+-- * `q' not completed and expects a *dummy* foot
+tryAdjoinCont :: (VOrd n, VOrd t) => State  n t -> Earley n t ()
+tryAdjoinCont p = void $ P.runListT $ do
+    -- make sure that `p' is a completed, sub-level auxiliary rule
+    guard $ completed p && subLevel p && auxiliary p
+    -- find all rules which expect a foot provided by `p'
+    -- and which end where `p' begins.
+    q <- expectEnd (root p) (beg p)
+    (r@AuxVert{}, _) <- some $ expects' q
+    -- construct the resulting state; the span of the gap of the
+    -- inner state `p' is copied to the outer state based on `q'
+    let q' = q
+            { gap = gap p, end = end p
+            , root  = root q 
+            , left  = r : left q
+            , right = tail $ right q }
+    -- logging info
+    lift . lift $ do
+        putStr "[B]  " >> printState p
+        putStr "  +  " >> printState q
+        putStr "  :  " >> printState q'
+    -- push the resulting state into the waiting queue
+    lift $ pushState q'
+
+
+-- | Adjoin a fully-parsed auxiliary state `p` to a partially parsed
+-- tree represented by a fully parsed rule/state `q`.
+tryAdjoinTerm :: (VOrd t, VOrd n) => State n t -> Earley n t ()
+tryAdjoinTerm p = void $ P.runListT $ do
+    -- make sure that `p' is a completed, top-level state ...
+    guard $ completed p && topLevel p
+    -- ... and that it is an auxiliary state (by definition only
+    -- auxiliary states have gaps)
+    (gapBeg, gapEnd) <- each $ maybeToList $ gap p
+    -- it is top-level, so we can also make sure that the
+    -- root is an AuxRoot.
+    -- pRoot@AuxRoot{} <- some $ Just $ root p
+    -- take all completed rules with a given span
+    -- and a given root non-terminal (IDs irrelevant)
+    q <- rootSpan (nonTerm $ root p) (gapBeg, gapEnd)
+    -- make sure that `q' is completed as well and that it is either
+    -- a regular (perhaps intermediate) rule or an intermediate
+    -- auxiliary rule (note that (<=) is used as an implication
+    -- here and can be read as `implies`).
+    -- NOTE: root auxiliary rules are of no interest to us but they
+    -- are all the same taken into account in an indirect manner.
+    -- We can assume here that such rules are already adjoined thus
+    -- creating either regular or intermediate auxiliary.
+    -- NOTE: similar reasoning can be used to explain why foot
+    -- auxiliary rules are likewise ignored.
+    -- Q: don't get this second remark -- how could a foot node
+    -- be a root of a state/rule `q`?  What `foot auxiliary rules`
+    -- could actually mean?
+    guard $ completed q && auxiliary q <= subLevel q
+    -- TODO: it seems that some of the constraints given above
+    -- follow from the code below:
+    qRoot <- some $ case root q of
+        x@NonT{}    -> Just x
+        x@AuxVert{} -> Just x
+        _           -> Nothing
+    newRoot <- some $ case qRoot of
+        NonT{} -> Just $ NonT
+            { nonTerm = nonTerm qRoot
+            , labID = labID qRoot }
+        AuxVert{} -> Just $ AuxVert
+            { nonTerm = nonTerm qRoot
+            , symID = symID qRoot }
+        _           -> Nothing
+    let q' = q
+            { root = newRoot
+            , left  = left q
+            , right = right q
+            , beg = beg p
+            , end = end p }
+    lift . lift $ do
+        putStr "[C]  " >> printState p
+        putStr "  +  " >> printState q
+        putStr "  :  " >> printState q'
+    lift $ pushState q'
+
+
+--------------------------------------------------
+-- EARLEY
+--------------------------------------------------
+
+
+-- | Perform the earley-style computation given the grammar and
+-- the input sentence.
+earley
+    :: (VOrd t, VOrd n)
+    => S.Set (Rule n t)     -- ^ The grammar (set of rules)
+    -> [t]                  -- ^ Input sentence
+    -> IO (S.Set (State n t))
+    -- -> IO ()
+earley gram xs =
+    agregate . doneProSpan . fst <$> RWS.execRWST loop xs st0
+    -- void $ RWS.execRWST loop xs st0
+  where
+    -- Agregate the results from the `doneProSpan` part of the
+    -- result.
+    agregate = S.unions . M.elems
+    -- we put in the initial state all the states with the dot on
+    -- the left of the body of the rule (-> left = []) on all
+    -- positions of the input sentence.
+    st0 = mkEarSt $ S.fromList -- $ Reid.runReid $ mapM reidState
+        [ State
+            { root  = headR
+            , left  = []
+            , right = bodyR
+            , beg   = i
+            , end   = i
+            , gap   = Nothing }
+        | Rule{..} <- S.toList gram
+        , i <- [0 .. length xs - 1] ]
+    -- the computation is performed as long as the waiting queue
+    -- is non-empty.
+    loop = popState >>= \mp -> case mp of
+        Nothing -> return ()
+        Just p -> do
+            -- lift $ case p of
+            --     (StateE q) -> putStr "POPED: " >> printState q
+            step p >> loop
+
+
+-- | Step of the algorithm loop.  `p' is the state popped up from
+-- the queue.
+step :: (VOrd t, VOrd n) => State n t -> Earley n t ()
+step p = do
+    sequence_ $ map ($p)
+      [ tryScan, trySubst
+      , tryAdjoinInit
+      , tryAdjoinCont
+      , tryAdjoinTerm ]
+    saveState p
+
+
+--------------------------------------------------
+-- Utilities
+--------------------------------------------------
+
+
 -- -- | Retrieve the Just value.  Error otherwise.
 -- unJust :: Maybe a -> a
 -- unJust (Just x) = x
