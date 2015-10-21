@@ -1,7 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
 
 
-module NLP.LTAG.Tree
+module NLP.TAG.Vanilla.Tree
 (
 -- * Tree
   Tree (..)

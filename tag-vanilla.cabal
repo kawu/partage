@@ -1,6 +1,6 @@
 name:               tag-vanilla
 version:            0.1
-synopsis:           LTAG
+synopsis:           Vanilla TAGs
 description:
     TODO
 license:            BSD3
@@ -27,20 +27,20 @@ library
       -- 
       -- from `ltag`, not needed any more:
       -- , feature-structure   >= 0.2      && < 0.3
+      -- , tostring            >= 0.2      && < 1.0
       --
       -- for using diagrams framework
       --
       -- , SVGFonts                >= 1.5      && < 2.0
       -- , diagrams-svg            >= 1.3      && < 2.0
       -- , diagrams-lib            >= 1.3      && < 2.0
-      -- , tostring                >= 0.2      && < 1.0
 
     exposed-modules:
         NLP.TAG.Vanilla.Core
---       , NLP.LTAG.Tree2
---       , NLP.LTAG.Rule
---       , NLP.LTAG.Earley5
---       , NLP.LTAG.Earley5.Draw
+      , NLP.TAG.Vanilla.Tree
+      , NLP.TAG.Vanilla.Rule
+      , NLP.TAG.Vanilla.Earley
+--       , NLP.TAG.Vanilla.Earley5.Draw
 
     ghc-options: -Wall
 
