@@ -38,13 +38,22 @@ import           NLP.TAG.Vanilla.Rule
 
 
 --------------------------------------------------
--- Eq/Ord Instances
+-- Eq/Ord Instances for RuleP
 --------------------------------------------------
+
+
+-- | We define a newtype in order to define a custom Eq/Ord instances
+-- take the symbol of the head into account in a different manner.
+newtype RuleP n t = RuleP
+    { unRuleP :: Rule n t
+    } deriving (Show)
 
 
 -- | Label equality.
 --
 -- TODO: Reimplement based on `labEq'`
+-- TODO: What's the point?  Why don't use the automatically derived
+-- instance?
 labEq
     :: (Eq n, Eq t)
     => Lab n t -> Lab n t -> Bool
@@ -89,6 +98,9 @@ labEq' p q =
 
 
 -- | Label comparison.
+--
+-- TODO: We could possibly make use of the automatically derived
+-- instance?
 labCmp :: (Ord n, Ord t) => Lab n t -> Lab n t -> Ordering
 labCmp p q =
     cmp p q
@@ -141,6 +153,29 @@ labCmp' p q =
         AuxRoot{}   -> 3
         AuxFoot{}   -> 4
         AuxVert{}   -> 5
+
+
+instance (Eq n, Eq t) => Eq (RuleP n t) where
+    r == s = (hdEq `on` headP) r s
+        && ((==) `on` length.bodyP) r s
+        && and [eq x y | (x, y) <- zip (bodyP r) (bodyP s)]
+      where
+        eq x y   = labEq  x y
+        hdEq x y = labEq' x y
+        headP    = headR . unRuleP
+        bodyP    = bodyR . unRuleP
+
+
+instance (Ord n, Ord t) => Ord (RuleP n t) where
+    r `compare` s = (hdCmp `on` headP) r s    `mappend`
+        (compare `on` length.bodyP) r s       `mappend`
+        mconcat [cmp x y | (x, y) <- zip (bodyP r) (bodyP s)]
+      where
+        cmp x y   = labCmp  x y
+        hdCmp x y = labCmp' x y
+        headP     = headR . unRuleP
+        bodyP     = bodyR . unRuleP
+
 
 --------------------------------------------------
 -- Trash?
@@ -201,8 +236,8 @@ data DupS n t = DupS {
     -- | A disjoint set for `SymID`s
       symDisj   :: Part.Partition SymID
     -- | Rules already saved
-    , rulDepo   :: S.Set (Rule n t)
-    } 
+    , rulDepo   :: S.Set (RuleP n t)
+    }
 
 
 -- Let us take a rule and let us assume that all identifiers it
@@ -251,22 +286,26 @@ type DupM n t = DupT n t Identity
 
 -- | Run the transformer.
 runDupT
-    :: (Functor m, Monad m)
+    :: (Functor m, Monad m, Ord t, Ord n)
     => DupT n t m b
     -> m (b, S.Set (Rule n t))
-runDupT = fmap (second rulDepo) . flip E.runStateT
+runDupT = fmap (second getRules) . flip E.runStateT
     (DupS Part.empty S.empty)
+  where
+    getRules
+        = S.fromList . map unRuleP
+        . S.toList. rulDepo
 
 
 -- | Update the body of the rule by replacing old `SymID`s with
 -- their representatives.
 updateBody
-    :: Rule n t
-    -> DupM n t (Rule n t)
-updateBody r = do
+    :: RuleP n t
+    -> DupM n t (RuleP n t)
+updateBody (RuleP r) = do
     d <- E.gets symDisj
     let body' = map (updLab d) (bodyR r)
-    return $ r { bodyR = body' }
+    return . RuleP $ r { bodyR = body' }
   where
     updLab d x@NonT{..}     = x { labID = updSym d <$> labID }
     updLab d x@AuxVert{..}  = x { symID = updSym d symID }
@@ -277,8 +316,8 @@ updateBody r = do
 -- | Find a rule if already present.
 findRule 
     :: (Ord n, Ord t)
-    => Rule n t
-    -> DupM n t (Maybe (Rule n t))
+    => RuleP n t
+    -> DupM n t (Maybe (RuleP n t))
 findRule x = do
     s <- E.gets rulDepo
     return $ lookupSet x s
@@ -294,15 +333,15 @@ joinSym x y = E.modify $ \s@DupS{..} -> s
 -- | Save the rule in the underlying deposit. 
 keepRule
     :: (Ord n, Ord t)
-    => Rule n t
+    => RuleP n t
     -> DupM n t ()
 keepRule r = E.modify $ \s@DupS{..} -> s
     { rulDepo = S.insert r rulDepo }
 
 
 -- | Retrieve the symbol of the head of the rule.
-headSym :: Rule n t -> Maybe SymID
-headSym r = case headR r of
+headSym :: RuleP n t -> Maybe SymID
+headSym r = case headR (unRuleP r) of
     NonT{..}    -> labID
     AuxVert{..} -> Just symID
     _           -> Nothing
@@ -324,11 +363,11 @@ rmDups
         (DupM n t)    -- Underlying state
         ()            -- No result
 rmDups = forever $ do
-    r <- P.await >>= lift . updateBody
+    r <- P.await >>= lift . updateBody . RuleP
     lift (findRule r) >>= \mr -> case mr of
         Nothing -> do
             lift $ keepRule r
-            P.yield r
+            P.yield $ unRuleP r
         Just r' -> case (headSym r, headSym r') of
             (Just x, Just y)    -> lift $ joinSym x y
             _                   -> return ()
@@ -336,24 +375,6 @@ rmDups = forever $ do
 --             <$> headSymT r
 --             <*> headSymT r'
     -- where headSymT = maybeT . headSym
-
-
-instance (Eq n, Eq t) => Eq (Rule n t) where
-    r == s = (hdEq `on` headR) r s
-        && ((==) `on` length.bodyR) r s
-        && and [eq x y | (x, y) <- zip (bodyR r) (bodyR s)]
-      where
-        eq x y   = labEq  x y
-        hdEq x y = labEq' x y
-
-
-instance (Ord n, Ord t) => Ord (Rule n t) where
-    r `compare` s = (hdCmp `on` headR) r s    `mappend`
-        (compare `on` length.bodyR) r s       `mappend`
-        mconcat [cmp x y | (x, y) <- zip (bodyR r) (bodyR s)]
-      where
-        cmp x y   = labCmp  x y
-        hdCmp x y = labCmp' x y
 
 
 --------------------------------------------------

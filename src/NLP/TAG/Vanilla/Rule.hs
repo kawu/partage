@@ -82,7 +82,7 @@ data Rule n t = Rule {
       headR :: Lab n t
     -- | The body of the rule
     , bodyR :: [Lab n t]
-    } deriving (Show)
+    } deriving (Show, Eq, Ord)
 
 
 -- | Print the rule.
