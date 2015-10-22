@@ -313,6 +313,9 @@ headSym r = case headR r of
 -- rule refers have already been processed -- in other words,
 -- that rule on which the present rule depends have been
 -- processed earlier.
+--
+-- This function is responsible for basic sharing of common
+-- subtrees.
 rmDups
     :: (Ord n, Ord t)
     => P.Pipe

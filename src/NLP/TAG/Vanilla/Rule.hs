@@ -115,9 +115,11 @@ keepRule :: Monad m => Rule n t -> RM n t m ()
 keepRule = P.yield
 
 
--- | Evaluate the RM monad.
-runRM :: Monad m => P.Effect (E.StateT Int m) a -> m a
-runRM = flip E.evalStateT 0 . P.runEffect
+-- | Evaluate the state part of the RM monad.
+-- runRM :: Monad m => P.Effect (E.StateT Int m) a -> m a
+-- runRM = flip E.evalStateT 0 . P.runEffect
+runRM :: Monad m => E.StateT Int m a -> m a
+runRM = flip E.evalStateT 0
 
 
 -----------------------------------------
