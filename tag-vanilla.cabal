@@ -40,7 +40,6 @@ library
       , NLP.TAG.Vanilla.Tree
       , NLP.TAG.Vanilla.Rule
       , NLP.TAG.Vanilla.Earley
---       , NLP.TAG.Vanilla.Earley5.Draw
 
     ghc-options: -Wall
 
