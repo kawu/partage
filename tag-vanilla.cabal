@@ -54,3 +54,23 @@ source-repository head
 --     hs-source-dirs: tools, src
 --     main-is: test1.hs
 --     ghc-options: -Wall -O2 -threaded -rtsopts
+
+
+test-suite test
+    default-language:
+        Haskell2010
+    type:
+        exitcode-stdio-1.0
+    hs-source-dirs:
+        tests
+      , src
+    main-is:
+        test.hs
+    build-depends:
+        tasty                   >= 0.10
+--       , tasty-quickcheck        >= 0.8
+--       , tasty-smallcheck        >= 0.8
+      , tasty-hunit             >= 0.9
+      , HUnit                   >= 1.2
+--       , QuickCheck              >= 2.6
+--       , smallcheck              >= 1.1

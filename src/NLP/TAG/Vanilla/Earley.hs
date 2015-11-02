@@ -442,6 +442,44 @@ tryAdjoinTerm p = void $ P.runListT $ do
 --------------------------------------------------
 
 
+-- | Does the given grammar generate the given sentence?
+-- Uses the `earley` algorithm under the hood.
+recognize
+    :: (VOrd t, VOrd n)
+    => S.Set (Rule n t)     -- ^ The grammar (set of rules)
+    -> [t]                  -- ^ Input sentence
+    -> IO Bool
+recognize gram xs = do
+    done <- earley gram xs
+    return $ (not.null) (complete done)
+  where
+    n = length xs
+    complete sts =
+        [ True | st <- S.toList sts
+        , beg st == 0, end st == n ]
+
+
+-- | Does the given grammar generate the given sentence from the
+-- given non-terminal symbol (i.e. from an initial tree with this
+-- symbol in its root)?  Uses the `earley` algorithm under the
+-- hood.
+recognizeFrom
+    :: (VOrd t, VOrd n)
+    => S.Set (Rule n t)     -- ^ The grammar (set of rules)
+    -> n                    -- ^ The start symbol
+    -> [t]                  -- ^ Input sentence
+    -> IO Bool
+recognizeFrom gram start xs = do
+    done <- earley gram xs
+    return $ (not.null) (complete done)
+  where
+    n = length xs
+    complete sts =
+        [ True | st <- S.toList sts
+        , beg st == 0, end st == n
+        , root st == NonT start Nothing ]
+
+
 -- | Perform the earley-style computation given the grammar and
 -- the input sentence.
 earley
@@ -449,7 +487,6 @@ earley
     => S.Set (Rule n t)     -- ^ The grammar (set of rules)
     -> [t]                  -- ^ Input sentence
     -> IO (S.Set (State n t))
-    -- -> IO ()
 earley gram xs =
     agregate . doneProSpan . fst <$> RWS.execRWST loop xs st0
     -- void $ RWS.execRWST loop xs st0

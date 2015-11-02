@@ -14,6 +14,7 @@ import           Data.List (intercalate)
 -- import           Data.String.ToString (ToString(..))
 
 import qualified Pipes as P
+import qualified Pipes.Prelude as P
 
 -- import qualified NLP.FeatureStructure.Tree as FT
 
@@ -93,6 +94,23 @@ printRule Rule{..} = do
     putStr $ viewLab headR
     putStr " -> "
     putStr $ intercalate " " $ map viewLab bodyR
+
+
+----------------------
+-- Grammar compilation
+----------------------
+
+
+-- | Compile the given grammar into the list of rules.
+-- No structure sharing takes place here.
+compile
+    :: Monad m
+    => [G.Tree n t]     -- ^ Initial trees
+    -> [G.AuxTree n t]  -- ^ Auxiliary trees
+    -> m [Rule n t]
+compile xs ys = runRM $ P.toListM $ do
+    mapM_ (treeRules True) xs
+    mapM_ (auxRules True) ys
 
 
 --------------------------
