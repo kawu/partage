@@ -25,13 +25,18 @@ import           NLP.TAG.Vanilla.Earley
 
 
 ---------------------------------------------------------------------
--- Grammar1
+-- Prerequisites
 ---------------------------------------------------------------------
 
 
 type Tr = Tree String String
 type AuxTr = AuxTree String String
 type Rl = Rule String String
+
+
+---------------------------------------------------------------------
+-- Grammar1
+---------------------------------------------------------------------
 
 
 tom :: Tr
@@ -95,13 +100,52 @@ mkGram1 = S.fromList <$> compile
 
 
 ---------------------------------------------------------------------
+-- Grammar2
+---------------------------------------------------------------------
+
+
+alpha :: Tr
+alpha = INode "S"
+    [ FNode "p"
+    , INode "X"
+        [FNode "e"]
+    , FNode "q" ]
+
+
+beta1 :: AuxTr
+beta1 = AuxTree (INode "X"
+    [ FNode "a"
+    , INode "X"
+        [ INode "X" []
+        , FNode "a" ] ]
+    ) [1,0]
+
+
+beta2 :: AuxTr
+beta2 = AuxTree (INode "X"
+    [ FNode "b"
+    , INode "X"
+        [ INode "X" []
+        , FNode "b" ] ]
+    ) [1,0]
+
+
+mkGram2 :: IO (S.Set Rl)
+mkGram2 = S.fromList <$> compile
+    [alpha]
+    [beta1, beta2]
+
+
+---------------------------------------------------------------------
 -- Tests
 ---------------------------------------------------------------------
 
 
 tests :: TestTree
 tests = testGroup "NLP.TAG.Vanilla.Early"
-    [ testCase "Tom sleeps" testTom1 ]
+    [ testCase "Tom sleeps" testTom1
+    , testCase "Tom caught a mouse" testTom2
+    , testCase "Copy language" testCopy ]
 
 
 testTom1 :: Assertion
@@ -110,6 +154,38 @@ testTom1 = do
     recognizeFrom gram "S" ["Tom", "sleeps"]    @@?= True
     recognizeFrom gram "S" ["Tom"]              @@?= False
     recognize     gram     ["Tom"]              @@?= True
+
+
+testTom2 :: Assertion
+testTom2 = do
+    gram <- mkGram1
+    recognizeFrom gram "S" ["Tom", "caught", "a", "mouse"] @@?= True
+    recognizeFrom gram "S" ["Tom", "caught", "Tom"] @@?= True
+    recognizeFrom gram "S" ["Tom", "caught", "a", "Tom"] @@?= False
+    recognizeFrom gram "S" ["Tom", "caught"] @@?= False
+    recognizeFrom gram "S" ["caught", "a", "mouse"] @@?= False
+
+
+-- | What we test is not really a copy language but rather a
+-- language in which there is always the same number of `a`s and
+-- `b`s on the left and on the right of the empty `e` symbol.
+-- To model the real copy language with a TAG we would need to
+-- use either adjunction constraints or feature structures.
+testCopy :: Assertion
+testCopy = do
+    gram <- mkGram2
+    recognizeFrom gram "S"
+        (words "p a b e a b q")
+        @@?= True
+    recognizeFrom gram "S"
+        (words "p a b e a a q")
+        @@?= False
+    recognizeFrom gram "S"
+        (words "p a b a b a b a b e a b a b a b a b q")
+        @@?= True
+    recognizeFrom gram "S"
+        (words "p a b a b a b a b e a b a b a b a   q")
+        @@?= False
 
 
 ---------------------------------------------------------------------
