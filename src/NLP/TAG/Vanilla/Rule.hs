@@ -4,22 +4,39 @@
 module NLP.TAG.Vanilla.Rule where
 
 
--- import           Control.Applicative ((<$>))
--- import qualified Control.Monad.RWS.Strict   as RWS
+import           Control.Monad.Trans.Class (lift)
 import qualified Control.Monad.State.Strict   as E
 
--- import qualified Data.Set as S
--- import qualified Data.Map.Strict as M
+import qualified Data.Set as S
 import           Data.List (intercalate)
--- import           Data.String.ToString (ToString(..))
 
 import qualified Pipes as P
-import qualified Pipes.Prelude as P
-
--- import qualified NLP.FeatureStructure.Tree as FT
 
 import           NLP.TAG.Vanilla.Core
 import qualified NLP.TAG.Vanilla.Tree as G
+
+
+----------------------
+-- Grammar compilation
+----------------------
+
+
+-- | Compile the given grammar into the list of rules.
+-- No structure sharing takes place here.
+compile
+    :: (Monad m, Ord n, Ord t)
+    => [ Either
+        (G.Tree n t)
+        (G.AuxTree n t) ]
+    -> m (S.Set (Rule n t))
+compile ts =
+    flip E.execStateT S.empty $ runRM $ P.runEffect $
+        P.for rules $ \rule -> do
+            lift . lift $ E.modify $ S.insert rule
+  where
+    rules = mapM_ getRules ts
+    getRules (Left t)  = treeRules True t
+    getRules (Right t) = auxRules  True t
 
 
 ----------------------
@@ -94,23 +111,6 @@ printRule Rule{..} = do
     putStr $ viewLab headR
     putStr " -> "
     putStr $ intercalate " " $ map viewLab bodyR
-
-
-----------------------
--- Grammar compilation
-----------------------
-
-
--- | Compile the given grammar into the list of rules.
--- No structure sharing takes place here.
-compile
-    :: Monad m
-    => [G.Tree n t]     -- ^ Initial trees
-    -> [G.AuxTree n t]  -- ^ Auxiliary trees
-    -> m [Rule n t]
-compile xs ys = runRM $ P.toListM $ do
-    mapM_ (treeRules True) xs
-    mapM_ (auxRules True) ys
 
 
 --------------------------

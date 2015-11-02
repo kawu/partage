@@ -10,6 +10,7 @@ import           Control.Monad              (guard, forever)
 import qualified Control.Monad.State.Strict as E
 import           Control.Monad.Trans.Class  (lift)
 import           Control.Monad.Identity     (Identity(..))
+import           Control.Monad.Morph        (generalize)
 
 import           Data.Function              (on)
 import           Data.Monoid                (mappend, mconcat)
@@ -17,9 +18,37 @@ import           Data.Maybe                 (isJust)
 import qualified Data.Set                   as S
 import qualified Data.Partition             as Part
 import qualified Pipes                      as P
+import           Pipes                      (hoist, (>->))
 
 import           NLP.TAG.Vanilla.Core
 import           NLP.TAG.Vanilla.Rule       (Lab(..), Rule(..))
+import qualified NLP.TAG.Vanilla.Rule as Rule
+import qualified NLP.TAG.Vanilla.Tree as G
+
+
+--------------------------------------------------
+-- Compilation
+--------------------------------------------------
+
+
+-- | Compile the given grammar into the list of rules.
+-- Common subtrees are shared.
+compile
+    :: (Functor m, Monad m, Ord n, Ord t)
+    => [ Either
+        (G.Tree n t)
+        (G.AuxTree n t) ]
+    -> m (S.Set (Rule n t))
+compile ts =
+    fmap snd $ runDupT $ Rule.runRM $ P.runEffect $
+        P.for shared (const $ return ())
+  where
+    shared = hoist (hoist (hoist generalize))
+        (   hoist (hoist lift) rules
+        >-> hoist lift rmDups )
+    rules = mapM_ getRules ts
+    getRules (Left t)  = Rule.treeRules True t
+    getRules (Right t) = Rule.auxRules  True t
 
 
 --------------------------------------------------

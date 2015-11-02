@@ -19,9 +19,9 @@ import           Test.Tasty (TestTree, testGroup) -- , localOptions)
 import           Test.HUnit (Assertion, (@?=))
 import           Test.Tasty.HUnit (testCase)
 
-import           NLP.TAG.Vanilla.Tree
-import           NLP.TAG.Vanilla.Rule
-import           NLP.TAG.Vanilla.Earley
+import           NLP.TAG.Vanilla.Tree (Tree (..), AuxTree (..))
+import           NLP.TAG.Vanilla.Earley (recognize, recognizeFrom)
+import           NLP.TAG.Vanilla.Rule (compile, Rule)
 
 
 ---------------------------------------------------------------------
@@ -83,9 +83,9 @@ mouse = INode "NP"
 
 
 mkGram1 :: IO (S.Set Rl)
-mkGram1 = S.fromList <$> compile
-    [tom, sleeps, caught, a, mouse]
-    [almost]
+mkGram1 = compile $
+    (map Left [tom, sleeps, caught, a, mouse]) ++
+    (map Right [almost])
 
 
 -- testGram :: [String] -> IO ()
@@ -131,9 +131,9 @@ beta2 = AuxTree (INode "X"
 
 
 mkGram2 :: IO (S.Set Rl)
-mkGram2 = S.fromList <$> compile
-    [alpha]
-    [beta1, beta2]
+mkGram2 = compile $
+    (map Left [alpha]) ++
+    (map Right [beta1, beta2])
 
 
 ---------------------------------------------------------------------

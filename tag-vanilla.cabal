@@ -74,3 +74,4 @@ test-suite test
       , HUnit                   >= 1.2
 --       , QuickCheck              >= 2.6
 --       , smallcheck              >= 1.1
+      , mmorph                  >= 1.0
