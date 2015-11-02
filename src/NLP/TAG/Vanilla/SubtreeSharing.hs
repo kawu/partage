@@ -151,11 +151,11 @@ data DupS n t = DupS {
 
 
 -- Let us take a rule and let us assume that all identifiers it
--- contains point to rules which have already been processed (for
--- this assumption to be valid we just need to order the set of
--- rules properly).  So we have a rule `r`, a set of processed
--- rules `rs` and a clustering (disjoint-set) over `SymID`s
--- present in `rs`.
+-- contains references to rules which have already been processed
+-- (for this assumption to be valid we just need to order the
+-- input set of rules properly).  So we have a rule `r`, a set of
+-- processed rules `rs` and a clustering (disjoint-set) over
+-- `SymID`s present in `rs`.
 --
 -- Now we want to process `r` and, in particular, check if it is
 -- not already in `rs` and update its `SymID`s.
@@ -165,8 +165,8 @@ data DupS n t = DupS {
 -- known and processed).  The `SymID` in the root of the rule (if
 -- present) is the new one and it should not yet have been mentioned
 -- in `rs`.  Even when `SymID` is not present in the root, we can
--- still try to check if `r` is not present in `rs` -- after all, there
--- may be some duplicates in the input grammar.
+-- still try to check if `r` is not present in `rs` -- after all,
+-- there may be some duplicates in the input grammar.
 --
 -- Case 1: we have a rule with a `SymID` in the root.  We want to
 -- check if there is already a rule in `rs` which:
@@ -179,11 +179,12 @@ data DupS n t = DupS {
 --
 -- For this to work we just need a specific comparison function
 -- which works as specified in the two cases desribed above
--- (i.e. either there are some `SymID`s in the roots, or there
--- are no `SymID`s in both roots.) 
+-- (i.e. either there are some `SymID`s in the rule heads, or
+-- there are no `SymID`s in both heads.)
 --
--- Once we have this comparison, we simply process the set of
--- rules incrementally.
+-- Once we have this comparison (which is provided by the
+-- function `labCmp'` above), we simply process the set of rules
+-- incrementally.
 
 
 -- | Duplication-removal transformer.
@@ -281,10 +282,6 @@ rmDups = forever $ do
         Just r' -> case (headSym r, headSym r') of
             (Just x, Just y)    -> lift $ joinSym x y
             _                   -> return ()
---         Just r' -> void $ runMaybeT $ joinSym
---             <$> headSymT r
---             <*> headSymT r'
-    -- where headSymT = maybeT . headSym
 
 
 --------------------------------------------------
