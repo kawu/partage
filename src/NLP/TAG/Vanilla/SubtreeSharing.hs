@@ -63,31 +63,11 @@ newtype RuleP n t = RuleP
     } deriving (Show)
 
 
--- | Label equality.
---
--- TODO: Reimplement based on `labEq'`
--- TODO: What's the point?  Why don't use the automatically derived
--- instance?
+-- | Ordinary label equality.
 labEq
     :: (Eq n, Eq t)
     => Lab n t -> Lab n t -> Bool
-labEq p q =
-    eq p q
-  where
-    eq x@NonT{} y@NonT{}
-        =  eqOn nonTerm x y
-        && eqOn labID x y
-    eq (Term x) (Term y)
-        =  x == y
-    eq x@AuxRoot{} y@AuxRoot{}
-        =  eqOn nonTerm x y
-    eq (AuxFoot x) (AuxFoot y)
-        =  x == y
-    eq x@AuxVert{} y@AuxVert{}
-        =  eqOn nonTerm x y
-        && eqOn symID x y
-    eq _ _ = False
-    eqOn f x y = f x == f y
+labEq p q = p == q
 
 
 -- | Label equality.  Concerning the `SymID` values, it is only
@@ -99,47 +79,15 @@ labEq' p q =
     eq x@NonT{} y@NonT{}
         =  eqOn nonTerm x y
         && eqOn (isJust . labID) x y
-    eq (Term x) (Term y)
-        =  x == y 
-    eq x@AuxRoot{} y@AuxRoot{}
-        =  eqOn nonTerm x y
-    eq (AuxFoot x) (AuxFoot y)
-        =  x == y
     eq x@AuxVert{} y@AuxVert{}
         =  eqOn nonTerm x y
-    eq _ _ = False
+    eq _ _ = p == q
     eqOn f x y = f x == f y
 
 
--- | Label comparison.
---
--- TODO: We could possibly make use of the automatically derived
--- instance?
+-- | Ordinary label comparison.
 labCmp :: (Ord n, Ord t) => Lab n t -> Lab n t -> Ordering
-labCmp p q =
-    cmp p q
-  where
-    cmp x@NonT{} y@NonT{} =
-        cmpOn nonTerm x y       `mappend`
-        cmpOn labID x y
-    cmp (Term x) (Term y) =
-        compare x y
-    cmp x@AuxRoot{} y@AuxRoot{} =
-        cmpOn nonTerm x y
-    cmp (AuxFoot x) (AuxFoot y) =
-        compare x y
-    cmp x@AuxVert{} y@AuxVert{} =
-        cmpOn nonTerm x y       `mappend`
-        cmpOn symID x y
-    cmp x y = cmpOn conID x y
-    cmpOn f x y = compare (f x) (f y)
-    -- data constructur identifier
-    conID x = case x of
-        NonT{}      -> 1 :: Int
-        Term _      -> 2
-        AuxRoot{}   -> 3
-        AuxFoot{}   -> 4
-        AuxVert{}   -> 5
+labCmp p q = compare p q
 
 
 -- | Label comparison.  Concerning the `SymID` values, it is only
@@ -151,22 +99,10 @@ labCmp' p q =
     cmp x@NonT{} y@NonT{} =
         cmpOn nonTerm x y       `mappend`
         cmpOn (isJust . labID) x y
-    cmp (Term x) (Term y) =
-        compare x y
-    cmp x@AuxRoot{} y@AuxRoot{} =
-        cmpOn nonTerm x y
-    cmp (AuxFoot x) (AuxFoot y) =
-        compare x y
     cmp x@AuxVert{} y@AuxVert{} =
         cmpOn nonTerm x y
-    cmp x y = cmpOn conID x y
+    cmp _ _ = compare p q
     cmpOn f x y = compare (f x) (f y)
-    conID x = case x of
-        NonT{}      -> 1 :: Int
-        Term _      -> 2
-        AuxRoot{}   -> 3
-        AuxFoot{}   -> 4
-        AuxVert{}   -> 5
 
 
 instance (Eq n, Eq t) => Eq (RuleP n t) where
