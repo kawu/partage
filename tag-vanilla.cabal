@@ -40,6 +40,7 @@ library
       , NLP.TAG.Vanilla.Tree
       , NLP.TAG.Vanilla.Rule
       , NLP.TAG.Vanilla.Earley
+      , NLP.TAG.Vanilla.SubtreeSharing
 
     ghc-options: -Wall
 
