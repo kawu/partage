@@ -24,6 +24,7 @@ library
       , pipes               >= 4.1      && < 4.2
       , PSQueue             >= 1.1      && < 1.2
       , data-partition      >= 0.3      && < 0.4
+      , mmorph              >= 1.0
       -- 
       -- from `ltag`, not needed any more:
       -- , feature-structure   >= 0.2      && < 0.3
@@ -41,6 +42,7 @@ library
       , NLP.TAG.Vanilla.Rule
       , NLP.TAG.Vanilla.Earley
       , NLP.TAG.Vanilla.SubtreeSharing
+      , NLP.TAG.Vanilla.EarleyPred
 
     ghc-options: -Wall
 

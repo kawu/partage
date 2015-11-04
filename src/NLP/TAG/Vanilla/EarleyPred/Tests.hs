@@ -1,7 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 
-module NLP.TAG.Vanilla.Earley.Tests where
+-- | Note: tests here are the same as the tests of the ordinary
+-- `Earley` module.
+
+
+module NLP.TAG.Vanilla.EarleyPred.Tests where
 
 
 import           Control.Applicative ((<$>), (<*>))
@@ -20,7 +24,7 @@ import           Test.HUnit (Assertion, (@?=))
 import           Test.Tasty.HUnit (testCase)
 
 import           NLP.TAG.Vanilla.Tree (Tree (..), AuxTree (..))
-import           NLP.TAG.Vanilla.Earley (recognize, recognizeFrom)
+import           NLP.TAG.Vanilla.EarleyPred (earley, recognize')
 import           NLP.TAG.Vanilla.Rule (compile, Rule)
 
 
@@ -88,15 +92,12 @@ mkGram1 = compile $
     (map Right [almost])
 
 
--- testGram :: [String] -> IO ()
--- testGram sent = do
---     rs <- flip E.evalStateT 0 $ P.toListM $ do
---         mapM_ (treeRules True) [tom, sleeps, caught, a, mouse]
---         -- mapM_ (treeRules True) [tom, caught]
---         mapM_ (auxRules True) [almost]
---     void $ earley (S.fromList rs) sent
---     -- forM_ rs $ \r -> printRule r >> putStrLn ""
---     -- return ()
+testGram :: String -> [String] -> IO ()
+testGram start sent = do
+    gram <- mkGram1
+    void $ earley gram (S.singleton start) sent
+    -- forM_ rs $ \r -> printRule r >> putStrLn ""
+    -- return ()
 
 
 ---------------------------------------------------------------------
@@ -142,7 +143,7 @@ mkGram2 = compile $
 
 
 tests :: TestTree
-tests = testGroup "NLP.TAG.Vanilla.Earley"
+tests = testGroup "NLP.TAG.Vanilla.EarleyPred"
     [ testCase "Tom sleeps" testTom1
     , testCase "Tom caught a mouse" testTom2
     , testCase "Copy language" testCopy ]
@@ -151,19 +152,19 @@ tests = testGroup "NLP.TAG.Vanilla.Earley"
 testTom1 :: Assertion
 testTom1 = do
     gram <- mkGram1
-    recognizeFrom gram "S" ["Tom", "sleeps"]    @@?= True
-    recognizeFrom gram "S" ["Tom"]              @@?= False
-    recognize     gram     ["Tom"]              @@?= True
+    recognize' gram "S" ["Tom", "sleeps"]    @@?= True
+    recognize' gram "S" ["Tom"]              @@?= False
+    recognize' gram "NP" ["Tom"]             @@?= True
 
 
 testTom2 :: Assertion
 testTom2 = do
     gram <- mkGram1
-    recognizeFrom gram "S" ["Tom", "caught", "a", "mouse"] @@?= True
-    recognizeFrom gram "S" ["Tom", "caught", "Tom"] @@?= True
-    recognizeFrom gram "S" ["Tom", "caught", "a", "Tom"] @@?= False
-    recognizeFrom gram "S" ["Tom", "caught"] @@?= False
-    recognizeFrom gram "S" ["caught", "a", "mouse"] @@?= False
+    recognize' gram "S" ["Tom", "caught", "a", "mouse"] @@?= True
+    recognize' gram "S" ["Tom", "caught", "Tom"] @@?= True
+    recognize' gram "S" ["Tom", "caught", "a", "Tom"] @@?= False
+    recognize' gram "S" ["Tom", "caught"] @@?= False
+    recognize' gram "S" ["caught", "a", "mouse"] @@?= False
 
 
 -- | What we test is not really a copy language but rather a
@@ -174,16 +175,16 @@ testTom2 = do
 testCopy :: Assertion
 testCopy = do
     gram <- mkGram2
-    recognizeFrom gram "S"
+    recognize' gram "S"
         (words "p a b e a b q")
         @@?= True
-    recognizeFrom gram "S"
+    recognize' gram "S"
         (words "p a b e a a q")
         @@?= False
-    recognizeFrom gram "S"
+    recognize' gram "S"
         (words "p a b a b a b a b e a b a b a b a b q")
         @@?= True
-    recognizeFrom gram "S"
+    recognize' gram "S"
         (words "p a b a b a b a b e a b a b a b a   q")
         @@?= False
 
