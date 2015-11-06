@@ -18,7 +18,7 @@ import           Control.Monad.Trans.Maybe  (MaybeT (..))
 import qualified Control.Monad.RWS.Strict   as RWS
 
 import           Data.List                  (intercalate)
-import           Data.Maybe     ( isJust, isNothing
+import           Data.Maybe     ( isJust, isNothing, mapMaybe
                                 , listToMaybe, maybeToList)
 import qualified Data.Map.Strict            as M
 import qualified Data.Set                   as S
@@ -76,38 +76,38 @@ data Item n t = Item {
 --     } deriving (Show, Eq, Ord)
 -- 
 -- 
--- -- | Is it a completed (fully-parsed) state?
--- completed :: State n t -> Bool
+-- -- | Is it a completed (fully matched) item?
+-- -- NOTE: It doesn't make sense now, from a auto. state both
+-- -- head and body transitions can outgo.
+-- completed :: Item n t -> Bool
 -- completed = null . right
--- 
--- 
--- -- | Does it represent a regular rule?
--- regular :: State n t -> Bool
--- regular = isNothing . gap
--- 
--- 
--- -- | Does it represent an auxiliary rule?
--- auxiliary :: State n t -> Bool
--- auxiliary = isJust . gap
--- 
--- 
+
+
+-- | Does it represent regular rules?
+regular :: Item n t -> Bool
+regular = isNothing . gap
+
+
+-- | Does it represent auxiliary rules?
+auxiliary :: Item n t -> Bool
+auxiliary = isJust . gap
+
+
 -- -- | Is it top-level?  All top-level states (regular or
 -- -- auxiliary) have an underspecified ID in the root symbol.
 -- topLevel :: State n t -> Bool
 -- -- topLevel = isNothing . ide . root
 -- topLevel = not . subLevel
--- 
--- 
--- -- | Is it subsidiary (i.e. not top) level?
--- subLevel :: State n t -> Bool
--- -- subLevel = isJust . ide . root
--- subLevel x = case root x of
---     NonT{..}  -> isJust labID
---     AuxVert{} -> True
---     Term _    -> True
---     _         -> False
---     
--- 
+
+
+-- | Is the rule with the given head top-level?
+topLevel :: Lab n t -> Bool
+topLevel x = case x of
+    NonT{..}  -> isJust labID
+    AuxRoot{} -> True
+    _         -> False
+    
+
 -- -- | Deconstruct the right part of the state (i.e. labels yet to
 -- -- process) within the MaybeT monad.
 -- expects
@@ -178,9 +178,14 @@ data EarSt n t = EarSt {
 
 
 -- | Make an initial `EarSt` from a set of states.
-mkEarSt :: (Ord n, Ord t) => S.Set (Item n t) -> (EarSt n t)
-mkEarSt s = EarSt
-    { done  = S.empty
+mkEarSt
+    :: (Ord n, Ord t)
+    => DAWG n t
+    -> S.Set (Item n t)
+    -> (EarSt n t)
+mkEarSt dag s = EarSt
+    { automat = dag
+    , done = S.empty
     , waiting = Q.fromList
         [ p :-> prio p
         | p <- S.toList s ] }
@@ -216,6 +221,22 @@ pushItem p = RWS.state $ \s ->
     in  ((), s {waiting = waiting'})
 
 
+-- | Return all completed states which:
+-- * expect a given label,
+-- * end on the given position.
+expectEnd
+    :: (Ord n, Ord t) => Lab n t -> Pos
+    -> P.ListT (Earley n t) (Item n t)
+expectEnd x i = do
+    EarSt{..} <- lift RWS.get
+    p <- each (S.toList done)
+    guard $ isJust $ D.follow (state p) (Left x) automat
+    guard $ end p == i
+    return p
+--   listValues (x, i) doneExpEnd
+
+
+
 -- -- | Remove a state from the queue.  In future, the queue
 -- -- will be probably replaced by a priority queue which will allow
 -- -- to order the computations in some smarter way.
@@ -239,19 +260,8 @@ pushItem p = RWS.state $ \s ->
 --           then M.insertWith S.union (nonTerm $ root p, beg p, end p)
 --                (S.singleton p) doneProSpan
 --           else doneProSpan }
--- 
--- 
--- -- | Return all completed states which:
--- -- * expect a given label,
--- -- * end on the given position.
--- expectEnd
---     :: (Ord n, Ord t) => Lab n t -> Pos
---     -> P.ListT (Earley n t) (State n t)
--- expectEnd x i = do
---   EarSt{..} <- lift RWS.get
---   listValues (x, i) doneExpEnd
--- 
--- 
+
+
 -- -- | Return all completed states with:
 -- -- * the given root non-terminal value
 -- -- * the given span
@@ -274,6 +284,53 @@ pushItem p = RWS.state $ \s ->
 
 
 --------------------------------------------------
+-- New Automaton-Based Primitives
+--------------------------------------------------
+
+
+-- | Follow the given terminal in the underlying automaton.
+followTerm :: (Ord n, Ord t) => ID -> t -> MaybeT (Earley n t) ID
+followTerm i c = do
+    -- get the underlying automaton
+    auto <- RWS.gets automat
+    -- follow the label
+    maybeT $ D.follow i (Left $ Term c) auto
+
+
+-- | Follow the given body transition in the underlying automaton.
+-- It represents the transition function of the automaton.
+--
+-- TODO: It should be merged with `followTerm` and return simple
+-- Maybe within the Earley monad.
+follow :: (Ord n, Ord t) => ID -> Lab n t -> P.ListT (Earley n t) ID
+follow i x = do
+    -- get the underlying automaton
+    auto <- RWS.gets automat
+    -- follow the label
+    some $ D.follow i (Left x) auto
+
+
+-- | Rule heads outgoing from the given automaton state.
+heads :: ID -> P.ListT (Earley n t) (Lab n t)
+heads i = do
+    auto <- RWS.gets automat
+    let mayHead (x, _) = case x of
+            Left _  -> Nothing
+            Right y -> Just y
+    each $ mapMaybe mayHead $ D.edges i auto
+
+
+-- | Rule body elements outgoing from the given automaton state.
+elems :: ID -> P.ListT (Earley n t) (Lab n t)
+elems i = do
+    auto <- RWS.gets automat
+    let mayBody (x, _) = case x of
+            Left y  -> Just y
+            Right _ -> Nothing
+    each $ mapMaybe mayBody $ D.edges i auto
+
+
+--------------------------------------------------
 -- SCAN
 --------------------------------------------------
 
@@ -286,7 +343,7 @@ tryScan p = void $ runMaybeT $ do
     c <- readInput $ end p
     -- follow appropriate terminal transition outgoin from the
     -- given automaton state
-    j <- follow (state p) $ Term c
+    j <- followTerm (state p) c
     -- construct the resultant state
     let q = p {state = j, end = end p + 1}
     -- print logging information
@@ -297,91 +354,69 @@ tryScan p = void $ runMaybeT $ do
     lift $ pushItem q
 
 
--- | Follow the given transition from a given automaton state.
-follow :: (Ord n, Ord t) => ID -> Lab n t -> MaybeT (Earley n t) ID
-follow i x = do
-    -- get the underlying automaton
-    auto <- RWS.gets automat
-    -- follow the label
-    maybeT $ D.follow i x auto
-
-
--- -- | Deconstruct the right part of the state (i.e. labels yet to
--- -- process) within the MaybeT monad.
--- expects
---     :: Monad m
---     => State n t
---     -> MaybeT m (Lab n t, [Lab n t])
--- expects = maybeT . expects'
-
-
 --------------------------------------------------
 -- SUBST
 --------------------------------------------------
 
 
--- -- | Try to use the state (only if fully parsed) to complement
--- -- (=> substitution) other rules.
--- trySubst :: (VOrd t, VOrd n) => State n t -> Earley n t ()
--- trySubst p = void $ P.runListT $ do
---     -- make sure that `p' is a fully-parsed regular rule
---     guard $ completed p && regular p
---     -- find rules which end where `p' begins and which
---     -- expect the non-terminal provided by `p' (ID included)
---     q <- expectEnd (root p) (beg p)
---     (r@NonT{}, _) <- some $ expects' q
---     -- construct the resultant state
---     -- Q: Why are we using `Right` here?
---     let q' = q
---             { end = end p
---             , root  = root q
---             , left  = r : left q
---              , right = tail (right q) }
---     -- print logging information
---     lift . lift $ do
---         putStr "[U]  " >> printState p
---         putStr "  +  " >> printState q
---         putStr "  :  " >> printState q'
---     -- push the resulting state into the waiting queue
---     lift $ pushState q'
--- 
--- 
--- --------------------------------------------------
--- -- ADJOIN
--- --------------------------------------------------
--- 
--- 
--- -- | `tryAdjoinInit p q':
--- -- * `p' is a completed state (regular or auxiliary)
--- -- * `q' not completed and expects a *real* foot
--- tryAdjoinInit :: (VOrd n, VOrd t) => State n t -> Earley n t ()
--- tryAdjoinInit p = void $ P.runListT $ do
---     -- make sure that `p' is fully-matched and that it is either
---     -- a regular rule or an intermediate auxiliary rule ((<=)
---     -- used as an implication here!); look at `tryAdjoinTerm`
---     -- for motivations.
---     guard $ completed p && auxiliary p <= subLevel p
---     -- before: guard $ completed p
---     -- find all rules which expect a real foot (with ID == Nothing)
---     -- and which end where `p' begins.
---     let u = nonTerm (root p)
---     q <- expectEnd (AuxFoot u) (beg p)
---     (r@AuxFoot{}, _) <- some $ expects' q
---     -- construct the resultant state
---     let q' = q
---             { gap = Just (beg p, end p)
---             , end = end p
---             , left = r : left q
---             , right = tail (right q) }
---     -- print logging information
---     lift . lift $ do
---         putStr "[A]  " >> printState p
---         putStr "  +  " >> printState q
---         putStr "  :  " >> printState q'
---     -- push the resulting state into the waiting queue
---     lift $ pushState q'
--- 
--- 
+-- | Try to use the state (only if fully parsed) to complement
+-- (=> substitution) other rules.
+trySubst :: (VOrd t, VOrd n) => Item n t -> Earley n t ()
+trySubst p = void $ P.runListT $ do
+    -- make sure that `p' represents regular rules
+    guard $ regular p
+    -- take all the head symbols outgoing from `p`
+    x <- heads (state p)
+    -- find items which end where `p' begins and which
+    -- expect the non-terminal provided by `p' (ID included)
+    q <- expectEnd x (beg p)
+    -- follow the transition symbol
+    j <- follow (state q) x
+    -- construct the resultant state
+    let q' = q {state = j, end = end p}
+    -- print logging information
+    lift . lift $ do
+        putStr "[U]  " >> printItem p
+        putStr "  +  " >> printItem q
+        putStr "  :  " >> printItem q'
+    -- push the resulting state into the waiting queue
+    lift $ pushItem q'
+
+
+--------------------------------------------------
+-- ADJOIN
+--------------------------------------------------
+
+
+-- | `tryAdjoinInit p q':
+-- * `p' is a completed state (regular or auxiliary)
+-- * `q' not completed and expects a *real* foot
+tryAdjoinInit :: (VOrd n, VOrd t) => Item n t -> Earley n t ()
+tryAdjoinInit p = void $ P.runListT $ do
+    -- take all head symbols outgoing from `p`
+    x <- heads (state p)
+    -- make sure that the corresponding rule is either regular or
+    -- intermediate auxiliary ((<=) used as implication here)
+    guard $ auxiliary p <= not (topLevel x)
+    -- find all rules which expect a foot with the given symbol
+    -- and which end where `p` begins
+    let foot = AuxFoot $ nonTerm x
+    q <- expectEnd foot (beg p)
+    -- follow the foot
+    j <- follow (state q) foot
+    -- construct the resultant state
+    let q' = q { state = j
+               , gap = Just (beg p, end p)
+               , end = end p }
+    -- print logging information
+    lift . lift $ do
+        putStr "[A]  " >> printItem p
+        putStr "  +  " >> printItem q
+        putStr "  :  " >> printItem q'
+    -- push the resulting state into the waiting queue
+    lift $ pushItem q'
+
+
 -- -- | `tryAdjoinCont p q':
 -- -- * `p' is a completed, auxiliary state
 -- -- * `q' not completed and expects a *dummy* foot
@@ -573,11 +608,11 @@ maybeT :: Monad m => Maybe a -> MaybeT m a
 maybeT = MaybeT . return
 
 
--- -- | ListT from a list.
--- each :: Monad m => [a] -> P.ListT m a
--- each = P.Select . P.each
--- 
--- 
--- -- | ListT from a maybe.
--- some :: Monad m => Maybe a -> P.ListT m a
--- some = each . maybeToList
+-- | ListT from a list.
+each :: Monad m => [a] -> P.ListT m a
+each = P.Select . P.each
+
+
+-- | ListT from a maybe.
+some :: Monad m => Maybe a -> P.ListT m a
+some = each . maybeToList
