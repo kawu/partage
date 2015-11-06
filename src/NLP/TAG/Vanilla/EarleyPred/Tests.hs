@@ -160,6 +160,8 @@ testTom1 = do
 testTom2 :: Assertion
 testTom2 = do
     gram <- mkGram1
+    recognize' gram "S" ["Tom", "almost", "caught", "a", "mouse"] @@?= True
+    recognize' gram "S" ["Tom", "caught", "almost", "a", "mouse"] @@?= False
     recognize' gram "S" ["Tom", "caught", "a", "mouse"] @@?= True
     recognize' gram "S" ["Tom", "caught", "Tom"] @@?= True
     recognize' gram "S" ["Tom", "caught", "a", "Tom"] @@?= False
