@@ -188,6 +188,9 @@ testCopy = do
     recognizeFrom gram "S"
         (words "p a b a b a b a b e a b a b a b a   q")
         @@?= False
+    recognizeFrom gram "S"
+        (words "p a b e b a q")
+        @@?= True
 
 
 ---------------------------------------------------------------------

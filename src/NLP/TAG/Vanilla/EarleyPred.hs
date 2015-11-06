@@ -639,7 +639,8 @@ recognize gram start xs = do
     n = length xs
     complete sts =
         [ True | st <- S.toList sts
-        , beg st == 0, end st == n ]
+        , beg st == 0, end st == n
+        , gap st == Nothing ]
 
 
 -- | A simplified version of `recognize`.
