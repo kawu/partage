@@ -139,14 +139,35 @@ prio p = end p
 
 
 --------------------------------------------------
+-- Efficient Rule Lookup
+--------------------------------------------------
+
+
+-- | The grammar stored in a form which allows efficient rule
+-- lookup based on head non-terminal values.
+type Gram n t = M.Map n (M.Map (Lab n t) (S.Set (Rule n t)))
+
+
+-- | Construct the grammar from the set of rules.
+mkGram :: (Ord n, Ord t) => S.Set (Rule n t) -> Gram n t
+mkGram rules = M.fromListWith addRule
+    [ ( nonTerm (headR r)
+      , M.singleton (headR r) (S.singleton r) )
+    | r <- S.toList rules ]
+  where
+    addRule = M.unionWith S.union
+
+
+--------------------------------------------------
 -- Earley monad
 --------------------------------------------------
+
 
 
 -- | The state of the earley monad.
 data EarSt n t = EarSt {
     -- | The underlying grammar (needed for prediction)
-      ruleSet    :: S.Set (Rule n t)
+      gramMap    :: Gram n t
     -- | Rules which expect a specific label and which end on a
     -- specific position.
     , doneExpEnd :: M.Map (Lab n t, Pos) (S.Set (State n t))
@@ -165,14 +186,15 @@ mkEarSt
     => S.Set (Rule n t)     -- ^ The set of rules
     -> S.Set n              -- ^ Starting symbols
     -> (EarSt n t)
-mkEarSt gram start = EarSt
-    { ruleSet = gram
+mkEarSt ruleSet startSet = EarSt
+    { gramMap = theGram
     , doneExpEnd = M.empty
     , doneProSpan = M.empty
     , waiting = Q.fromList
         [ p :-> prio p
         | p <- S.toList sts0 ] }
   where
+    theGram = mkGram ruleSet
     sts0 = S.fromList
         [ State
             { root  = headR
@@ -181,13 +203,15 @@ mkEarSt gram start = EarSt
             , beg   = 0
             , end   = 0
             , gap   = Nothing }
-        | Rule{..} <- S.toList gram
+        -- TODO: we can speed it up by using the
+        -- constructed grammar.  
+        | Rule{..} <- S.toList ruleSet
         -- make sure it's a regular rule
         , isNonT headR
         -- and that it's a top-level rule
         , isNothing (labID headR)
         -- it must also contain a start symbol
-        , nonTerm headR `S.member` start ]
+        , nonTerm headR `S.member` startSet ]
     isNonT NonT{} = True
     isNonT _      = False
 
@@ -291,9 +315,12 @@ listValues x m = each $ case M.lookup x m of
 headedBy
     :: (Ord t, Ord n) => Lab n t
     -> P.ListT (Earley n t) (Rule n t)
-headedBy x = do
+headedBy h = do
     EarSt{..} <- lift RWS.get
-    each [r | r <- S.toList ruleSet, headR r == x]
+    let x = nonTerm h
+    ruleSet <- some
+        (M.lookup x gramMap >>= M.lookup h)
+    each $ S.toList ruleSet
 
 
 -- | Return all rules headed by the given source non-terminal.
@@ -302,8 +329,9 @@ headedByN
     -> P.ListT (Earley n t) (Rule n t)
 headedByN x = do
     EarSt{..} <- lift RWS.get
-    each [ r | r <- S.toList ruleSet
-         , nonTerm (headR r) == x ]
+    ruleMap <- some (M.lookup x gramMap)
+    each [ r | s <- M.elems ruleMap
+             , r <- S.toList s ]
 
 
 --------------------------------------------------
