@@ -12,15 +12,14 @@ module NLP.TAG.Vanilla.EarleyAuto where
 
 
 import           Control.Applicative        ((<$>), (<*>))
-import           Control.Monad              (guard, void)
+import           Control.Monad              (guard, void, (>=>))
 import           Control.Monad.Trans.Class  (lift)
 import           Control.Monad.Trans.Maybe  (MaybeT (..))
 import qualified Control.Monad.RWS.Strict   as RWS
 
--- import           Data.List                  (intercalate)
 import           Data.Maybe     ( isJust, isNothing, mapMaybe
                                 , listToMaybe, maybeToList)
--- import qualified Data.Map.Strict            as M
+import qualified Data.Map.Strict            as M
 import qualified Data.Set                   as S
 import qualified Data.PSQueue               as Q
 import           Data.PSQueue (Binding(..))
@@ -32,14 +31,12 @@ import qualified Data.DAWG.Ord.Dynamic      as D
 import           NLP.TAG.Vanilla.Core
 import           NLP.TAG.Vanilla.Rule
                                 ( Lab(..), Rule(..) )
-import           NLP.TAG.Vanilla.Automaton
+import qualified NLP.TAG.Vanilla.Automaton  as A
 
 
 
 --------------------------------------------------
--- CHART STATE ...
---
--- ... and chart extending operations
+-- CHART ITEM
 --------------------------------------------------
 
 
@@ -104,6 +101,32 @@ prio p = end p
 
 
 --------------------------------------------------
+-- Set of Processed Items (Done Items)
+--------------------------------------------------
+
+
+-- | The set of processed items is stored as a map
+-- * from `end` position to a map
+--  * from `state` ID to a map
+--   * from `beg` position to a set
+--    * of the corresponding items
+type Done n t =
+    M.Map Pos
+        ( M.Map ID
+            ( M.Map Pos
+                ( S.Set (Item n t) )
+            )
+        )
+
+
+-- | List all done items.
+listDone :: Done n t -> [Item n t]
+listDone done = ($done) $
+    M.elems >=> M.elems >=>
+    M.elems >=> S.toList
+
+
+--------------------------------------------------
 -- Earley monad
 --------------------------------------------------
 
@@ -111,15 +134,21 @@ prio p = end p
 -- | The state of the earley monad.
 data EarSt n t = EarSt {
     -- | The underlying automaton.
-      automat :: DAWG n t
---     -- | Items which expect a specific label and which end on a
---     -- specific position.
---       doneExpEnd :: M.Map (Lab n t, Pos) (S.Set (State n t))
---     -- | Rules providing a specific non-terminal in the root
---     -- and spanning over a given range.
---     , doneProSpan :: M.Map (n, Pos, Pos) (S.Set (State n t))
+      automat :: A.DAWG n t
+
+    -- | A data structure which, for each label, determines the
+    -- set of automaton states from which this label goes out
+    -- as a body transition.
+    , withBody :: M.Map (Lab n t) (S.Set ID)
+
+    -- | A data structure which, for each source non-terminal,
+    -- determines the set of automaton states from which this
+    -- non-terminal goes out as a head transition.
+    , withHead :: M.Map n (S.Set ID)
+
     -- | Processed items.
-    , done :: S.Set (Item n t)
+    , done     :: Done n t
+
     -- | The set of states waiting on the queue to be processed.
     -- Invariant: the intersection of `done' and `waiting' states
     -- is empty.
@@ -129,15 +158,37 @@ data EarSt n t = EarSt {
 -- | Make an initial `EarSt` from a set of states.
 mkEarSt
     :: (Ord n, Ord t)
-    => DAWG n t
+    => A.DAWG n t
     -> S.Set (Item n t)
     -> (EarSt n t)
 mkEarSt dag s = EarSt
     { automat = dag
-    , done = S.empty
+    , withBody = mkWithBody dag
+    , withHead = mkWithHead dag
+    , done = M.empty
     , waiting = Q.fromList
         [ p :-> prio p
         | p <- S.toList s ] }
+
+
+-- | Create the `withBody` component based on the automaton.
+mkWithBody
+    :: (Ord n, Ord t)
+    => A.DAWG n t
+    -> M.Map (Lab n t) (S.Set ID)
+mkWithBody dag = M.fromListWith S.union
+    [ (x, S.singleton i)
+    | (i, A.Body x, _j) <- A.edges dag ]
+
+
+-- | Create the `withHead` component based on the automaton.
+mkWithHead
+    :: (Ord n, Ord t)
+    => A.DAWG n t
+    -> M.Map n (S.Set ID)
+mkWithHead dag = M.fromListWith S.union
+    [ (nonTerm x, S.singleton i)
+    | (i, A.Head x, _j) <- A.edges dag ]
 
 
 -- | Earley parser monad.  Contains the input sentence (reader)
@@ -157,7 +208,14 @@ readInput i = do
 -- | Check if the state is not already processed (i.e. in one of the
 -- done-related maps).
 isProcessed :: (Ord n, Ord t) => Item n t -> EarSt n t -> Bool
-isProcessed p EarSt{..} = S.member p done
+isProcessed x@Item{..} EarSt{..} = check $
+    (   M.lookup end 
+    >=> M.lookup state
+    >=> M.lookup beg
+    >=> return . S.member x ) done
+  where
+    check (Just True) = True
+    check _           = False
 
 
 -- | Add item to the waiting queue.  Check first if it is
@@ -182,36 +240,46 @@ popItem = RWS.state $ \st -> case Q.minView (waiting st) of
 -- | Add the state to the set of processed (`done') states.
 saveItem :: (Ord t, Ord n) => Item n t -> Earley n t ()
 saveItem p =
-    RWS.state $ \s -> ((), s {done = S.insert p (done s)})
---     RWS.state $ \s -> ((), doit s)
---   where
---     doit st@EarSt{..} = st
---       { doneExpEnd = case expects' p of
---           Just (x, _) -> M.insertWith S.union (x, end p)
---                               (S.singleton p) doneExpEnd
---           Nothing -> doneExpEnd
---       , doneProSpan = if completed p
---           then M.insertWith S.union (nonTerm $ root p, beg p, end p)
---                (S.singleton p) doneProSpan
---           else doneProSpan }
+    RWS.state $ \s -> ((), s {done = newDone s})
+  where
+    newDone st =
+        M.insertWith
+            (M.unionWith (M.unionWith S.union))
+            (end p)
+            ( M.singleton (state p)
+                ( M.singleton (beg p)
+                    ( S.singleton p )
+                )
+            )
+            (done st)
 
 
-
--- | Return all completed states which:
+-- | Return all "done" items which:
 -- * expect a given label,
 -- * end on the given position.
 expectEnd
     :: (Ord n, Ord t) => Lab n t -> Pos
     -> P.ListT (Earley n t) (Item n t)
-expectEnd x i = do
+expectEnd sym i = do
     EarSt{..} <- lift RWS.get
-    p <- each (S.toList done)
-    guard $ isJust $ D.follow (state p) (Body x) automat
-    guard $ end p == i
-    return p
+    -- determine items which end on the given position 
+    doneEnd <- some $ M.lookup i done
+    -- determine automaton states from which the given label
+    -- leaves as a body transition
+    stateSet <- some $ M.lookup sym withBody
+    -- pick one of the states
+    state <- each $ S.toList stateSet
+    --
+    -- ALTERNATIVE: state <- each . S.toList $
+    --      stateSet `S.intersection` M.keySet doneEnd
+    --
+    -- determine items which refer to the chosen states
+    doneEndLab <- some $ M.lookup state doneEnd
+    -- return them all!
+    each [x | xs <- M.elems doneEndLab, x <- S.toList xs]
 
 
--- | Return all completed items with:
+-- | Return all fully recognized "done" items with:
 -- * the given root non-terminal value (but not top-level
 --   auxiliary)
 -- * the given span
@@ -220,18 +288,19 @@ rootSpan
     -> P.ListT (Earley n t) (Item n t)
 rootSpan x (i, j) = do
     EarSt{..} <- lift RWS.get
-    p <- each (S.toList done)
-    guard $ beg p == i && end p == j
-    guard . not $ null
-        [ True
-        | (Root sym, _)
-            <- D.edges (state p) automat
-        , check sym ]
-    return p
-  where
-    check (Term _)    = False
-    check (AuxRoot _) = False
-    check sym         = nonTerm sym == x
+    -- determine iterms ending on the given position
+    doneEnd <- some $ M.lookup j done
+    -- determine automaton states from which the given label
+    -- leaves as a head transition
+    stateSet <- some $ M.lookup x withHead
+    -- pick one of the states
+    state <- each $ S.toList stateSet
+    -- determine items which refer to the chosen state
+    doneEndLab <- some $ M.lookup state doneEnd
+    -- determine items begining on the given position
+    doneEndLabBeg <- some $ M.lookup i doneEndLab
+    -- return what's left
+    each $ S.toList doneEndLabBeg
 
 
 --------------------------------------------------
@@ -245,20 +314,17 @@ followTerm i c = do
     -- get the underlying automaton
     auto <- RWS.gets automat
     -- follow the label
-    maybeT $ D.follow i (Body $ Term c) auto
+    maybeT $ D.follow i (A.Body $ Term c) auto
 
 
 -- | Follow the given body transition in the underlying automaton.
 -- It represents the transition function of the automaton.
---
--- TODO: It should be merged with `followTerm` and return simple
--- Maybe within the Earley monad.
 follow :: (Ord n, Ord t) => ID -> Lab n t -> P.ListT (Earley n t) ID
 follow i x = do
     -- get the underlying automaton
     auto <- RWS.gets automat
     -- follow the label
-    some $ D.follow i (Body x) auto
+    some $ D.follow i (A.Body x) auto
 
 
 -- | Rule heads outgoing from the given automaton state.
@@ -266,8 +332,8 @@ heads :: ID -> P.ListT (Earley n t) (Lab n t)
 heads i = do
     auto <- RWS.gets automat
     let mayHead (x, _) = case x of
-            Body _  -> Nothing
-            Root y -> Just y
+            A.Body _  -> Nothing
+            A.Head y -> Just y
     each $ mapMaybe mayHead $ D.edges i auto
 
 
@@ -276,8 +342,8 @@ elems :: ID -> P.ListT (Earley n t) (Lab n t)
 elems i = do
     auto <- RWS.gets automat
     let mayBody (x, _) = case x of
-            Body y  -> Just y
-            Root _ -> Nothing
+            A.Body y  -> Just y
+            A.Head _ -> Nothing
     each $ mapMaybe mayBody $ D.edges i auto
 
 
@@ -449,8 +515,8 @@ recognize gram xs = do
     return $ (not.null) (complete done)
   where
     n = length xs
-    complete sts =
-        [ True | st <- S.toList sts
+    complete done =
+        [ True | st <- listDone done
         , beg st == 0, end st == n
         , gap st == Nothing ]
 
@@ -470,12 +536,12 @@ recognizeFrom gram start xs = do
     return $ (not.null) (complete done auto)
   where
     n = length xs
-    complete items auto =
-        [ True | item <- S.toList items
+    complete done auto =
+        [ True | item <- listDone done
         , beg item == 0, end item == n
         , isJust $ D.follow
             (state item)
-            (Root $ NonT start Nothing)
+            (A.Head $ NonT start Nothing)
             auto ]
 
 
@@ -485,12 +551,12 @@ earley
     :: (VOrd t, VOrd n)
     => S.Set (Rule n t)     -- ^ The grammar (set of rules)
     -> [t]                  -- ^ Input sentence
-    -> IO (S.Set (Item n t), DAWG n t)
+    -> IO (Done n t, A.DAWG n t)
 earley gram xs =
     ((,) <$> done <*> automat) . fst <$> RWS.execRWST loop xs st0
   where
     -- the automaton
-    dawg = buildAuto gram
+    dawg = A.buildAuto gram
     -- we put in the initial state all the states with the dot on
     -- the left of the body of the rule (-> left = []) on all
     -- positions of the input sentence.
