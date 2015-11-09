@@ -296,19 +296,21 @@ tryScan p = void $ runMaybeT $ do
 -- (=> substitution) other rules.
 trySubst :: (VOrd t, VOrd n) => State n t -> Earley n t ()
 trySubst p = void $ P.runListT $ do
-    -- make sure that `p' is a fully-parsed regular rule
+    -- Make sure that `p' is a fully-parsed regular rule.
+    -- Checking that it is regular is not actually necessary
+    -- here because, otherwise, `expectEnd` should return
+    -- nothing.  But it should speed up things.
     guard $ completed p && regular p
     -- find rules which end where `p' begins and which
     -- expect the non-terminal provided by `p' (ID included)
     q <- expectEnd (root p) (beg p)
     (r@NonT{}, _) <- some $ expects' q
     -- construct the resultant state
-    -- Q: Why are we using `Right` here?
     let q' = q
             { end = end p
             , root  = root q
             , left  = r : left q
-             , right = tail (right q) }
+            , right = tail (right q) }
     -- print logging information
     lift . lift $ do
         putStr "[U]  " >> printState p
