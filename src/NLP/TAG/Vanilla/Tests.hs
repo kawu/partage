@@ -193,6 +193,36 @@ gram2Tests =
 
 
 ---------------------------------------------------------------------
+-- Grammar 3
+---------------------------------------------------------------------
+
+
+mkGram3 :: IO Gram
+mkGram3 = compile $
+    (map Left [sent]) ++
+    (map Right [xtree])
+  where
+    sent = INode "S"
+        [ FNode "p"
+        , INode "X"
+            [FNode "e"]
+        , FNode "b" ]
+    xtree = AuxTree (INode "X"
+        [ FNode "a"
+        , INode "X" []
+        , FNode "b" ]
+        ) [1]
+
+
+-- | Here we check that the auxiliary tree must be fully
+-- recognized before it can be adjoined.
+gram3Tests :: [Test]
+gram3Tests =
+    [ Test "S" (words "p a e b b") True
+    , Test "S" (words "p a e b") False ]
+
+
+---------------------------------------------------------------------
 -- Resources
 ---------------------------------------------------------------------
 
@@ -200,13 +230,14 @@ gram2Tests =
 -- | Compiled grammars.
 data Res = Res
     { gram1 :: Gram
-    , gram2 :: Gram }
+    , gram2 :: Gram
+    , gram3 :: Gram }
 
 
 -- | Construct the shared resource (i.e. the grammars) used in
 -- tests.
 mkGrams :: IO Res 
-mkGrams = Res <$> mkGram1 <*> mkGram2
+mkGrams = Res <$> mkGram1 <*> mkGram2 <*> mkGram3
 
 
 ---------------------------------------------------------------------
@@ -223,22 +254,13 @@ testTree
     -> TestTree
 testTree modName reco = withResource mkGrams (const $ return ()) $
     \resIO -> testGroup modName $
-        -- testGroup "NLP.TAG.Vanilla.EarleyPred" $
         map (testIt resIO gram1) gram1Tests ++
-        map (testIt resIO gram2) gram2Tests
+        map (testIt resIO gram2) gram2Tests ++
+        map (testIt resIO gram3) gram3Tests
   where
     testIt resIO getGram test@Test{..} = testCase (show test) $ do
         gram <- getGram <$> resIO
-        -- recognize' gram startSym testSent @@?= testRes
         reco gram startSym testSent @@?= testRes
-
-
--- -- | Run the given test on the given grammar.
--- testIt
---     :: IO Res           -- ^ Grammar acquisition
---     -> (Res -> Gram)  -- ^ Grammar selection
---     -> Test           -- ^ The test to run
---     -> TestTree
 
 
 ---------------------------------------------------------------------

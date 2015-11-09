@@ -297,9 +297,9 @@ tryScan p = void $ runMaybeT $ do
 trySubst :: (VOrd t, VOrd n) => State n t -> Earley n t ()
 trySubst p = void $ P.runListT $ do
     -- Make sure that `p' is a fully-parsed regular rule.
-    -- Checking that it is regular is not actually necessary
-    -- here because, otherwise, `expectEnd` should return
-    -- nothing.  But it should speed up things.
+    -- Checking that it is regular is not actually necessary here
+    -- because, otherwise, `expectEnd` should return nothing.
+    -- But still, it should speed up things to check it here.
     guard $ completed p && regular p
     -- find rules which end where `p' begins and which
     -- expect the non-terminal provided by `p' (ID included)
@@ -308,7 +308,6 @@ trySubst p = void $ P.runListT $ do
     -- construct the resultant state
     let q' = q
             { end = end p
-            , root  = root q
             , left  = r : left q
             , right = tail (right q) }
     -- print logging information
@@ -335,7 +334,6 @@ tryAdjoinInit p = void $ P.runListT $ do
     -- used as an implication here!); look at `tryAdjoinTerm`
     -- for motivations.
     guard $ completed p && auxiliary p <= subLevel p
-    -- before: guard $ completed p
     -- find all rules which expect a real foot (with ID == Nothing)
     -- and which end where `p' begins.
     let u = nonTerm (root p)
@@ -361,7 +359,9 @@ tryAdjoinInit p = void $ P.runListT $ do
 -- * `q' not completed and expects a *dummy* foot
 tryAdjoinCont :: (VOrd n, VOrd t) => State  n t -> Earley n t ()
 tryAdjoinCont p = void $ P.runListT $ do
-    -- make sure that `p' is a completed, sub-level auxiliary rule
+    -- Make sure that `p' is a completed, sub-level auxiliary rule.
+    -- Note that it is also ensured a few lines below that the
+    -- rule is sub-level auxiliary.
     guard $ completed p && subLevel p && auxiliary p
     -- find all rules which expect a foot provided by `p'
     -- and which end where `p' begins.
@@ -371,7 +371,6 @@ tryAdjoinCont p = void $ P.runListT $ do
     -- inner state `p' is copied to the outer state based on `q'
     let q' = q
             { gap = gap p, end = end p
-            , root  = root q 
             , left  = r : left q
             , right = tail $ right q }
     -- logging info
@@ -391,47 +390,20 @@ tryAdjoinTerm p = void $ P.runListT $ do
     guard $ completed p && topLevel p
     -- ... and that it is an auxiliary state (by definition only
     -- auxiliary states have gaps)
-    (gapBeg, gapEnd) <- each $ maybeToList $ gap p
-    -- it is top-level, so we can also make sure that the
-    -- root is an AuxRoot.
-    -- pRoot@AuxRoot{} <- some $ Just $ root p
+    theGap <- each $ maybeToList $ gap p
     -- take all completed rules with a given span
     -- and a given root non-terminal (IDs irrelevant)
-    q <- rootSpan (nonTerm $ root p) (gapBeg, gapEnd)
-    -- make sure that `q' is completed as well and that it is either
+    q <- rootSpan (nonTerm $ root p) theGap
+    -- Make sure that `q' is completed as well and that it is either
     -- a regular (perhaps intermediate) rule or an intermediate
     -- auxiliary rule (note that (<=) is used as an implication
     -- here and can be read as `implies`).
-    -- NOTE: root auxiliary rules are of no interest to us but they
-    -- are all the same taken into account in an indirect manner.
-    -- We can assume here that such rules are already adjoined thus
-    -- creating either regular or intermediate auxiliary.
-    -- NOTE: similar reasoning can be used to explain why foot
-    -- auxiliary rules are likewise ignored.
-    -- Q: don't get this second remark -- how could a foot node
-    -- be a root of a state/rule `q`?  What `foot auxiliary rules`
-    -- could actually mean?
+    -- (TODO: we don't have to check if `q` is completed, it stems
+    -- from the fact that it is pulled using `rootSpan`.)
     guard $ completed q && auxiliary q <= subLevel q
-    -- TODO: it seems that some of the constraints given above
-    -- follow from the code below:
-    qRoot <- some $ case root q of
-        x@NonT{}    -> Just x
-        x@AuxVert{} -> Just x
-        _           -> Nothing
-    newRoot <- some $ case qRoot of
-        NonT{} -> Just $ NonT
-            { nonTerm = nonTerm qRoot
-            , labID = labID qRoot }
-        AuxVert{} -> Just $ AuxVert
-            { nonTerm = nonTerm qRoot
-            , symID = symID qRoot }
-        _           -> Nothing
-    let q' = q
-            { root = newRoot
-            , left  = left q
-            , right = right q
-            , beg = beg p
-            , end = end p }
+    -- construct the resulting state
+    let q' = q { beg = beg p
+               , end = end p }
     lift . lift $ do
         putStr "[C]  " >> printState p
         putStr "  +  " >> printState q

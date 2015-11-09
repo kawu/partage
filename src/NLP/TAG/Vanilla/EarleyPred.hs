@@ -535,47 +535,18 @@ tryAdjoinTerm p = void $ P.runListT $ do
     guard $ completed p && topLevel p
     -- ... and that it is an auxiliary state (by definition only
     -- auxiliary states have gaps)
-    (gapBeg, gapEnd) <- each $ maybeToList $ gap p
-    -- it is top-level, so we can also make sure that the
-    -- root is an AuxRoot.
-    -- pRoot@AuxRoot{} <- some $ Just $ root p
+    theGap <- each $ maybeToList $ gap p
     -- take all completed rules with a given span
     -- and a given root non-terminal (IDs irrelevant)
-    q <- rootSpan (nonTerm $ root p) (gapBeg, gapEnd)
+    q <- rootSpan (nonTerm $ root p) theGap
     -- make sure that `q' is completed as well and that it is either
     -- a regular (perhaps intermediate) rule or an intermediate
     -- auxiliary rule (note that (<=) is used as an implication
     -- here and can be read as `implies`).
-    -- NOTE: root auxiliary rules are of no interest to us but they
-    -- are all the same taken into account in an indirect manner.
-    -- We can assume here that such rules are already adjoined thus
-    -- creating either regular or intermediate auxiliary.
-    -- NOTE: similar reasoning can be used to explain why foot
-    -- auxiliary rules are likewise ignored.
-    -- Q: don't get this second remark -- how could a foot node
-    -- be a root of a state/rule `q`?  What `foot auxiliary rules`
-    -- could actually mean?
     guard $ completed q && auxiliary q <= subLevel q
-    -- TODO: it seems that some of the constraints given above
-    -- follow from the code below:
-    qRoot <- some $ case root q of
-        x@NonT{}    -> Just x
-        x@AuxVert{} -> Just x
-        _           -> Nothing
-    newRoot <- some $ case qRoot of
-        NonT{} -> Just $ NonT
-            { nonTerm = nonTerm qRoot
-            , labID = labID qRoot }
-        AuxVert{} -> Just $ AuxVert
-            { nonTerm = nonTerm qRoot
-            , symID = symID qRoot }
-        _           -> Nothing
-    let q' = q
-            { root = newRoot
-            , left  = left q
-            , right = right q
-            , beg = beg p
-            , end = end p }
+    -- construct the resulting state
+    let q' = q { beg = beg p
+               , end = end p }
     lift . lift $ do
         putStr "[C]  " >> printState p
         putStr "  +  " >> printState q
