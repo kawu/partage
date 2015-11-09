@@ -56,33 +56,6 @@ data Item n t = Item {
     } deriving (Show, Eq, Ord)
 
 
--- -- | Parsing state: processed initial rule elements and the elements
--- -- yet to process.
--- data State n t = State {
---     -- | The head of the rule represented by the state.
---     -- TODO: Not a terminal nor a foot.
---       root  :: Lab n t
---     -- | The list of processed elements of the rule, stored in an
---     -- inverse order.
---     , left  :: [Lab n t]
---     -- | The list of elements yet to process.
---     , right :: [Lab n t]
---     -- | The starting position.
---     , beg   :: Pos
---     -- | The ending position (or rather the position of the dot).
---     , end   :: Pos
---     -- | Coordinates of the gap (if applies)
---     , gap   :: Maybe (Pos, Pos)
---     } deriving (Show, Eq, Ord)
--- 
--- 
--- -- | Is it a completed (fully matched) item?
--- -- NOTE: It doesn't make sense now, from a auto. state both
--- -- head and body transitions can outgo.
--- completed :: Item n t -> Bool
--- completed = null . right
-
-
 -- | Does it represent regular rules?
 regular :: Item n t -> Bool
 regular = isNothing . gap
@@ -93,13 +66,6 @@ auxiliary :: Item n t -> Bool
 auxiliary = isJust . gap
 
 
--- -- | Is it top-level?  All top-level states (regular or
--- -- auxiliary) have an underspecified ID in the root symbol.
--- topLevel :: State n t -> Bool
--- -- topLevel = isNothing . ide . root
--- topLevel = not . subLevel
-
-
 -- | Is the rule with the given head top-level?
 topLevel :: Lab n t -> Bool
 topLevel x = case x of
@@ -107,23 +73,6 @@ topLevel x = case x of
     AuxRoot{} -> True
     _         -> False
     
-
--- -- | Deconstruct the right part of the state (i.e. labels yet to
--- -- process) within the MaybeT monad.
--- expects
---     :: Monad m
---     => State n t
---     -> MaybeT m (Lab n t, [Lab n t])
--- expects = maybeT . expects'
--- 
--- 
--- -- | Deconstruct the right part of the state (i.e. labels yet to
--- -- process). 
--- expects'
---     :: State n t
---     -> Maybe (Lab n t, [Lab n t])
--- expects' = decoList . right
-
 
 -- | Print the state.
 printItem :: (View n, View t) => Item n t -> IO ()
@@ -260,7 +209,6 @@ expectEnd x i = do
     guard $ isJust $ D.follow (state p) (Body x) automat
     guard $ end p == i
     return p
---   listValues (x, i) doneExpEnd
 
 
 -- | Return all completed items with:
@@ -284,17 +232,6 @@ rootSpan x (i, j) = do
     check (Term _)    = False
     check (AuxRoot _) = False
     check sym         = nonTerm sym == x
-
-
-
--- -- | A utility function.
--- listValues
---     :: (Monad m, Ord a)
---     => a -> M.Map a (S.Set b)
---     -> P.ListT m b
--- listValues x m = each $ case M.lookup x m of
---     Nothing -> []
---     Just s -> S.toList s
 
 
 --------------------------------------------------
@@ -588,12 +525,6 @@ step p = do
 --------------------------------------------------
 -- Utilities
 --------------------------------------------------
-
-
--- -- | Deconstruct list.  Utility function.  Similar to `unCons`.
--- decoList :: [a] -> Maybe (a, [a])
--- decoList [] = Nothing
--- decoList (y:ys) = Just (y, ys)
 
 
 -- | MaybeT transformer.
