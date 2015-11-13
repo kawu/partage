@@ -8,7 +8,7 @@
 -- representation.
 
 
-module NLP.TAG.Vanilla.EarleyAuto where
+module NLP.TAG.Vanilla.Earley.Auto where
 
 
 import           Control.Applicative        ((<$>), (<*>))

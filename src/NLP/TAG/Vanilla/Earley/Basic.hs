@@ -4,7 +4,7 @@
 {-# LANGUAGE GADTs #-}
 
 
-module NLP.TAG.Vanilla.EarleyBasic where
+module NLP.TAG.Vanilla.Earley.Basic where
 
 
 import           Control.Applicative        ((<$>))

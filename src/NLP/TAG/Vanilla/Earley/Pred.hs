@@ -7,7 +7,7 @@
 -- | Earley-style parsing together with prediction rules.
 
 
-module NLP.TAG.Vanilla.EarleyPred where
+module NLP.TAG.Vanilla.Earley.Pred where
 
 
 import           Control.Applicative        ((<$>))

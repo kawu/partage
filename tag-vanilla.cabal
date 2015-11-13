@@ -41,11 +41,11 @@ library
         NLP.TAG.Vanilla.Core
       , NLP.TAG.Vanilla.Tree
       , NLP.TAG.Vanilla.Rule
-      , NLP.TAG.Vanilla.EarleyBasic
+      , NLP.TAG.Vanilla.Earley.Basic
       , NLP.TAG.Vanilla.SubtreeSharing
-      , NLP.TAG.Vanilla.EarleyPred
+      , NLP.TAG.Vanilla.Earley.Pred
       , NLP.TAG.Vanilla.Automaton
-      , NLP.TAG.Vanilla.EarleyAuto
+      , NLP.TAG.Vanilla.Earley.Auto
 
     ghc-options: -Wall
 
