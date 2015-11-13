@@ -147,6 +147,13 @@ data EarSt n t = EarSt {
       doneExpEnd :: M.Map (Lab n t, Pos) (S.Set (State n t))
     -- | Rules providing a specific non-terminal in the root
     -- and spanning over a given range.
+    --
+    -- TODO: we can simply replace the map with the set in order
+    -- to be consistent with the `AutoAP` version, it seems?
+    --
+    -- TODO2: perhaps it is no so simple -- have a look at
+    -- `AutoAP`.
+    --
     , doneProSpan :: M.Map (n, Pos, Pos) (S.Set (State n t))
     -- | The set of states waiting on the queue to be processed.
     -- Invariant: the intersection of `done' and `waiting' states

@@ -143,10 +143,8 @@ gram1Tests =
 
 alpha :: Tr
 alpha = INode "S"
-    [ FNode "p"
-    , INode "X"
-        [FNode "e"]
-    , FNode "q" ]
+    [ INode "X"
+        [FNode "e"] ]
 
 
 beta1 :: AuxTr
@@ -185,11 +183,13 @@ mkGram2 = compile $
 -- use either adjunction constraints or feature structures.
 gram2Tests :: [Test]
 gram2Tests =
-    [ Test "S" (words "p a b e a b q") True
-    , Test "S" (words "p a b e a a q") False
-    , Test "S" (words "p a b a b a b a b e a b a b a b a b q") True
-    , Test "S" (words "p a b a b a b a b e a b a b a b a   q") False
-    , Test "S" (words "p a b e b a q") True ]
+    [ Test "S" (words "a b e a b") True
+    , Test "S" (words "a b e a a") False
+    , Test "S" (words "a b a b a b a b e a b a b a b a b") True
+    , Test "S" (words "a b a b a b a b e a b a b a b a  ") False
+    , Test "S" (words "a b e b a") True
+    , Test "S" (words "b e a") False
+    , Test "S" (words "a b a b") False ]
 
 
 ---------------------------------------------------------------------

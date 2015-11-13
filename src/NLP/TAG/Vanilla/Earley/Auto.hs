@@ -126,6 +126,19 @@ listDone done = ($done) $
     M.elems >=> S.toList
 
 
+-- | Check if the state is not already processed (i.e. in one of the
+-- done-related maps).
+isProcessed :: (Ord n, Ord t) => Item n t -> Done n t -> Bool
+isProcessed x@Item{..} = check .
+    (   M.lookup end 
+    >=> M.lookup state
+    >=> M.lookup beg
+    >=> return . S.member x )
+  where
+    check (Just True) = True
+    check _           = False
+
+
 --------------------------------------------------
 -- Earley monad
 --------------------------------------------------
@@ -205,24 +218,11 @@ readInput i = do
     maybeT $ listToMaybe $ drop i xs
 
 
--- | Check if the state is not already processed (i.e. in one of the
--- done-related maps).
-isProcessed :: (Ord n, Ord t) => Item n t -> EarSt n t -> Bool
-isProcessed x@Item{..} EarSt{..} = check $
-    (   M.lookup end 
-    >=> M.lookup state
-    >=> M.lookup beg
-    >=> return . S.member x ) done
-  where
-    check (Just True) = True
-    check _           = False
-
-
 -- | Add item to the waiting queue.  Check first if it is
 -- not already in the set of processed (`done') states.
 pushItem :: (Ord t, Ord n) => Item n t -> Earley n t ()
 pushItem p = RWS.state $ \s ->
-    let waiting' = if isProcessed p s
+    let waiting' = if isProcessed p (done s)
             then waiting s
             else Q.insert p (prio p) (waiting s)
     in  ((), s {waiting = waiting'})
