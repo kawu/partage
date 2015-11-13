@@ -11,7 +11,7 @@ import           Test.Tasty.HUnit (testCase)
 
 
 import           NLP.TAG.Vanilla.Tree (Tree (..), AuxTree (..))
-import           NLP.TAG.Vanilla.Earley (recognize, recognizeFrom)
+import           NLP.TAG.Vanilla.EarleyBasic (recognize, recognizeFrom)
 import           NLP.TAG.Vanilla.Rule (Rule)
 import           NLP.TAG.Vanilla.SubtreeSharing (compile)
 

@@ -41,7 +41,7 @@ library
         NLP.TAG.Vanilla.Core
       , NLP.TAG.Vanilla.Tree
       , NLP.TAG.Vanilla.Rule
-      , NLP.TAG.Vanilla.Earley
+      , NLP.TAG.Vanilla.EarleyBasic
       , NLP.TAG.Vanilla.SubtreeSharing
       , NLP.TAG.Vanilla.EarleyPred
       , NLP.TAG.Vanilla.Automaton
