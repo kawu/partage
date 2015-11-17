@@ -80,9 +80,9 @@ $( makeLenses [''Passive] )
 
 
 -- testSpan :: Span -> Span
--- testSpan = setL gap $ Nothing 
--- 
--- 
+-- testSpan = setL gap $ Nothing
+--
+--
 -- testActive :: Pos -> Active n t -> Active n t
 -- testActive end0 = setL (spanA >>> end) end0
 
@@ -178,26 +178,26 @@ data Item n t
 -- --------------------------------------------------
 -- -- Set of Passive Processed Items
 -- --------------------------------------------------
--- 
--- 
+--
+--
 -- -- | The set of passive processed items.
--- type DonePassive n = 
--- 
--- 
+-- type DonePassive n =
+--
+--
 -- --------------------------------------------------
 -- -- Set of Active Done Items
 -- --------------------------------------------------
--- 
--- 
+--
+--
 -- -- | The set of active processed items.
--- type DoneActive n t = 
--- 
--- 
+-- type DoneActive n t =
+--
+--
 -- --------------------------------------------------
 -- -- Set of Processed Items (BACKUP)
 -- --------------------------------------------------
--- 
--- 
+--
+--
 -- -- | The set of passive (processed) items is stored as a map
 -- -- * from `end` position to a map
 -- --  * from `state` ID to a map
@@ -310,7 +310,7 @@ readInput i = do
 -- -- done-related maps).
 -- isProcessed :: (Ord n, Ord t) => Item n t -> EarSt n t -> Bool
 -- isProcessed x@Item{..} EarSt{..} = check $
---     (   M.lookup end 
+--     (   M.lookup end
 --     >=> M.lookup state
 --     >=> M.lookup beg
 --     >=> return . S.member x ) done
@@ -322,7 +322,7 @@ readInput i = do
 -- | Check if the active item is not already processed.
 isProcessedA :: (Ord n, Ord t) => Active n t -> EarSt n t -> Bool
 isProcessedA p EarSt{..} = check $
-    (   M.lookup (p ^. spanA ^. end) 
+    (   M.lookup (p ^. spanA ^. end)
     >=> M.lookup (p ^. state)
     >=> return . S.member p ) doneActive
   where
@@ -372,7 +372,7 @@ pushInduced p = do
     P.runListT $ do
         x <- heads (getL state p)
         lift . pushPassive $ Passive x (getL spanA p)
-    
+
 
 -- | Remove a state from the queue.
 popItem :: (Ord t, Ord n) => Earley n t (Maybe (Item n t))
@@ -435,7 +435,7 @@ expectEnd
     -> P.ListT (Earley n t) (Active n t)
 expectEnd sym i = do
     EarSt{..} <- lift RWS.get
-    -- determine items which end on the given position 
+    -- determine items which end on the given position
     doneEnd <- some $ M.lookup i doneActive
     -- determine automaton states from which the given label
     -- leaves as a body transition

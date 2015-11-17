@@ -2,6 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 
 -- | A version in which we don't assume that inference arguments are popped
@@ -12,132 +13,165 @@
 module NLP.TAG.Vanilla.Earley.New where
 
 
+import           Prelude hiding             (span, (.))
 import           Control.Applicative        ((<$>))
 import           Control.Monad              (guard, void)
 import           Control.Monad.Trans.Class  (lift)
 import           Control.Monad.Trans.Maybe  (MaybeT (..))
 import qualified Control.Monad.RWS.Strict   as RWS
+import           Control.Category           ((>>>), (.))
 
-import           Data.Maybe     ( isJust, isNothing
-                                , listToMaybe, maybeToList)
+import           Data.Maybe                 ( isJust, isNothing
+                                            , listToMaybe, maybeToList)
 -- import qualified Data.Map.Strict            as M
 import qualified Data.Set                   as S
 import qualified Data.PSQueue               as Q
 import           Data.PSQueue (Binding(..))
+import           Data.Lens.Light
 import qualified Pipes                      as P
 
 import           NLP.TAG.Vanilla.Core
-import           NLP.TAG.Vanilla.Rule
-                                ( Lab(..), viewLab, Rule(..) )
-
+import           NLP.TAG.Vanilla.Rule       ( Lab(..), viewLab, Rule(..) )
 
 
 --------------------------------------------------
--- CHART STATE ...
---
--- ... and chart extending operations
+-- BASE TYPES
 --------------------------------------------------
 
 
--- | Parsing state: processed initial rule elements and the elements
--- yet to process.
-data State n t = State {
-    -- | The head of the rule represented by the state.
-    -- TODO: Not a terminal nor a foot.
-      root  :: Lab n t
-    -- | The list of processed elements of the rule, stored in an
-    -- inverse order.
-    , left  :: [Lab n t]
-    -- | The list of elements yet to process.
-    , right :: [Lab n t]
+-- | Priority.
+type Prio = Int
+
+
+data Span = Span {
     -- | The starting position.
-    , beg   :: Pos
+      _beg   :: Pos
     -- | The ending position (or rather the position of the dot).
-    , end   :: Pos
+    , _end   :: Pos
     -- | Coordinates of the gap (if applies)
-    , gap   :: Maybe (Pos, Pos)
+    , _gap   :: Maybe (Pos, Pos)
     } deriving (Show, Eq, Ord)
+$( makeLenses [''Span] )
 
 
--- | Is it a completed (fully-parsed) state?
-completed :: State n t -> Bool
-completed = null . right
+-- | Active chart item : state reference + span.
+data Active n t = Active
+    { _root    :: Lab n t
+    -- ^ The head of the rule represented by the item.
+    -- TODO: Not a terminal nor a foot.
+    , _left    :: [Lab n t]
+    -- ^ The list of processed elements of the rule, stored in an
+    -- inverse order.
+    , _right   :: [Lab n t]
+    -- ^ The list of elements yet to process.
+    , _spanA   :: Span
+    -- ^ The span of the item.
+    } deriving (Show, Eq, Ord)
+$( makeLenses [''Active] )
 
 
--- | Does it represent a regular rule?
-regular :: State n t -> Bool
-regular = isNothing . gap
+-- | Passive chart item : label + span.
+data Passive n t = Passive
+    { _label :: Lab n t
+    , _spanP :: Span
+    } deriving (Show, Eq, Ord)
+$( makeLenses [''Passive] )
 
 
--- | Does it represent an auxiliary rule?
-auxiliary :: State n t -> Bool
-auxiliary = isJust . gap
+-- | Does it represent regular rules?
+regular :: Span -> Bool
+regular = isNothing . getL gap
 
 
--- | Is it top-level?  All top-level states (regular or
--- auxiliary) have an underspecified ID in the root symbol.
-topLevel :: State n t -> Bool
--- topLevel = isNothing . ide . root
-topLevel = not . subLevel
+-- | Does it represent auxiliary rules?
+auxiliary :: Span -> Bool
+auxiliary = isJust . getL gap
 
 
--- | Is it subsidiary (i.e. not top) level?
-subLevel :: State n t -> Bool
--- subLevel = isJust . ide . root
-subLevel x = case root x of
-    NonT{..}  -> isJust labID
-    AuxVert{} -> True
-    Term _    -> True
-    _         -> False
-
-
--- | Deconstruct the right part of the state (i.e. labels yet to
--- process) within the MaybeT monad.
-expects
-    :: Monad m
-    => State n t
-    -> MaybeT m (Lab n t, [Lab n t])
-expects = maybeT . expects'
-
-
--- | Deconstruct the right part of the state (i.e. labels yet to
--- process).
-expects'
-    :: State n t
-    -> Maybe (Lab n t, [Lab n t])
-expects' = decoList . right
-
-
--- | Print the state.
-printState :: (View n, View t) => State n t -> IO ()
-printState State{..} = do
-    putStr $ viewLab root
-    putStr " -> "
-    putStr $ unwords $
-        map viewLab (reverse left) ++ ["*"] ++ map viewLab right
-    putStr " <"
-    putStr $ show beg
+-- | Print an active item.
+printSpan :: Span -> IO ()
+printSpan span = do
+    putStr . show $ getL beg span
     putStr ", "
-    case gap of
+    case getL gap span of
         Nothing -> return ()
         Just (p, q) -> do
             putStr $ show p
             putStr ", "
             putStr $ show q
             putStr ", "
-    putStr $ show end
-    putStrLn ">"
+    putStr . show $ getL end span
 
 
--- | Priority type.
-type Prio = Int
+-- | Is it a completed (fully-parsed) active item?
+completed :: Active n t -> Bool
+completed = null . getL right
 
 
--- | Priority of a state.  Crucial for the algorithm -- states have
--- to be removed from the queue in a specific order.
-prio :: State n t -> Prio
--- prio p = negate (end p - beg p)
-prio = negate . end
+-- | Print an active item.
+printActive :: (View n, View t) => Active n t -> IO ()
+printActive p = do
+    putStr "("
+    -- putStr . show $ getL state p
+    putStr . show $ viewLab (p ^. root)
+    putStr " -> "
+    putStr . unwords $
+        map viewLab (reverse (p ^. left)) ++
+        ["*"] ++ map viewLab (p ^. right)
+    putStr ", "
+    printSpan $ getL spanA p
+    putStrLn ")"
+
+
+-- | Print a passive item.
+printPassive :: (View n, View t) => Passive n t -> IO ()
+printPassive p = do
+    putStr "("
+    putStr . viewLab $ getL label p
+    putStr ", "
+    printSpan $ getL spanP p
+    putStrLn ")"
+
+
+-- | Priority of an active item.  Crucial for the algorithm --
+-- states have to be removed from the queue in a specific order.
+prioA :: Active n t -> Prio
+prioA = negate . getL (end . spanA)
+
+
+-- | Priority of a passive item.  Crucial for the algorithm --
+-- states have to be removed from the queue in a specific order.
+prioP :: Passive n t -> Prio
+prioP = negate . getL (end . spanP)
+
+
+--------------------------------------------------
+-- Item Type
+--------------------------------------------------
+
+
+-- | Passive or active item.
+data Item n t
+    = ItemP (Passive n t)
+    | ItemA (Active n t)
+    deriving (Show, Eq, Ord)
+
+
+-- | Deconstruct the right part of the state (i.e. labels yet to
+-- process) within the MaybeT monad.
+expects
+    :: Monad m
+    => Active n t
+    -> MaybeT m (Lab n t, [Lab n t])
+expects = maybeT . expects'
+
+
+-- | Deconstruct the right part of the active item (i.e. labels yet to
+-- process).
+expects'
+    :: Active n t
+    -> Maybe (Lab n t, [Lab n t])
+expects' = decoList . getL right
 
 
 --------------------------------------------------
@@ -146,22 +180,25 @@ prio = negate . end
 
 
 -- | The state of the earley monad.
-data EarSt n t = EarSt {
-    -- | The set of done states.  Non-optimal implementation, we want to make
-    -- sure that the idea works.
-      done  :: S.Set (State n t)
-    -- | The set of states waiting on the queue to be processed.
+data EarSt n t = EarSt
+    { doneActive  :: S.Set (Active n t)
+    -- ^ Processed active states.
+    , donePassive :: S.Set (Passive n t)
+    -- ^ Processed active states.
+    , waiting     :: Q.PSQ (Item n t) Prio
+    -- ^ The set of states waiting on the queue to be processed.
     -- Invariant: the intersection of `done' and `waiting' states
     -- is empty.
-    , waiting    :: Q.PSQ (State n t) Prio }
+    }
 
 
 -- | Make an initial `EarSt` from a set of states.
-mkEarSt :: (Ord n, Ord t) => S.Set (State n t) -> EarSt n t
+mkEarSt :: (Ord n, Ord t) => S.Set (Active n t) -> EarSt n t
 mkEarSt s = EarSt
-    { done = S.empty
-    , waiting = Q.fromList
-        [ p :-> prio p
+    { doneActive  = S.empty
+    , donePassive = S.empty
+    , waiting     = Q.fromList
+        [ ItemA p :-> prioA p
         | p <- S.toList s ] }
 
 
@@ -179,61 +216,97 @@ readInput i = do
     maybeT $ listToMaybe $ drop i xs
 
 
--- | Check if the state is not already processed (i.e. in one of the
--- done-related maps).
-isProcessed :: (Ord n, Ord t) => State n t -> EarSt n t -> Bool
-isProcessed pE EarSt{..} =
-    S.member pE done
+-- | Check if the active item is not already processed.
+isProcessedA :: (Ord n, Ord t) => Active n t -> EarSt n t -> Bool
+isProcessedA p EarSt{..} =
+    S.member p doneActive
 
 
--- | Add the state to the waiting queue.  Check first if it is
--- not already in the set of processed (`done') states.
-pushState :: (Ord t, Ord n) => State n t -> Earley n t ()
-pushState p = RWS.state $ \s ->
-    let waiting' = if isProcessed p s
+-- | Check if the passive item is not already processed.
+isProcessedP :: (Ord n, Ord t) => Passive n t -> EarSt n t -> Bool
+isProcessedP p EarSt{..} =
+    S.member p donePassive
+
+
+-- | Add the active item to the waiting queue.  Check first if it
+-- is not already in the set of processed (`done') states.
+pushActive :: (Ord t, Ord n) => Active n t -> Earley n t ()
+pushActive p = RWS.state $ \s ->
+    let waiting' = if isProcessedA p s
             then waiting s
-            else Q.insert p (prio p) (waiting s)
+            else Q.insert (ItemA p) (prioA p) (waiting s)
     in  ((), s {waiting = waiting'})
 
 
--- | Remove a state from the queue.  In future, the queue
--- will be probably replaced by a priority queue which will allow
--- to order the computations in some smarter way.
-popState :: (Ord t, Ord n) => Earley n t (Maybe (State n t))
-popState = RWS.state $ \st -> case Q.minView (waiting st) of
+-- | Add the passive item to the waiting queue.  Check first if it
+-- is not already in the set of processed (`done') states.
+pushPassive :: (Ord t, Ord n) => Passive n t -> Earley n t ()
+pushPassive p = RWS.state $ \s ->
+    let waiting' = if isProcessedP p s
+            then waiting s
+            else Q.insert (ItemP p) (prioP p) (waiting s)
+    in  ((), s {waiting = waiting'})
+
+
+-- | Add to the waiting queue the item induced from the given item.
+-- Use instead of `pushActive` each time you are not sure the item is really
+-- active.
+pushInduced :: (Ord t, Ord n) => Active n t -> Earley n t ()
+pushInduced p = if completed p
+    then pushPassive $ Passive (p ^. root) (p ^. spanA)
+    else pushActive p
+
+
+-- | Remove an item from the queue.
+popItem :: (Ord t, Ord n) => Earley n t (Maybe (Item n t))
+popItem = RWS.state $ \st -> case Q.minView (waiting st) of
     Nothing -> (Nothing, st)
     Just (x :-> _, s) -> (Just x, st {waiting = s})
 
 
--- | Add the state to the set of processed (`done') states.
-saveState :: (Ord t, Ord n) => State n t -> Earley n t ()
-saveState p =
-    RWS.state $ \s -> ((), doit s)
+-- | Mark the active item as processed (`done').
+saveActive :: (Ord t, Ord n) => Active n t -> Earley n t ()
+saveActive p =
+    RWS.state $ \s -> ((), s {doneActive = newDone s})
   where
-    doit st = st {done = S.insert p (done st)}
---     doit st@EarSt{..} = st
---       { doneExpEnd = case expects' p of
---           Just (x, _) -> M.insertWith S.union (x, end p)
---                               (S.singleton p) doneExpEnd
---           Nothing -> doneExpEnd
---       , doneProSpan = if completed p
---           then M.insertWith S.union (nonTerm $ root p, beg p, end p)
---                (S.singleton p) doneProSpan
---           else doneProSpan }
+    newDone st = S.insert p (doneActive st)
 
 
--- | Return all processed states which:
+-- | Mark the passive item as processed (`done').
+savePassive :: (Ord t, Ord n) => Passive n t -> Earley n t ()
+savePassive p =
+    RWS.state $ \s -> ((), s {donePassive = newDone s})
+  where
+    newDone st = S.insert p (donePassive st)
+
+
+-- | Return all processed active items which:
 -- * expect a given label,
 -- * end on the given position.
 expectEnd
     :: (Ord n, Ord t) => Lab n t -> Pos
-    -> P.ListT (Earley n t) (State n t)
+    -> P.ListT (Earley n t) (Active n t)
 expectEnd x i = do
     EarSt{..} <- lift RWS.get
     each
-        [ q | q <- S.toList done
+        [ q | q <- S.toList doneActive
         , (y, _) <- maybeToList (expects' q)
-        , x == y, end q == i ]
+        , x == y, q ^. spanA ^. end == i ]
+
+
+-- | Return all passive items with:
+-- * the given root non-terminal value
+-- * the given span
+rootSpan
+    :: Ord n => n -> (Pos, Pos)
+    -> P.ListT (Earley n t) (Passive n t)
+rootSpan x (i, j) = do
+    EarSt{..} <- lift RWS.get
+    each
+        [ q | q <- S.toList donePassive
+        , q ^. spanP ^. beg == i
+        , q ^. spanP ^. end == j
+        , nonTerm (q ^. label) == x ]
 
 
 -- | Return all processed items which:
@@ -242,13 +315,13 @@ expectEnd x i = do
 -- * begin on the given position.
 provideBeg
     :: (Ord n, Ord t) => Lab n t -> Pos
-    -> P.ListT (Earley n t) (State n t)
+    -> P.ListT (Earley n t) (Passive n t)
 provideBeg x i = do
     EarSt{..} <- lift RWS.get
     each
-        [ q | q <- S.toList done
-        , completed q, root q == x
-        , beg q == i ]
+        [ q | q <- S.toList donePassive
+        , q ^. label == x
+        , q ^. spanP ^.beg == i ]
 
 
 -- | Return all processed items which:
@@ -257,29 +330,13 @@ provideBeg x i = do
 -- * begin on the given position,
 provideBeg'
     :: (Ord n, Ord t) => n -> Pos
-    -> P.ListT (Earley n t) (State n t)
+    -> P.ListT (Earley n t) (Passive n t)
 provideBeg' x i = do
     EarSt{..} <- lift RWS.get
     each
-        [ q | q <- S.toList done
-        , completed q
-        , nonTerm (root q) == x
-        , beg q == i ]
-
-
--- | Return all completed states with:
--- * the given root non-terminal value
--- * the given span
-rootSpan
-    :: Ord n => n -> (Pos, Pos)
-    -> P.ListT (Earley n t) (State n t)
-rootSpan x (i, j) = do
-    EarSt{..} <- lift RWS.get
-    each
-        [ q | q <- S.toList done
-        , completed q
-        , beg q == i, end q == j
-        , nonTerm (root q) == x ]
+        [ q | q <- S.toList donePassive
+        , nonTerm (q ^. label) == x
+        , q ^. spanP ^.beg == i ]
 
 
 -- | Return all fully parsed items:
@@ -288,24 +345,14 @@ rootSpan x (i, j) = do
 -- * with the given gap.
 auxModifyGap
     :: Ord n => n -> (Pos, Pos)
-    -> P.ListT (Earley n t) (State n t)
+    -> P.ListT (Earley n t) (Passive n t)
 auxModifyGap x gapSpan = do
     EarSt{..} <- lift RWS.get
     each
-        [ q | q <- S.toList done
-        , completed q, topLevel q
-        , gap q == Just gapSpan
-        , nonTerm (root q) == x ]
-
-
--- -- | A utility function.
--- listValues
---     :: (Monad m, Ord a)
---     => a -> M.Map a (S.Set b)
---     -> P.ListT m b
--- listValues x m = each $ case M.lookup x m of
---     Nothing -> []
---     Just s -> S.toList s
+        [ q | q <- S.toList donePassive
+        , q ^. spanP ^. gap == Just gapSpan
+        , topLevel (q ^. label)
+        , nonTerm  (q ^. label) == x ]
 
 
 --------------------------------------------------
@@ -314,27 +361,27 @@ auxModifyGap x gapSpan = do
 
 
 -- | Try to perform SCAN on the given state.
-tryScan :: (VOrd t, VOrd n) => State n t -> Earley n t ()
+tryScan :: (VOrd t, VOrd n) => Active n t -> Earley n t ()
 tryScan p = void $ runMaybeT $ do
     -- check that the state expects a terminal on the right
-    (Term t, right') <- expects p
+    (Term t, _) <- expects p
     -- read the word immediately following the ending position of
     -- the state
-    c <- readInput $ end p
+    c <- readInput $ getL (spanA >>> end) p
     -- make sure that what the rule expects is consistent with
     -- the input
     guard $ c == t
     -- construct the resultant state
-    let p' = p
-            { end = end p + 1
-            , left = Term t : left p
-            , right = right' }
+    let q = modL' (spanA >>> end) (+1)
+          . modL' left (Term t :)
+          . modL' right tail
+          $ p
     -- print logging information
     lift . lift $ do
-        putStr "[S]  " >> printState p
-        putStr "  :  " >> printState p'
+        putStr "[S]  " >> printActive p
+        putStr "  :  " >> printActive q
     -- push the resulting state into the waiting queue
-    lift $ pushState p'
+    lift $ pushInduced q
 
 
 --------------------------------------------------
@@ -344,60 +391,54 @@ tryScan p = void $ runMaybeT $ do
 
 -- | Try to use the state (only if fully parsed) to complement
 -- (=> substitution) other rules.
-trySubst :: (VOrd t, VOrd n) => State n t -> Earley n t ()
+trySubst :: (VOrd t, VOrd n) => Passive n t -> Earley n t ()
 trySubst p = void $ P.runListT $ do
-    -- Make sure that `p' is a fully-parsed regular rule.
-    -- Checking that it is regular is not actually necessary here
-    -- because, otherwise, `expectEnd` should return nothing.
-    -- But still, it should speed up things to check it here.
-    guard $ completed p && regular p
+    let pLab = getL label p
+        pSpan = getL spanP p
+    -- make sure that `p' represents a regular rule
+    guard . regular $ pSpan
     -- find rules which end where `p' begins and which
     -- expect the non-terminal provided by `p' (ID included)
-    q <- expectEnd (root p) (beg p)
+    q <- expectEnd pLab (pSpan ^. beg)
     -- TODO: what's the point of checking what `q` expects?  After all, we
     -- already know that it expects what `p` provides, i.e. `root p`?
     (r@NonT{}, _) <- some $ expects' q
     -- construct the resultant state
-    let q' = q
-            { end = end p
-            , left  = r : left q
-            , right = tail (right q) }
+    let q' = setL (end.spanA) (pSpan ^. end)
+           . modL' left (r:)
+           . modL' right tail
+           $ q
     -- print logging information
     lift . lift $ do
-        putStr "[U]  " >> printState p
-        putStr "  +  " >> printState q
-        putStr "  :  " >> printState q'
+        putStr "[U]  " >> printPassive p
+        putStr "  +  " >> printActive q
+        putStr "  :  " >> printActive q'
     -- push the resulting state into the waiting queue
-    lift $ pushState q'
+    lift $ pushInduced q'
 
 
 -- | Reversed `trySubst` version.  Try to completent the item with another
 -- fully parsed item.
-trySubst' :: (VOrd t, VOrd n) => State n t -> Earley n t ()
+trySubst' :: (VOrd t, VOrd n) => Active n t -> Earley n t ()
 trySubst' q = void $ P.runListT $ do
-    -- Make sure that `p' is a fully-parsed regular rule.  Checking that it is
-    -- regular is not actually necessary here because, otherwise, `expectEnd`
-    -- should return nothing.  But still, it should speed up things to check
-    -- it here.
-
-    -- Learn what `q` actually expects.  By doing that we also make sure that
-    -- `q` is not a fully parsed item.
+    -- Learn what `q` actually expects.
     (r@NonT{}, _) <- some $ expects' q
     -- Find processed items which begin where `q` ends and which provide the
     -- non-terminal expected by `q`.
-    p <- provideBeg r (end q)
+    p <- provideBeg r (q ^. spanA ^. end)
+    let pSpan = p ^. spanP
     -- construct the resultant state
-    let q' = q
-            { end = end p
-            , left  = r : left q
-            , right = tail (right q) }
+    let q' = setL (spanA >>> end) (pSpan ^. end)
+           . modL' left (r:)
+           . modL' right tail
+           $ q
     -- print logging information
     lift . lift $ do
-        putStr "[U'] " >> printState q
-        putStr "  +  " >> printState p
-        putStr "  :  " >> printState q'
+        putStr "[U'] " >> printActive q
+        putStr "  +  " >> printPassive p
+        putStr "  :  " >> printActive q'
     -- push the resulting state into the waiting queue
-    lift $ pushState q'
+    lift $ pushInduced q'
 
 
 --------------------------------------------------
@@ -408,59 +449,64 @@ trySubst' q = void $ P.runListT $ do
 -- | `tryAdjoinInit p q':
 -- * `p' is a completed state (regular or auxiliary)
 -- * `q' not completed and expects a *real* foot
-tryAdjoinInit :: (VOrd n, VOrd t) => State n t -> Earley n t ()
+tryAdjoinInit :: (VOrd n, VOrd t) => Passive n t -> Earley n t ()
 tryAdjoinInit p = void $ P.runListT $ do
-    -- make sure that `p' is fully-matched and that it is either
-    -- a regular rule or an intermediate auxiliary rule ((<=)
-    -- used as an implication here!); look at `tryAdjoinTerm`
-    -- for motivations.
-    guard $ completed p && auxiliary p <= subLevel p
-    -- find all rules which expect a real foot (with ID == Nothing)
-    -- and which end where `p' begins.
-    let u = nonTerm (root p)
-    q <- expectEnd (AuxFoot u) (beg p)
-    (r@AuxFoot{}, _) <- some $ expects' q
+    let pLab = p ^. label
+        pSpan = p ^. spanP
+    -- make sure that the corresponding rule is either regular or
+    -- intermediate auxiliary ((<=) used as implication here)
+    guard $ auxiliary pSpan <= not (topLevel pLab)
+    -- find all active items which expect a foot with the given
+    -- symbol and which end where `p` begins
+    let foot = AuxFoot $ nonTerm pLab
+    q <- expectEnd foot (getL beg pSpan)
     -- construct the resultant state
-    let q' = q
-            { gap = Just (beg p, end p)
-            , end = end p
-            , left = r : left q
-            , right = tail (right q) }
+    let q' = setL (spanA >>> end) (pSpan ^. end)
+           . setL (spanA >>> gap) (Just
+                ( pSpan ^. beg
+                , pSpan ^. end ))
+           . modL' left (foot:)
+           . modL' right tail
+           $ q
     -- print logging information
     lift . lift $ do
-        putStr "[A]  " >> printState p
-        putStr "  +  " >> printState q
-        putStr "  :  " >> printState q'
+        putStr "[A]  " >> printPassive p
+        putStr "  +  " >> printActive q
+        putStr "  :  " >> printActive q'
     -- push the resulting state into the waiting queue
-    lift $ pushState q'
+    lift $ pushInduced q'
 
 
 -- | Reverse of `tryAdjoinInit` where the given state `q`
 -- expects a real foot.
 -- * `q' not completed and expects a *real* foot
 -- * `p' is a completed state (regular or auxiliary)
-tryAdjoinInit' :: (VOrd n, VOrd t) => State n t -> Earley n t ()
+tryAdjoinInit' :: (VOrd n, VOrd t) => Active n t -> Earley n t ()
 tryAdjoinInit' q = void $ P.runListT $ do
     -- Retrieve the foot expected by `q`.
     (r@(AuxFoot u), _) <- some $ expects' q
     -- Find all fully parsed items which provide the given source
     -- non-terminal and which begin where `q` ends.
-    p <- provideBeg' u (end q)
-    -- Apart from that, retrieved items must not be auxiliary top-level.
-    guard $ auxiliary p <= subLevel p
-    -- Construct the resultant state.
-    let q' = q
-            { gap   = Just (beg p, end p)
-            , end   = end p
-            , left  = r : left q
-            , right = tail (right q) }
+    p <- provideBeg' u (q ^. spanA ^. end)
+    let pLab = p ^. label
+        pSpan = p ^. spanP
+    -- The retrieved items must not be auxiliary top-level.
+    guard $ auxiliary pSpan <= not (topLevel pLab)
+    -- construct the resultant state
+    let q' = setL (spanA >>> end) (pSpan ^. end)
+           . setL (spanA >>> gap) (Just
+                ( pSpan ^. beg
+                , pSpan ^. end ))
+           . modL' left (r:)
+           . modL' right tail
+           $ q
     -- print logging information
     lift . lift $ do
-        putStr "[A'] " >> printState q
-        putStr "  +  " >> printState p
-        putStr "  :  " >> printState q'
+        putStr "[A'] " >> printActive q
+        putStr "  +  " >> printPassive p
+        putStr "  :  " >> printActive q'
     -- push the resulting state into the waiting queue
-    lift $ pushState q'
+    lift $ pushInduced q'
 
 
 --------------------------------------------------
@@ -471,53 +517,57 @@ tryAdjoinInit' q = void $ P.runListT $ do
 -- | `tryAdjoinCont p q':
 -- * `p' is a completed, auxiliary state
 -- * `q' not completed and expects a *dummy* foot
-tryAdjoinCont :: (VOrd n, VOrd t) => State  n t -> Earley n t ()
+tryAdjoinCont :: (VOrd n, VOrd t) => Passive n t -> Earley n t ()
 tryAdjoinCont p = void $ P.runListT $ do
-    -- Make sure that `p' is a completed, sub-level auxiliary rule.
-    -- Note that it is also ensured a few lines below that the
-    -- rule is sub-level auxiliary.
-    guard $ completed p && subLevel p && auxiliary p
-    -- find all rules which expect a foot provided by `p'
-    -- and which end where `p' begins.
-    q <- expectEnd (root p) (beg p)
-    (r@AuxVert{}, _) <- some $ expects' q
+    let pLab = p ^. label
+        pSpan = p ^. spanP
+    -- make sure the label is not top-level (internal spine
+    -- non-terminal)
+    guard . not $ topLevel pLab
+    -- make sure that `p' is an auxiliary item
+    guard . auxiliary $ pSpan
+    -- find all rules which expect a spine non-terminal provided
+    -- by `p' and which end where `p' begins
+    q <- expectEnd pLab (pSpan ^. beg)
     -- construct the resulting state; the span of the gap of the
     -- inner state `p' is copied to the outer state based on `q'
-    let q' = q
-            { gap = gap p, end = end p
-            , left  = r : left q
-            , right = tail $ right q }
+    let q' = setL (spanA >>> end) (pSpan ^. end)
+           . setL (spanA >>> gap) (pSpan ^. gap)
+           . modL' left (pLab:)
+           . modL' right tail
+           $ q
     -- logging info
     lift . lift $ do
-        putStr "[B]  " >> printState p
-        putStr "  +  " >> printState q
-        putStr "  :  " >> printState q'
+        putStr "[B]  " >> printPassive p
+        putStr "  +  " >> printActive q
+        putStr "  :  " >> printActive q'
     -- push the resulting state into the waiting queue
-    lift $ pushState q'
-
+    lift $ pushInduced q'
 
 
 -- | Reversed `tryAdjoinCont`.
-tryAdjoinCont' :: (VOrd n, VOrd t) => State  n t -> Earley n t ()
+tryAdjoinCont' :: (VOrd n, VOrd t) => Active n t -> Earley n t ()
 tryAdjoinCont' q = void $ P.runListT $ do
     -- Retrieve the auxiliary vertebrea expected by `q`
     (r@AuxVert{}, _) <- some $ expects' q
     -- Find all fully parsed items which provide the given label
     -- and which begin where `q` ends.
-    p <- provideBeg r (end q)
-    -- Construct the resulting state; the span of the gap of the
+    p <- provideBeg r (q ^. spanA ^. end)
+    let pSpan = p ^. spanP
+    -- construct the resulting state; the span of the gap of the
     -- inner state `p' is copied to the outer state based on `q'
-    let q' = q
-            { gap = gap p, end = end p
-            , left  = r : left q
-            , right = tail $ right q }
+    let q' = setL (spanA >>> end) (pSpan ^. end)
+           . setL (spanA >>> gap) (pSpan ^. gap)
+           . modL' left (r:)
+           . modL' right tail
+           $ q
     -- logging info
     lift . lift $ do
-        putStr "[B'] " >> printState q
-        putStr "  +  " >> printState p
-        putStr "  :  " >> printState q'
+        putStr "[B'] " >> printActive q
+        putStr "  +  " >> printPassive p
+        putStr "  :  " >> printActive q'
     -- push the resulting state into the waiting queue
-    lift $ pushState q'
+    lift $ pushInduced q'
 
 
 --------------------------------------------------
@@ -525,75 +575,81 @@ tryAdjoinCont' q = void $ P.runListT $ do
 --------------------------------------------------
 
 
--- | Adjoin a fully-parsed auxiliary state `p` to a partially parsed
--- tree represented by a fully parsed rule/state `q`.
-tryAdjoinTerm :: (VOrd t, VOrd n) => State n t -> Earley n t ()
-tryAdjoinTerm p = void $ P.runListT $ do
-    -- make sure that `p' is a completed, top-level state ...
-    guard $ completed p && topLevel p
-    -- ... and that it is an auxiliary state (by definition only
+-- | Adjoin a fully-parsed auxiliary state `q` to a partially parsed
+-- tree represented by a fully parsed rule/state `p`.
+tryAdjoinTerm :: (VOrd t, VOrd n) => Passive n t -> Earley n t ()
+tryAdjoinTerm q = void $ P.runListT $ do
+    let qLab = q ^. label
+        qSpan = q ^. spanP
+    -- make sure the label is top-level
+    guard $ topLevel qLab
+    -- make sure that it is an auxiliary item (by definition only
     -- auxiliary states have gaps)
-    theGap <- each $ maybeToList $ gap p
-    -- take all completed rules with a given span
-    -- and a given root non-terminal (IDs irrelevant)
-    q <- rootSpan (nonTerm $ root p) theGap
-    -- Make sure that `q' is completed as well and that it is either
-    -- a regular (perhaps intermediate) rule or an intermediate
-    -- auxiliary rule (note that (<=) is used as an implication
-    -- here and can be read as `implies`).
-    -- (TODO: we don't have to check if `q` is completed, it stems
-    -- from the fact that it is pulled using `rootSpan`.)
-    guard $ completed q && auxiliary q <= subLevel q
-    -- construct the resulting state
-    let q' = q { beg = beg p
-               , end = end p }
+    theGap <- each $ maybeToList $ qSpan ^. gap
+    -- take all passive items with a given span and a given
+    -- root non-terminal (IDs irrelevant)
+    p <- rootSpan (nonTerm qLab) theGap
+    let pLab = p ^. label
+        pSpan = p ^. spanP
+    -- The retrieved item must not be auxiliary top-level.
+    guard $ auxiliary pSpan <= not (topLevel pLab)
+    -- construct the resultant state
+    let p' = setL (spanP >>> beg) (qSpan ^. beg)
+           . setL (spanP >>> end) (qSpan ^. end)
+           $ p
     lift . lift $ do
-        putStr "[C]  " >> printState p
-        putStr "  +  " >> printState q
-        putStr "  :  " >> printState q'
-    lift $ pushState q'
+        putStr "[C]  " >> printPassive q
+        putStr "  +  " >> printPassive p
+        putStr "  :  " >> printPassive p'
+    lift $ pushPassive p'
 
 
--- | Reversed `tryAdjoinTerm`.  TODO: find a test case which proves that this
--- is needed.
-tryAdjoinTerm' :: (VOrd t, VOrd n) => State n t -> Earley n t ()
-tryAdjoinTerm' q = void $ P.runListT $ do
-    -- Ensure that `q` is fully parsed and not top-level auxiliary
-    guard $ completed q && auxiliary q <= subLevel q
+-- | Reversed `tryAdjoinTerm`.
+tryAdjoinTerm' :: (VOrd t, VOrd n) => Passive n t -> Earley n t ()
+tryAdjoinTerm' p = void $ P.runListT $ do
+    let pLab = p ^. label
+        pSpan = p ^. spanP
+    -- Ensure that `p` is auxiliary but not top-level
+    guard $ auxiliary pSpan <= not (topLevel pLab)
     -- Retrieve all completed, top-level items representing auxiliary trees
     -- which have a specific gap and modify a specific source non-terminal.
-    p <- auxModifyGap (nonTerm $ root q) (beg q, end q)
+    q <- auxModifyGap
+        (nonTerm $ p ^. label)
+        ( p ^. spanP ^. beg
+        , p ^. spanP ^. end )
+    let qSpan = q ^. spanP
     -- Construct the resulting state:
-    let q' = q { beg = beg p
-               , end = end p }
+    let p' = setL (spanP >>> beg) (qSpan ^. beg)
+           . setL (spanP >>> end) (qSpan ^. end)
+           $ p
     lift . lift $ do
-        putStr "[C'] " >> printState q
-        putStr "  +  " >> printState p
-        putStr "  :  " >> printState q'
-    lift $ pushState q'
+        putStr "[C'] " >> printPassive p
+        putStr "  +  " >> printPassive q
+        putStr "  :  " >> printPassive p'
+    lift $ pushPassive p'
 
 
---------------------------------------------------
--- EARLEY
---------------------------------------------------
-
-
--- | Does the given grammar generate the given sentence?
--- Uses the `earley` algorithm under the hood.
-recognize
-    :: (VOrd t, VOrd n)
-    => S.Set (Rule n t)     -- ^ The grammar (set of rules)
-    -> [t]                  -- ^ Input sentence
-    -> IO Bool
-recognize gram xs = do
-    done <- earley gram xs
-    return $ (not.null) (complete done)
-  where
-    n = length xs
-    complete sts =
-        [ True | st <- S.toList sts
-        , beg st == 0, end st == n
-        , regular st, completed st ]
+-- --------------------------------------------------
+-- -- EARLEY
+-- --------------------------------------------------
+--
+--
+-- -- | Does the given grammar generate the given sentence?
+-- -- Uses the `earley` algorithm under the hood.
+-- recognize
+--     :: (VOrd t, VOrd n)
+--     => S.Set (Rule n t)     -- ^ The grammar (set of rules)
+--     -> [t]                  -- ^ Input sentence
+--     -> IO Bool
+-- recognize gram xs = do
+--     done <- earley gram xs
+--     return $ (not.null) (complete done)
+--   where
+--     n = length xs
+--     complete sts =
+--         [ True | st <- S.toList sts
+--         , beg st == 0, end st == n
+--         , regular st, completed st ]
 
 
 -- | Does the given grammar generate the given sentence from the
@@ -611,11 +667,11 @@ recognizeFrom gram start xs = do
     return $ (not.null) (complete done)
   where
     n = length xs
-    complete sts =
-        [ True | st <- S.toList sts
-        , beg st == 0, end st == n
-        , root st == NonT start Nothing
-        , regular st, completed st ]
+    complete done =
+        [ True | item <- S.toList done
+        , item ^. spanP ^. beg == 0
+        , item ^. spanP ^. end == n
+        , item ^. label == NonT start Nothing ]
 
 
 -- | Perform the earley-style computation given the grammar and
@@ -624,26 +680,27 @@ earley
     :: (VOrd t, VOrd n)
     => S.Set (Rule n t)     -- ^ The grammar (set of rules)
     -> [t]                  -- ^ Input sentence
-    -> IO (S.Set (State n t))
+    -> IO (S.Set (Passive n t))
 earley gram xs =
-    done . fst <$> RWS.execRWST loop xs st0
+    donePassive . fst <$> RWS.execRWST loop xs st0
   where
     -- we put in the initial state all the states with the dot on
     -- the left of the body of the rule (-> left = []) on all
     -- positions of the input sentence.
     st0 = mkEarSt $ S.fromList -- $ Reid.runReid $ mapM reidState
-        [ State
-            { root  = headR
-            , left  = []
-            , right = bodyR
-            , beg   = i
-            , end   = i
-            , gap   = Nothing }
+        [ Active
+            { _root  = headR
+            , _left  = []
+            , _right = bodyR
+            , _spanA = Span
+                { _beg   = i
+                , _end   = i
+                , _gap   = Nothing } }
         | Rule{..} <- S.toList gram
         , i <- [0 .. length xs - 1] ]
     -- the computation is performed as long as the waiting queue
     -- is non-empty.
-    loop = popState >>= \mp -> case mp of
+    loop = popItem >>= \mp -> case mp of
         Nothing -> return ()
         Just p -> step p >> loop
             -- lift $ case p of
@@ -653,19 +710,22 @@ earley gram xs =
 
 -- | Step of the algorithm loop.  `p' is the state popped up from
 -- the queue.
-step :: (VOrd t, VOrd n) => State n t -> Earley n t ()
-step p = do
-    mapM_ ($p)
-      [ tryScan
-      , trySubst
-      , trySubst'
+step :: (VOrd t, VOrd n) => Item n t -> Earley n t ()
+step (ItemP p) = do
+    mapM_ ($ p)
+      [ trySubst
       , tryAdjoinInit
-      , tryAdjoinInit'
       , tryAdjoinCont
-      , tryAdjoinCont'
-      , tryAdjoinTerm ]
-      -- , tryAdjoinTerm' ]
-    saveState p
+      , tryAdjoinTerm
+      , tryAdjoinTerm' ]
+    savePassive p
+step (ItemA p) = do
+    mapM_ ($ p)
+      [ tryScan
+      , trySubst'
+      , tryAdjoinInit'
+      , tryAdjoinCont' ]
+    saveActive p
 
 
 --------------------------------------------------
@@ -692,3 +752,11 @@ each = P.Select . P.each
 -- | ListT from a maybe.
 some :: Monad m => Maybe a -> P.ListT m a
 some = each . maybeToList
+
+
+-- | Is the rule with the given head top-level?
+topLevel :: Lab n t -> Bool
+topLevel x = case x of
+    NonT{..}  -> isNothing labID
+    AuxRoot{} -> True
+    _         -> False
