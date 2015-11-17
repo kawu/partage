@@ -4,7 +4,12 @@
 {-# LANGUAGE GADTs #-}
 
 
-module NLP.TAG.Vanilla.Earley.Basic where
+-- | A version in which we don't assume that inference arguments are popped
+-- from the queue in any particular order.
+--   => towards probabilistic chart parsing
+
+
+module NLP.TAG.Vanilla.Earley.New where
 
 
 import           Control.Applicative        ((<$>))
@@ -13,10 +18,9 @@ import           Control.Monad.Trans.Class  (lift)
 import           Control.Monad.Trans.Maybe  (MaybeT (..))
 import qualified Control.Monad.RWS.Strict   as RWS
 
-import           Data.List                  (intercalate)
 import           Data.Maybe     ( isJust, isNothing
                                 , listToMaybe, maybeToList)
-import qualified Data.Map.Strict            as M
+-- import qualified Data.Map.Strict            as M
 import qualified Data.Set                   as S
 import qualified Data.PSQueue               as Q
 import           Data.PSQueue (Binding(..))
@@ -109,7 +113,7 @@ printState :: (View n, View t) => State n t -> IO ()
 printState State{..} = do
     putStr $ viewLab root
     putStr " -> "
-    putStr $ intercalate " " $
+    putStr $ unwords $
         map viewLab (reverse left) ++ ["*"] ++ map viewLab right
     putStr " <"
     putStr $ show beg
@@ -132,7 +136,8 @@ type Prio = Int
 -- | Priority of a state.  Crucial for the algorithm -- states have
 -- to be removed from the queue in a specific order.
 prio :: State n t -> Prio
-prio p = end p
+-- prio p = negate (end p - beg p)
+prio = negate . end
 
 
 --------------------------------------------------
@@ -142,19 +147,9 @@ prio p = end p
 
 -- | The state of the earley monad.
 data EarSt n t = EarSt {
-    -- | Rules which expect a specific label and which end on a
-    -- specific position.
-      doneExpEnd :: M.Map (Lab n t, Pos) (S.Set (State n t))
-    -- | Rules providing a specific non-terminal in the root
-    -- and spanning over a given range.
-    --
-    -- TODO: we can simply replace the map with the set in order
-    -- to be consistent with the `AutoAP` version, it seems?
-    --
-    -- TODO2: perhaps it is no so simple -- have a look at
-    -- `AutoAP`.
-    --
-    , doneProSpan :: M.Map (n, Pos, Pos) (S.Set (State n t))
+    -- | The set of done states.  Non-optimal implementation, we want to make
+    -- sure that the idea works.
+      done  :: S.Set (State n t)
     -- | The set of states waiting on the queue to be processed.
     -- Invariant: the intersection of `done' and `waiting' states
     -- is empty.
@@ -162,10 +157,9 @@ data EarSt n t = EarSt {
 
 
 -- | Make an initial `EarSt` from a set of states.
-mkEarSt :: (Ord n, Ord t) => S.Set (State n t) -> (EarSt n t)
+mkEarSt :: (Ord n, Ord t) => S.Set (State n t) -> EarSt n t
 mkEarSt s = EarSt
-    { doneExpEnd = M.empty
-    , doneProSpan = M.empty
+    { done = S.empty
     , waiting = Q.fromList
         [ p :-> prio p
         | p <- S.toList s ] }
@@ -189,13 +183,7 @@ readInput i = do
 -- done-related maps).
 isProcessed :: (Ord n, Ord t) => State n t -> EarSt n t -> Bool
 isProcessed pE EarSt{..} =
-    S.member pE $ chooseSet pE
-  where
-    chooseSet p = case expects' p of
-        Just (x, _) -> M.findWithDefault S.empty
-            (x, end p) doneExpEnd
-        Nothing -> M.findWithDefault S.empty
-            (nonTerm $ root p, beg p, end p) doneProSpan
+    S.member pE done
 
 
 -- | Add the state to the waiting queue.  Check first if it is
@@ -222,26 +210,61 @@ saveState :: (Ord t, Ord n) => State n t -> Earley n t ()
 saveState p =
     RWS.state $ \s -> ((), doit s)
   where
-    doit st@EarSt{..} = st
-      { doneExpEnd = case expects' p of
-          Just (x, _) -> M.insertWith S.union (x, end p)
-                              (S.singleton p) doneExpEnd
-          Nothing -> doneExpEnd
-      , doneProSpan = if completed p
-          then M.insertWith S.union (nonTerm $ root p, beg p, end p)
-               (S.singleton p) doneProSpan
-          else doneProSpan }
+    doit st = st {done = S.insert p (done st)}
+--     doit st@EarSt{..} = st
+--       { doneExpEnd = case expects' p of
+--           Just (x, _) -> M.insertWith S.union (x, end p)
+--                               (S.singleton p) doneExpEnd
+--           Nothing -> doneExpEnd
+--       , doneProSpan = if completed p
+--           then M.insertWith S.union (nonTerm $ root p, beg p, end p)
+--                (S.singleton p) doneProSpan
+--           else doneProSpan }
 
 
--- | Return all completed states which:
+-- | Return all processed states which:
 -- * expect a given label,
 -- * end on the given position.
 expectEnd
     :: (Ord n, Ord t) => Lab n t -> Pos
     -> P.ListT (Earley n t) (State n t)
 expectEnd x i = do
-  EarSt{..} <- lift RWS.get
-  listValues (x, i) doneExpEnd
+    EarSt{..} <- lift RWS.get
+    each
+        [ q | q <- S.toList done
+        , (y, _) <- maybeToList (expects' q)
+        , x == y, end q == i ]
+
+
+-- | Return all processed items which:
+-- * are fully parsed,
+-- * provide a given label,
+-- * begin on the given position.
+provideBeg
+    :: (Ord n, Ord t) => Lab n t -> Pos
+    -> P.ListT (Earley n t) (State n t)
+provideBeg x i = do
+    EarSt{..} <- lift RWS.get
+    each
+        [ q | q <- S.toList done
+        , completed q, root q == x
+        , beg q == i ]
+
+
+-- | Return all processed items which:
+-- * are fully parsed,
+-- * provide a label with a given non-terminal,
+-- * begin on the given position,
+provideBeg'
+    :: (Ord n, Ord t) => n -> Pos
+    -> P.ListT (Earley n t) (State n t)
+provideBeg' x i = do
+    EarSt{..} <- lift RWS.get
+    each
+        [ q | q <- S.toList done
+        , completed q
+        , nonTerm (root q) == x
+        , beg q == i ]
 
 
 -- | Return all completed states with:
@@ -251,18 +274,38 @@ rootSpan
     :: Ord n => n -> (Pos, Pos)
     -> P.ListT (Earley n t) (State n t)
 rootSpan x (i, j) = do
-  EarSt{..} <- lift RWS.get
-  listValues (x, i, j) doneProSpan
+    EarSt{..} <- lift RWS.get
+    each
+        [ q | q <- S.toList done
+        , completed q
+        , beg q == i, end q == j
+        , nonTerm (root q) == x ]
 
 
--- | A utility function.
-listValues
-    :: (Monad m, Ord a)
-    => a -> M.Map a (S.Set b)
-    -> P.ListT m b
-listValues x m = each $ case M.lookup x m of
-    Nothing -> []
-    Just s -> S.toList s
+-- | Return all fully parsed items:
+-- * top-level and representing auxiliary trees,
+-- * modifying the given source non-terminal,
+-- * with the given gap.
+auxModifyGap
+    :: Ord n => n -> (Pos, Pos)
+    -> P.ListT (Earley n t) (State n t)
+auxModifyGap x gapSpan = do
+    EarSt{..} <- lift RWS.get
+    each
+        [ q | q <- S.toList done
+        , completed q, topLevel q
+        , gap q == Just gapSpan
+        , nonTerm (root q) == x ]
+
+
+-- -- | A utility function.
+-- listValues
+--     :: (Monad m, Ord a)
+--     => a -> M.Map a (S.Set b)
+--     -> P.ListT m b
+-- listValues x m = each $ case M.lookup x m of
+--     Nothing -> []
+--     Just s -> S.toList s
 
 
 --------------------------------------------------
@@ -311,6 +354,8 @@ trySubst p = void $ P.runListT $ do
     -- find rules which end where `p' begins and which
     -- expect the non-terminal provided by `p' (ID included)
     q <- expectEnd (root p) (beg p)
+    -- TODO: what's the point of checking what `q` expects?  After all, we
+    -- already know that it expects what `p` provides, i.e. `root p`?
     (r@NonT{}, _) <- some $ expects' q
     -- construct the resultant state
     let q' = q
@@ -326,8 +371,37 @@ trySubst p = void $ P.runListT $ do
     lift $ pushState q'
 
 
+-- | Reversed `trySubst` version.  Try to completent the item with another
+-- fully parsed item.
+trySubst' :: (VOrd t, VOrd n) => State n t -> Earley n t ()
+trySubst' q = void $ P.runListT $ do
+    -- Make sure that `p' is a fully-parsed regular rule.  Checking that it is
+    -- regular is not actually necessary here because, otherwise, `expectEnd`
+    -- should return nothing.  But still, it should speed up things to check
+    -- it here.
+
+    -- Learn what `q` actually expects.  By doing that we also make sure that
+    -- `q` is not a fully parsed item.
+    (r@NonT{}, _) <- some $ expects' q
+    -- Find processed items which begin where `q` ends and which provide the
+    -- non-terminal expected by `q`.
+    p <- provideBeg r (end q)
+    -- construct the resultant state
+    let q' = q
+            { end = end p
+            , left  = r : left q
+            , right = tail (right q) }
+    -- print logging information
+    lift . lift $ do
+        putStr "[U'] " >> printState q
+        putStr "  +  " >> printState p
+        putStr "  :  " >> printState q'
+    -- push the resulting state into the waiting queue
+    lift $ pushState q'
+
+
 --------------------------------------------------
--- ADJOIN
+-- ADJOIN INIT
 --------------------------------------------------
 
 
@@ -361,6 +435,39 @@ tryAdjoinInit p = void $ P.runListT $ do
     lift $ pushState q'
 
 
+-- | Reverse of `tryAdjoinInit` where the given state `q`
+-- expects a real foot.
+-- * `q' not completed and expects a *real* foot
+-- * `p' is a completed state (regular or auxiliary)
+tryAdjoinInit' :: (VOrd n, VOrd t) => State n t -> Earley n t ()
+tryAdjoinInit' q = void $ P.runListT $ do
+    -- Retrieve the foot expected by `q`.
+    (r@(AuxFoot u), _) <- some $ expects' q
+    -- Find all fully parsed items which provide the given source
+    -- non-terminal and which begin where `q` ends.
+    p <- provideBeg' u (end q)
+    -- Apart from that, retrieved items must not be auxiliary top-level.
+    guard $ auxiliary p <= subLevel p
+    -- Construct the resultant state.
+    let q' = q
+            { gap   = Just (beg p, end p)
+            , end   = end p
+            , left  = r : left q
+            , right = tail (right q) }
+    -- print logging information
+    lift . lift $ do
+        putStr "[A'] " >> printState q
+        putStr "  +  " >> printState p
+        putStr "  :  " >> printState q'
+    -- push the resulting state into the waiting queue
+    lift $ pushState q'
+
+
+--------------------------------------------------
+-- ADJOIN CONT
+--------------------------------------------------
+
+
 -- | `tryAdjoinCont p q':
 -- * `p' is a completed, auxiliary state
 -- * `q' not completed and expects a *dummy* foot
@@ -387,6 +494,35 @@ tryAdjoinCont p = void $ P.runListT $ do
         putStr "  :  " >> printState q'
     -- push the resulting state into the waiting queue
     lift $ pushState q'
+
+
+
+-- | Reversed `tryAdjoinCont`.
+tryAdjoinCont' :: (VOrd n, VOrd t) => State  n t -> Earley n t ()
+tryAdjoinCont' q = void $ P.runListT $ do
+    -- Retrieve the auxiliary vertebrea expected by `q`
+    (r@AuxVert{}, _) <- some $ expects' q
+    -- Find all fully parsed items which provide the given label
+    -- and which begin where `q` ends.
+    p <- provideBeg r (end q)
+    -- Construct the resulting state; the span of the gap of the
+    -- inner state `p' is copied to the outer state based on `q'
+    let q' = q
+            { gap = gap p, end = end p
+            , left  = r : left q
+            , right = tail $ right q }
+    -- logging info
+    lift . lift $ do
+        putStr "[B'] " >> printState q
+        putStr "  +  " >> printState p
+        putStr "  :  " >> printState q'
+    -- push the resulting state into the waiting queue
+    lift $ pushState q'
+
+
+--------------------------------------------------
+-- ADJOIN TERM
+--------------------------------------------------
 
 
 -- | Adjoin a fully-parsed auxiliary state `p` to a partially parsed
@@ -418,6 +554,25 @@ tryAdjoinTerm p = void $ P.runListT $ do
     lift $ pushState q'
 
 
+-- | Reversed `tryAdjoinTerm`.  TODO: find a test case which proves that this
+-- is needed.
+tryAdjoinTerm' :: (VOrd t, VOrd n) => State n t -> Earley n t ()
+tryAdjoinTerm' q = void $ P.runListT $ do
+    -- Ensure that `q` is fully parsed and not top-level auxiliary
+    guard $ completed q && auxiliary q <= subLevel q
+    -- Retrieve all completed, top-level items representing auxiliary trees
+    -- which have a specific gap and modify a specific source non-terminal.
+    p <- auxModifyGap (nonTerm $ root q) (beg q, end q)
+    -- Construct the resulting state:
+    let q' = q { beg = beg p
+               , end = end p }
+    lift . lift $ do
+        putStr "[C'] " >> printState q
+        putStr "  +  " >> printState p
+        putStr "  :  " >> printState q'
+    lift $ pushState q'
+
+
 --------------------------------------------------
 -- EARLEY
 --------------------------------------------------
@@ -437,7 +592,8 @@ recognize gram xs = do
     n = length xs
     complete sts =
         [ True | st <- S.toList sts
-        , beg st == 0, end st == n ]
+        , beg st == 0, end st == n
+        , regular st, completed st ]
 
 
 -- | Does the given grammar generate the given sentence from the
@@ -458,7 +614,8 @@ recognizeFrom gram start xs = do
     complete sts =
         [ True | st <- S.toList sts
         , beg st == 0, end st == n
-        , root st == NonT start Nothing ]
+        , root st == NonT start Nothing
+        , regular st, completed st ]
 
 
 -- | Perform the earley-style computation given the grammar and
@@ -469,12 +626,8 @@ earley
     -> [t]                  -- ^ Input sentence
     -> IO (S.Set (State n t))
 earley gram xs =
-    agregate . doneProSpan . fst <$> RWS.execRWST loop xs st0
-    -- void $ RWS.execRWST loop xs st0
+    done . fst <$> RWS.execRWST loop xs st0
   where
-    -- Agregate the results from the `doneProSpan` part of the
-    -- result.
-    agregate = S.unions . M.elems
     -- we put in the initial state all the states with the dot on
     -- the left of the body of the rule (-> left = []) on all
     -- positions of the input sentence.
@@ -492,21 +645,26 @@ earley gram xs =
     -- is non-empty.
     loop = popState >>= \mp -> case mp of
         Nothing -> return ()
-        Just p -> do
+        Just p -> step p >> loop
             -- lift $ case p of
             --     (StateE q) -> putStr "POPED: " >> printState q
-            step p >> loop
+            -- step p >> loop
 
 
 -- | Step of the algorithm loop.  `p' is the state popped up from
 -- the queue.
 step :: (VOrd t, VOrd n) => State n t -> Earley n t ()
 step p = do
-    sequence_ $ map ($p)
-      [ tryScan, trySubst
+    mapM_ ($p)
+      [ tryScan
+      , trySubst
+      , trySubst'
       , tryAdjoinInit
+      , tryAdjoinInit'
       , tryAdjoinCont
+      , tryAdjoinCont'
       , tryAdjoinTerm ]
+      -- , tryAdjoinTerm' ]
     saveState p
 
 

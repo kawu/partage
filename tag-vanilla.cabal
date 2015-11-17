@@ -27,7 +27,7 @@ library
       , mmorph              >= 1.0
       , dawg-ord            >= 0.1      && < 0.2
       , data-lens-light     >= 0.1      && < 0.2
-      -- 
+      --
       -- from `ltag`, not needed any more:
       -- , feature-structure   >= 0.2      && < 0.3
       -- , tostring            >= 0.2      && < 1.0
@@ -48,6 +48,7 @@ library
       , NLP.TAG.Vanilla.Automaton
       , NLP.TAG.Vanilla.Earley.Auto
       , NLP.TAG.Vanilla.Earley.AutoAP
+      , NLP.TAG.Vanilla.Earley.New
 
     ghc-options: -Wall
 

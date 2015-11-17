@@ -96,6 +96,13 @@ almost = AuxTree (INode "V"
     ]) [1]
 
 
+quickly :: AuxTr
+quickly = AuxTree (INode "V"
+    [ INode "Ad" [FNode "quickly"]
+    , INode "V" []
+    ]) [1]
+
+
 a :: Tr
 a = INode "D" [FNode "a"]
 
@@ -111,8 +118,8 @@ mouse = INode "NP"
 -- | Compile the first grammar.
 mkGram1 :: IO Gram
 mkGram1 = compile $
-    (map Left [tom, sleeps, caught, a, mouse]) ++
-    (map Right [almost])
+    map Left [tom, sleeps, caught, a, mouse] ++
+    map Right [almost, quickly]
 
 
 ---------------------------------------------------------------------
@@ -129,6 +136,7 @@ gram1Tests =
     -- group 2
     , Test "S" ["Tom", "almost", "caught", "a", "mouse"] True
     , Test "S" ["Tom", "caught", "almost", "a", "mouse"] False
+    , Test "S" ["Tom", "quickly", "almost", "caught", "Tom"] True
     , Test "S" ["Tom", "caught", "a", "mouse"] True
     , Test "S" ["Tom", "caught", "Tom"] True
     , Test "S" ["Tom", "caught", "a", "Tom"] False

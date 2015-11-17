@@ -53,7 +53,7 @@ compile ts =
 --
 -- TODO: could simplify directly to the form proposed in the
 -- paper.
--- 
+--
 -- TODO: note that the Eq and Ord instances are not reused in the
 -- Eq/Ord instances of rules.  But this is "problem" of rules,
 -- not ours, isn't it?
@@ -185,7 +185,7 @@ treeRules isTop G.INode{..} = case (subTrees, isTop) of
         -- Compute the map from identifiers (occuring in the `botFS`
         -- and the sub-trees) to their addresses.  These IDs will be
         -- kept as special attribute values in `rootTopFS`.
-        let x0 = NonT 
+        let x0 = NonT
                 { nonTerm = labelI
                 , labID   = Just i }
         xs <- mapM (treeRules False) subTrees
