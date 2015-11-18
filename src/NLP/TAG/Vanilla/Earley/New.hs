@@ -21,9 +21,10 @@ import           Control.Monad.Trans.Maybe  (MaybeT (..))
 import qualified Control.Monad.RWS.Strict   as RWS
 import           Control.Category           ((>>>), (.))
 
+import           Data.Function              (on)
 import           Data.Maybe                 ( isJust, isNothing
                                             , listToMaybe, maybeToList)
--- import qualified Data.Map.Strict            as M
+import qualified Data.Map.Strict            as M
 import qualified Data.Set                   as S
 import qualified Data.PSQueue               as Q
 import           Data.PSQueue (Binding(..))
@@ -37,10 +38,6 @@ import           NLP.TAG.Vanilla.Rule       ( Lab(..), viewLab, Rule(..) )
 --------------------------------------------------
 -- BASE TYPES
 --------------------------------------------------
-
-
--- | Priority.
-type Prio = Int
 
 
 data Span = Span {
@@ -133,18 +130,6 @@ printPassive p = do
     putStrLn ")"
 
 
--- | Priority of an active item.  Crucial for the algorithm --
--- states have to be removed from the queue in a specific order.
-prioA :: Active n t -> Prio
-prioA = negate . getL (end . spanA)
-
-
--- | Priority of a passive item.  Crucial for the algorithm --
--- states have to be removed from the queue in a specific order.
-prioP :: Passive n t -> Prio
-prioP = negate . getL (end . spanP)
-
-
 --------------------------------------------------
 -- Item Type
 --------------------------------------------------
@@ -175,17 +160,105 @@ expects' = decoList . getL right
 
 
 --------------------------------------------------
+-- Traversal
+--------------------------------------------------
+
+
+-- | Traversal represents an action of inducing a new item on the basis of one
+-- or two other chart items.  It can be seen as an application of one of the
+-- inference rules specifying the parsing algorithm.
+--
+-- TODO: Sometimes there is no need to store all the arguments of the inference
+-- rules, it seems.  From one of the arguments the other one could be derived.
+data Trav n t
+    = Scan
+        { scanFrom :: Active n t }
+    | Binary
+    -- ^ A generic binary inference rule application.  TODO: we will probably
+    -- have to split it.
+        { passArg  :: Passive n t
+        -- ^ The passive argument of the action
+        , actArg   :: Active n t
+        -- ^ The active argument of the action
+        }
+    | Adjoin
+    -- ^ Adjoin terminate with two passive arguments
+        { passAdj  :: Passive n t
+        -- ^ The adjoined item
+        , passMod  :: Passive n t
+        -- ^ The modified item
+        }
+    deriving (Show, Eq, Ord)
+
+
+--------------------------------------------------
+-- Priority
+--------------------------------------------------
+
+
+-- | Priority type.
+type Prio = Int
+
+
+-- | Priority of an active item.  Crucial for the algorithm --
+-- states have to be removed from the queue in a specific order.
+prioA :: Active n t -> Prio
+-- prioA = negate . getL (end . spanA)
+prioA = getL (end . spanA)
+
+
+-- | Priority of a passive item.  Crucial for the algorithm --
+-- states have to be removed from the queue in a specific order.
+prioP :: Passive n t -> Prio
+-- prioP = negate . getL (end . spanP)
+prioP = getL (end . spanP)
+
+
+-- | Extended priority which preservs information about the traversal leading
+-- to the underlying chart item.
+data ExtPrio n t = ExtPrio
+    { prioVal   :: Prio
+    -- ^ The actual priority
+    , prioTrav  :: S.Set (Trav n t)
+    -- ^ Traversal leading to the underlying chart item
+    } deriving (Show)
+
+instance (Eq n, Eq t) => Eq (ExtPrio n t) where
+    (==) = (==) `on` prioVal
+instance (Ord n, Ord t) => Ord (ExtPrio n t) where
+    compare = compare `on` prioVal
+
+
+-- | Construct a new `ExtPrio`.
+extPrio :: Prio -> ExtPrio n t
+extPrio p = ExtPrio p S.empty
+
+
+-- | Join two priorities:
+-- * The actual priority preserved is the lower of the two,
+-- * The traversals are unioned.
+--
+-- NOTE: at the moment, priority is strictly specified by the underlying chart
+-- item itself so we know that both priorities must be equal.  Later when we
+-- start using probabilities this statement will no longer hold.
+joinPrio :: (Ord n, Ord t) => ExtPrio n t -> ExtPrio n t -> ExtPrio n t
+joinPrio x y = ExtPrio
+    (min (prioVal x) (prioVal y))
+    (S.union (prioTrav x) (prioTrav y))
+
+
+--------------------------------------------------
 -- Earley monad
 --------------------------------------------------
 
 
 -- | The state of the earley monad.
 data EarSt n t = EarSt
-    { doneActive  :: S.Set (Active n t)
+    { doneActive  :: M.Map (Active n t) (S.Set (Trav n t))
     -- ^ Processed active states.
-    , donePassive :: S.Set (Passive n t)
+    , donePassive :: M.Map (Passive n t) (S.Set (Trav n t))
     -- ^ Processed active states.
-    , waiting     :: Q.PSQ (Item n t) Prio
+    , waiting     :: Q.PSQ (Item n t) (ExtPrio n t)
     -- ^ The set of states waiting on the queue to be processed.
     -- Invariant: the intersection of `done' and `waiting' states
     -- is empty.
@@ -195,10 +268,10 @@ data EarSt n t = EarSt
 -- | Make an initial `EarSt` from a set of states.
 mkEarSt :: (Ord n, Ord t) => S.Set (Active n t) -> EarSt n t
 mkEarSt s = EarSt
-    { doneActive  = S.empty
-    , donePassive = S.empty
+    { doneActive  = M.empty
+    , donePassive = M.empty
     , waiting     = Q.fromList
-        [ ItemA p :-> prioA p
+        [ ItemA p :-> extPrio (prioA p)
         | p <- S.toList s ] }
 
 
@@ -216,68 +289,109 @@ readInput i = do
     maybeT $ listToMaybe $ drop i xs
 
 
+--------------------
+-- Processed Items
+--------------------
+
+
 -- | Check if the active item is not already processed.
-isProcessedA :: (Ord n, Ord t) => Active n t -> EarSt n t -> Bool
-isProcessedA p EarSt{..} =
-    S.member p doneActive
+isProcessedA :: (Ord n, Ord t) => Active n t -> Earley n t Bool
+isProcessedA p = M.member p <$> RWS.gets doneActive
 
 
 -- | Check if the passive item is not already processed.
-isProcessedP :: (Ord n, Ord t) => Passive n t -> EarSt n t -> Bool
-isProcessedP p EarSt{..} =
-    S.member p donePassive
+isProcessedP :: (Ord n, Ord t) => Passive n t -> Earley n t Bool
+isProcessedP p = M.member p <$> RWS.gets donePassive
+
+
+-- | Add traversal to an active processed item.
+saveActive :: (Ord n, Ord t) => Active n t -> S.Set (Trav n t) -> Earley n t ()
+saveActive p ts = do
+    let newDone = M.insertWith S.union p ts
+    RWS.modify' $ \s -> s {doneActive = newDone (doneActive s)}
+
+
+-- | Add traversal to a passive processed item.
+savePassive :: (Ord n, Ord t) => Passive n t -> S.Set (Trav n t) -> Earley n t ()
+savePassive p ts = do
+    let newDone = M.insertWith S.union p ts
+    RWS.modify' $ \s -> s {donePassive = newDone (donePassive s)}
+
+
+-- -- | Mark the active item as processed (`done').
+-- saveActive :: (Ord t, Ord n) => Active n t -> Earley n t ()
+-- saveActive p =
+--     RWS.state $ \s -> ((), s {doneActive = newDone s})
+--   where
+--     newDone st = S.insert p (doneActive st)
+--
+--
+-- -- | Mark the passive item as processed (`done').
+-- savePassive :: (Ord t, Ord n) => Passive n t -> Earley n t ()
+-- savePassive p =
+--     RWS.state $ \s -> ((), s {donePassive = newDone s})
+--   where
+--     newDone st = S.insert p (donePassive st)
+
+
+--------------------
+-- Waiting Queue
+--------------------
 
 
 -- | Add the active item to the waiting queue.  Check first if it
 -- is not already in the set of processed (`done') states.
-pushActive :: (Ord t, Ord n) => Active n t -> Earley n t ()
-pushActive p = RWS.state $ \s ->
-    let waiting' = if isProcessedA p s
-            then waiting s
-            else Q.insert (ItemA p) (prioA p) (waiting s)
-    in  ((), s {waiting = waiting'})
+pushActive :: (Ord t, Ord n) => Active n t -> Trav n t -> Earley n t ()
+pushActive p t= isProcessedA p >>= \b -> if b
+    then saveActive p $ S.singleton t
+    else RWS.modify' $ \s -> s {waiting = newWait (waiting s)}
+  where
+    newWait = Q.insertWith joinPrio (ItemA p) newPrio
+    newPrio = ExtPrio (prioA p) (S.singleton t)
+--     let waiting' = if isProcessedA p s
+--             then waiting s
+--             else Q.insert (ItemA p) (prioA p) (waiting s)
+--     in  ((), s {waiting = waiting'})
 
 
 -- | Add the passive item to the waiting queue.  Check first if it
 -- is not already in the set of processed (`done') states.
-pushPassive :: (Ord t, Ord n) => Passive n t -> Earley n t ()
-pushPassive p = RWS.state $ \s ->
-    let waiting' = if isProcessedP p s
-            then waiting s
-            else Q.insert (ItemP p) (prioP p) (waiting s)
-    in  ((), s {waiting = waiting'})
+pushPassive :: (Ord t, Ord n) => Passive n t -> Trav n t -> Earley n t ()
+pushPassive p t = isProcessedP p >>= \b -> if b
+    then savePassive p $ S.singleton t
+    else RWS.modify' $ \s -> s {waiting = newWait (waiting s)}
+  where
+    newWait = Q.insertWith joinPrio (ItemP p) newPrio
+    newPrio = ExtPrio (prioP p) (S.singleton t)
+-- pushPassive p = RWS.state $ \s ->
+--     let waiting' = if isProcessedP p s
+--             then waiting s
+--             else Q.insert (ItemP p) (prioP p) (waiting s)
+--     in  ((), s {waiting = waiting'})
 
 
 -- | Add to the waiting queue the item induced from the given item.
 -- Use instead of `pushActive` each time you are not sure the item is really
 -- active.
-pushInduced :: (Ord t, Ord n) => Active n t -> Earley n t ()
+pushInduced :: (Ord t, Ord n) => Active n t -> Trav n t -> Earley n t ()
 pushInduced p = if completed p
     then pushPassive $ Passive (p ^. root) (p ^. spanA)
     else pushActive p
 
 
 -- | Remove an item from the queue.
-popItem :: (Ord t, Ord n) => Earley n t (Maybe (Item n t))
+popItem
+    :: (Ord t, Ord n)
+    => Earley n t
+        (Maybe (Binding (Item n t) (ExtPrio n t)))
 popItem = RWS.state $ \st -> case Q.minView (waiting st) of
     Nothing -> (Nothing, st)
-    Just (x :-> _, s) -> (Just x, st {waiting = s})
+    Just (b, s) -> (Just b, st {waiting = s})
 
 
--- | Mark the active item as processed (`done').
-saveActive :: (Ord t, Ord n) => Active n t -> Earley n t ()
-saveActive p =
-    RWS.state $ \s -> ((), s {doneActive = newDone s})
-  where
-    newDone st = S.insert p (doneActive st)
-
-
--- | Mark the passive item as processed (`done').
-savePassive :: (Ord t, Ord n) => Passive n t -> Earley n t ()
-savePassive p =
-    RWS.state $ \s -> ((), s {donePassive = newDone s})
-  where
-    newDone st = S.insert p (donePassive st)
+---------------------------------
+-- Extraction of Processed Items
+---------------------------------
 
 
 -- | Return all processed active items which:
@@ -289,7 +403,7 @@ expectEnd
 expectEnd x i = do
     EarSt{..} <- lift RWS.get
     each
-        [ q | q <- S.toList doneActive
+        [ q | q <- M.keys doneActive
         , (y, _) <- maybeToList (expects' q)
         , x == y, q ^. spanA ^. end == i ]
 
@@ -303,7 +417,7 @@ rootSpan
 rootSpan x (i, j) = do
     EarSt{..} <- lift RWS.get
     each
-        [ q | q <- S.toList donePassive
+        [ q | q <- M.keys donePassive
         , q ^. spanP ^. beg == i
         , q ^. spanP ^. end == j
         , nonTerm (q ^. label) == x ]
@@ -319,7 +433,7 @@ provideBeg
 provideBeg x i = do
     EarSt{..} <- lift RWS.get
     each
-        [ q | q <- S.toList donePassive
+        [ q | q <- M.keys donePassive
         , q ^. label == x
         , q ^. spanP ^.beg == i ]
 
@@ -334,7 +448,7 @@ provideBeg'
 provideBeg' x i = do
     EarSt{..} <- lift RWS.get
     each
-        [ q | q <- S.toList donePassive
+        [ q | q <- M.keys donePassive
         , nonTerm (q ^. label) == x
         , q ^. spanP ^.beg == i ]
 
@@ -349,7 +463,7 @@ auxModifyGap
 auxModifyGap x gapSpan = do
     EarSt{..} <- lift RWS.get
     each
-        [ q | q <- S.toList donePassive
+        [ q | q <- M.keys donePassive
         , q ^. spanP ^. gap == Just gapSpan
         , topLevel (q ^. label)
         , nonTerm  (q ^. label) == x ]
@@ -381,7 +495,7 @@ tryScan p = void $ runMaybeT $ do
         putStr "[S]  " >> printActive p
         putStr "  :  " >> printActive q
     -- push the resulting state into the waiting queue
-    lift $ pushInduced q
+    lift $ pushInduced q $ Scan p
 
 
 --------------------------------------------------
@@ -414,31 +528,31 @@ trySubst p = void $ P.runListT $ do
         putStr "  +  " >> printActive q
         putStr "  :  " >> printActive q'
     -- push the resulting state into the waiting queue
-    lift $ pushInduced q'
+    lift $ pushInduced q' $ Binary p q
 
 
--- | Reversed `trySubst` version.  Try to completent the item with another
--- fully parsed item.
-trySubst' :: (VOrd t, VOrd n) => Active n t -> Earley n t ()
-trySubst' q = void $ P.runListT $ do
-    -- Learn what `q` actually expects.
-    (r@NonT{}, _) <- some $ expects' q
-    -- Find processed items which begin where `q` ends and which provide the
-    -- non-terminal expected by `q`.
-    p <- provideBeg r (q ^. spanA ^. end)
-    let pSpan = p ^. spanP
-    -- construct the resultant state
-    let q' = setL (spanA >>> end) (pSpan ^. end)
-           . modL' left (r:)
-           . modL' right tail
-           $ q
-    -- print logging information
-    lift . lift $ do
-        putStr "[U'] " >> printActive q
-        putStr "  +  " >> printPassive p
-        putStr "  :  " >> printActive q'
-    -- push the resulting state into the waiting queue
-    lift $ pushInduced q'
+-- -- | Reversed `trySubst` version.  Try to completent the item with another
+-- -- fully parsed item.
+-- trySubst' :: (VOrd t, VOrd n) => Active n t -> Earley n t ()
+-- trySubst' q = void $ P.runListT $ do
+--     -- Learn what `q` actually expects.
+--     (r@NonT{}, _) <- some $ expects' q
+--     -- Find processed items which begin where `q` ends and which provide the
+--     -- non-terminal expected by `q`.
+--     p <- provideBeg r (q ^. spanA ^. end)
+--     let pSpan = p ^. spanP
+--     -- construct the resultant state
+--     let q' = setL (spanA >>> end) (pSpan ^. end)
+--            . modL' left (r:)
+--            . modL' right tail
+--            $ q
+--     -- print logging information
+--     lift . lift $ do
+--         putStr "[U'] " >> printActive q
+--         putStr "  +  " >> printPassive p
+--         putStr "  :  " >> printActive q'
+--     -- push the resulting state into the waiting queue
+--     lift $ pushInduced q'
 
 
 --------------------------------------------------
@@ -474,39 +588,39 @@ tryAdjoinInit p = void $ P.runListT $ do
         putStr "  +  " >> printActive q
         putStr "  :  " >> printActive q'
     -- push the resulting state into the waiting queue
-    lift $ pushInduced q'
+    lift $ pushInduced q' $ Binary p q
 
 
--- | Reverse of `tryAdjoinInit` where the given state `q`
--- expects a real foot.
--- * `q' not completed and expects a *real* foot
--- * `p' is a completed state (regular or auxiliary)
-tryAdjoinInit' :: (VOrd n, VOrd t) => Active n t -> Earley n t ()
-tryAdjoinInit' q = void $ P.runListT $ do
-    -- Retrieve the foot expected by `q`.
-    (r@(AuxFoot u), _) <- some $ expects' q
-    -- Find all fully parsed items which provide the given source
-    -- non-terminal and which begin where `q` ends.
-    p <- provideBeg' u (q ^. spanA ^. end)
-    let pLab = p ^. label
-        pSpan = p ^. spanP
-    -- The retrieved items must not be auxiliary top-level.
-    guard $ auxiliary pSpan <= not (topLevel pLab)
-    -- construct the resultant state
-    let q' = setL (spanA >>> end) (pSpan ^. end)
-           . setL (spanA >>> gap) (Just
-                ( pSpan ^. beg
-                , pSpan ^. end ))
-           . modL' left (r:)
-           . modL' right tail
-           $ q
-    -- print logging information
-    lift . lift $ do
-        putStr "[A'] " >> printActive q
-        putStr "  +  " >> printPassive p
-        putStr "  :  " >> printActive q'
-    -- push the resulting state into the waiting queue
-    lift $ pushInduced q'
+-- -- | Reverse of `tryAdjoinInit` where the given state `q`
+-- -- expects a real foot.
+-- -- * `q' not completed and expects a *real* foot
+-- -- * `p' is a completed state (regular or auxiliary)
+-- tryAdjoinInit' :: (VOrd n, VOrd t) => Active n t -> Earley n t ()
+-- tryAdjoinInit' q = void $ P.runListT $ do
+--     -- Retrieve the foot expected by `q`.
+--     (r@(AuxFoot u), _) <- some $ expects' q
+--     -- Find all fully parsed items which provide the given source
+--     -- non-terminal and which begin where `q` ends.
+--     p <- provideBeg' u (q ^. spanA ^. end)
+--     let pLab = p ^. label
+--         pSpan = p ^. spanP
+--     -- The retrieved items must not be auxiliary top-level.
+--     guard $ auxiliary pSpan <= not (topLevel pLab)
+--     -- construct the resultant state
+--     let q' = setL (spanA >>> end) (pSpan ^. end)
+--            . setL (spanA >>> gap) (Just
+--                 ( pSpan ^. beg
+--                 , pSpan ^. end ))
+--            . modL' left (r:)
+--            . modL' right tail
+--            $ q
+--     -- print logging information
+--     lift . lift $ do
+--         putStr "[A'] " >> printActive q
+--         putStr "  +  " >> printPassive p
+--         putStr "  :  " >> printActive q'
+--     -- push the resulting state into the waiting queue
+--     lift $ pushInduced q'
 
 
 --------------------------------------------------
@@ -542,32 +656,32 @@ tryAdjoinCont p = void $ P.runListT $ do
         putStr "  +  " >> printActive q
         putStr "  :  " >> printActive q'
     -- push the resulting state into the waiting queue
-    lift $ pushInduced q'
+    lift $ pushInduced q' $ Binary p q
 
 
--- | Reversed `tryAdjoinCont`.
-tryAdjoinCont' :: (VOrd n, VOrd t) => Active n t -> Earley n t ()
-tryAdjoinCont' q = void $ P.runListT $ do
-    -- Retrieve the auxiliary vertebrea expected by `q`
-    (r@AuxVert{}, _) <- some $ expects' q
-    -- Find all fully parsed items which provide the given label
-    -- and which begin where `q` ends.
-    p <- provideBeg r (q ^. spanA ^. end)
-    let pSpan = p ^. spanP
-    -- construct the resulting state; the span of the gap of the
-    -- inner state `p' is copied to the outer state based on `q'
-    let q' = setL (spanA >>> end) (pSpan ^. end)
-           . setL (spanA >>> gap) (pSpan ^. gap)
-           . modL' left (r:)
-           . modL' right tail
-           $ q
-    -- logging info
-    lift . lift $ do
-        putStr "[B'] " >> printActive q
-        putStr "  +  " >> printPassive p
-        putStr "  :  " >> printActive q'
-    -- push the resulting state into the waiting queue
-    lift $ pushInduced q'
+-- -- | Reversed `tryAdjoinCont`.
+-- tryAdjoinCont' :: (VOrd n, VOrd t) => Active n t -> Earley n t ()
+-- tryAdjoinCont' q = void $ P.runListT $ do
+--     -- Retrieve the auxiliary vertebrea expected by `q`
+--     (r@AuxVert{}, _) <- some $ expects' q
+--     -- Find all fully parsed items which provide the given label
+--     -- and which begin where `q` ends.
+--     p <- provideBeg r (q ^. spanA ^. end)
+--     let pSpan = p ^. spanP
+--     -- construct the resulting state; the span of the gap of the
+--     -- inner state `p' is copied to the outer state based on `q'
+--     let q' = setL (spanA >>> end) (pSpan ^. end)
+--            . setL (spanA >>> gap) (pSpan ^. gap)
+--            . modL' left (r:)
+--            . modL' right tail
+--            $ q
+--     -- logging info
+--     lift . lift $ do
+--         putStr "[B'] " >> printActive q
+--         putStr "  +  " >> printPassive p
+--         putStr "  :  " >> printActive q'
+--     -- push the resulting state into the waiting queue
+--     lift $ pushInduced q'
 
 
 --------------------------------------------------
@@ -601,32 +715,32 @@ tryAdjoinTerm q = void $ P.runListT $ do
         putStr "[C]  " >> printPassive q
         putStr "  +  " >> printPassive p
         putStr "  :  " >> printPassive p'
-    lift $ pushPassive p'
+    lift $ pushPassive p' $ Adjoin p q
 
 
--- | Reversed `tryAdjoinTerm`.
-tryAdjoinTerm' :: (VOrd t, VOrd n) => Passive n t -> Earley n t ()
-tryAdjoinTerm' p = void $ P.runListT $ do
-    let pLab = p ^. label
-        pSpan = p ^. spanP
-    -- Ensure that `p` is auxiliary but not top-level
-    guard $ auxiliary pSpan <= not (topLevel pLab)
-    -- Retrieve all completed, top-level items representing auxiliary trees
-    -- which have a specific gap and modify a specific source non-terminal.
-    q <- auxModifyGap
-        (nonTerm $ p ^. label)
-        ( p ^. spanP ^. beg
-        , p ^. spanP ^. end )
-    let qSpan = q ^. spanP
-    -- Construct the resulting state:
-    let p' = setL (spanP >>> beg) (qSpan ^. beg)
-           . setL (spanP >>> end) (qSpan ^. end)
-           $ p
-    lift . lift $ do
-        putStr "[C'] " >> printPassive p
-        putStr "  +  " >> printPassive q
-        putStr "  :  " >> printPassive p'
-    lift $ pushPassive p'
+-- -- | Reversed `tryAdjoinTerm`.
+-- tryAdjoinTerm' :: (VOrd t, VOrd n) => Passive n t -> Earley n t ()
+-- tryAdjoinTerm' p = void $ P.runListT $ do
+--     let pLab = p ^. label
+--         pSpan = p ^. spanP
+--     -- Ensure that `p` is auxiliary but not top-level
+--     guard $ auxiliary pSpan <= not (topLevel pLab)
+--     -- Retrieve all completed, top-level items representing auxiliary trees
+--     -- which have a specific gap and modify a specific source non-terminal.
+--     q <- auxModifyGap
+--         (nonTerm $ p ^. label)
+--         ( p ^. spanP ^. beg
+--         , p ^. spanP ^. end )
+--     let qSpan = q ^. spanP
+--     -- Construct the resulting state:
+--     let p' = setL (spanP >>> beg) (qSpan ^. beg)
+--            . setL (spanP >>> end) (qSpan ^. end)
+--            $ p
+--     lift . lift $ do
+--         putStr "[C'] " >> printPassive p
+--         putStr "  +  " >> printPassive q
+--         putStr "  :  " >> printPassive p'
+--     lift $ pushPassive p'
 
 
 -- --------------------------------------------------
@@ -682,7 +796,7 @@ earley
     -> [t]                  -- ^ Input sentence
     -> IO (S.Set (Passive n t))
 earley gram xs =
-    donePassive . fst <$> RWS.execRWST loop xs st0
+    M.keysSet . donePassive . fst <$> RWS.execRWST loop xs st0
   where
     -- we put in the initial state all the states with the dot on
     -- the left of the body of the rule (-> left = []) on all
@@ -710,22 +824,25 @@ earley gram xs =
 
 -- | Step of the algorithm loop.  `p' is the state popped up from
 -- the queue.
-step :: (VOrd t, VOrd n) => Item n t -> Earley n t ()
-step (ItemP p) = do
+step
+    :: (VOrd t, VOrd n)
+    => Binding (Item n t) (ExtPrio n t)
+    -> Earley n t ()
+step (ItemP p :-> e) = do
     mapM_ ($ p)
       [ trySubst
       , tryAdjoinInit
       , tryAdjoinCont
-      , tryAdjoinTerm
-      , tryAdjoinTerm' ]
-    savePassive p
-step (ItemA p) = do
+      , tryAdjoinTerm ]
+--       , tryAdjoinTerm' ]
+    savePassive p $ prioTrav e
+step (ItemA p :-> e) = do
     mapM_ ($ p)
-      [ tryScan
-      , trySubst'
-      , tryAdjoinInit'
-      , tryAdjoinCont' ]
-    saveActive p
+      [ tryScan ]
+--       , trySubst'
+--       , tryAdjoinInit'
+--       , tryAdjoinCont' ]
+    saveActive p $ prioTrav e
 
 
 --------------------------------------------------
