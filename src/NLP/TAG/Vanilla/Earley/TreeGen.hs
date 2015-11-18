@@ -55,9 +55,6 @@ data Active n t = Active
     { _root    :: Lab n t
     -- ^ The head of the rule represented by the item.
     -- TODO: Not a terminal nor a foot.
-    , _left    :: [Lab n t]
-    -- ^ The list of processed elements of the rule, stored in an
-    -- inverse order.
     , _right   :: [Lab n t]
     -- ^ The list of elements yet to process.
     , _spanA   :: Span
@@ -107,14 +104,12 @@ completed = null . getL right
 -- | Print an active item.
 printActive :: (View n, View t) => Active n t -> IO ()
 printActive p = do
-    putStr "("
     -- putStr . show $ getL state p
-    putStr . show $ viewLab (p ^. root)
+    putStr $ viewLab (p ^. root)
     putStr " -> "
     putStr . unwords $
-        map viewLab (reverse (p ^. left)) ++
-        ["*"] ++ map viewLab (p ^. right)
-    putStr ", "
+        map viewLab (p ^. right)
+    putStr " ("
     printSpan $ getL spanA p
     putStrLn ")"
 
@@ -122,9 +117,8 @@ printActive p = do
 -- | Print a passive item.
 printPassive :: (View n, View t) => Passive n t -> IO ()
 printPassive p = do
-    putStr "("
     putStr . viewLab $ getL label p
-    putStr ", "
+    putStr " ("
     printSpan $ getL spanP p
     putStrLn ")"
 
@@ -509,7 +503,6 @@ tryScan p = void $ runMaybeT $ do
     guard $ c == t
     -- construct the resultant state
     let q = modL' (spanA >>> end) (+1)
-          . modL' left (Term t :)
           . modL' right tail
           $ p
     -- print logging information
@@ -538,10 +531,9 @@ trySubst p = void $ P.runListT $ do
     q <- expectEnd pLab (pSpan ^. beg)
     -- TODO: what's the point of checking what `q` expects?  After all, we
     -- already know that it expects what `p` provides, i.e. `root p`?
-    (r@NonT{}, _) <- some $ expects' q
+    -- (r@NonT{}, _) <- some $ expects' q
     -- construct the resultant state
     let q' = setL (end.spanA) (pSpan ^. end)
-           . modL' left (r:)
            . modL' right tail
            $ q
     -- print logging information
@@ -577,7 +569,6 @@ tryAdjoinInit p = void $ P.runListT $ do
            . setL (spanA >>> gap) (Just
                 ( pSpan ^. beg
                 , pSpan ^. end ))
-           . modL' left (foot:)
            . modL' right tail
            $ q
     -- print logging information
@@ -613,7 +604,6 @@ tryAdjoinCont p = void $ P.runListT $ do
     -- inner state `p' is copied to the outer state based on `q'
     let q' = setL (spanA >>> end) (pSpan ^. end)
            . setL (spanA >>> gap) (pSpan ^. gap)
-           . modL' left (pLab:)
            . modL' right tail
            $ q
     -- logging info
@@ -725,7 +715,6 @@ _earley gram xs =
     st0 = mkEarSt $ S.fromList -- $ Reid.runReid $ mapM reidState
         [ Active
             { _root  = headR
-            , _left  = []
             , _right = bodyR
             , _spanA = Span
                 { _beg   = i
