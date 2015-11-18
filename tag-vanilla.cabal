@@ -48,6 +48,7 @@ library
       , NLP.TAG.Vanilla.Automaton
       , NLP.TAG.Vanilla.Earley.Auto
       , NLP.TAG.Vanilla.Earley.AutoAP
+      , NLP.TAG.Vanilla.Earley.TreeGen
       , NLP.TAG.Vanilla.Earley.New
 
     ghc-options: -Wall

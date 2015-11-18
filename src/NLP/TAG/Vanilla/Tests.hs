@@ -12,6 +12,8 @@ module NLP.TAG.Vanilla.Tests
 , gram1Tests
 , mkGram2
 , gram2Tests
+, mkGram3
+, gram3Tests
 
 , Gram
 , testTree
@@ -175,8 +177,8 @@ beta2 = AuxTree (INode "X"
 
 mkGram2 :: IO Gram
 mkGram2 = compile $
-    (map Left [alpha]) ++
-    (map Right [beta1, beta2])
+    map Left [alpha] ++
+    map Right [beta1, beta2]
 
 
 ---------------------------------------------------------------------
@@ -207,8 +209,8 @@ gram2Tests =
 
 mkGram3 :: IO Gram
 mkGram3 = compile $
-    (map Left [sent]) ++
-    (map Right [xtree])
+    map Left [sent] ++
+    map Right [xtree]
   where
     sent = INode "S"
         [ FNode "p"
@@ -244,7 +246,7 @@ data Res = Res
 
 -- | Construct the shared resource (i.e. the grammars) used in
 -- tests.
-mkGrams :: IO Res 
+mkGrams :: IO Res
 mkGrams = Res <$> mkGram1 <*> mkGram2 <*> mkGram3
 
 

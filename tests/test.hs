@@ -7,6 +7,7 @@ import qualified NLP.TAG.Vanilla.Earley.Pred.Tests
 import qualified NLP.TAG.Vanilla.Earley.Auto.Tests
 import qualified NLP.TAG.Vanilla.Earley.AutoAP.Tests
 import qualified NLP.TAG.Vanilla.SubtreeSharing.Tests
+import qualified NLP.TAG.Vanilla.Earley.TreeGen.Tests
 import qualified NLP.TAG.Vanilla.Earley.New.Tests
 
 
@@ -18,6 +19,7 @@ main = defaultMain $ testGroup "Tests"
     , NLP.TAG.Vanilla.Earley.Auto.Tests.tests
     , NLP.TAG.Vanilla.Earley.AutoAP.Tests.tests
     , NLP.TAG.Vanilla.SubtreeSharing.Tests.tests
+    , NLP.TAG.Vanilla.Earley.TreeGen.Tests.tests
     , NLP.TAG.Vanilla.Earley.New.Tests.tests
     ]
 --   where
