@@ -41,7 +41,7 @@ data Tree a b
     deriving (Show, Eq, Ord)
 
 
--- | List of frontier values. 
+-- | List of frontier values.
 toWord :: Tree a b -> [b]
 toWord t = case t of
     INode{..}   -> concatMap toWord subTrees
@@ -79,7 +79,7 @@ replaceChild _ _ _ = error "replaceChild: frontier node"
 type Path = [Int]
 
 
--- | Follow the path to a particular tree node. 
+-- | Follow the path to a particular tree node.
 follow :: Path -> Tree a b -> Maybe (Tree a b)
 follow = flip $ foldM step
 
@@ -95,7 +95,7 @@ step (INode _ xs) k = xs !? k
 ---------------------------------------------------------------------
 
 
--- | Perform substitution on a tree. 
+-- | Perform substitution on a tree.
 subst
     :: Path             -- ^ Place of the substitution
     -> Tree a b         -- ^ Tree to be substituted
