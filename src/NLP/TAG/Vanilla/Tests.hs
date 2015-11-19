@@ -73,7 +73,7 @@ data TestRes
     | Yes
     -- ^ Parse
     | Trees (S.Set Tr)
-    -- ^ Parseing results
+    -- ^ Parsing results
     deriving (Show, Eq, Ord)
 
 
