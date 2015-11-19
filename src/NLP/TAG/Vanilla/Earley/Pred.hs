@@ -88,7 +88,7 @@ subLevel x = case root x of
     AuxVert{} -> True
     Term _    -> True
     _         -> False
-    
+
 
 -- | Deconstruct the right part of the state (i.e. labels yet to
 -- process) within the MaybeT monad.
@@ -100,7 +100,7 @@ expects = maybeT . expects'
 
 
 -- | Deconstruct the right part of the state (i.e. labels yet to
--- process). 
+-- process).
 expects'
     :: State n t
     -> Maybe (Lab n t, [Lab n t])
@@ -112,7 +112,7 @@ printState :: (View n, View t) => State n t -> IO ()
 printState State{..} = do
     putStr $ viewLab root
     putStr " -> "
-    putStr $ intercalate " " $
+    putStr . unwords $
         map viewLab (reverse left) ++ ["*"] ++ map viewLab right
     putStr " <"
     putStr $ show beg
@@ -204,7 +204,7 @@ mkEarSt ruleSet startSet = EarSt
             , end   = 0
             , gap   = Nothing }
         -- TODO: we can speed it up by using the
-        -- constructed grammar.  
+        -- constructed grammar.
         | Rule{..} <- S.toList ruleSet
         -- make sure it's a regular rule
         , isNonT headR
@@ -420,7 +420,7 @@ predSubst p = void $ P.runListT $ do
   where
     ordinary NonT{} = True
     ordinary _      = False
-    
+
 
 
 --------------------------------------------------
@@ -512,7 +512,7 @@ tryAdjoinCont p = void $ P.runListT $ do
     -- inner state `p' is copied to the outer state based on `q'
     let q' = q
             { gap = gap p, end = end p
-            , root  = root q 
+            , root  = root q
             , left  = r : left q
             , right = tail $ right q }
     -- logging info

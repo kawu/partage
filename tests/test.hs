@@ -9,6 +9,7 @@ import qualified NLP.TAG.Vanilla.Earley.AutoAP.Tests
 import qualified NLP.TAG.Vanilla.SubtreeSharing.Tests
 import qualified NLP.TAG.Vanilla.Earley.TreeGen.Tests
 import qualified NLP.TAG.Vanilla.Earley.Prob.SymInf.Tests
+import qualified NLP.TAG.Vanilla.Earley.Prob.Dijkstra.Tests
 import qualified NLP.TAG.Vanilla.Earley.New.Tests
 
 
@@ -22,6 +23,7 @@ main = defaultMain $ testGroup "Tests"
     , NLP.TAG.Vanilla.SubtreeSharing.Tests.tests
     , NLP.TAG.Vanilla.Earley.TreeGen.Tests.tests
     , NLP.TAG.Vanilla.Earley.Prob.SymInf.Tests.tests
+    , NLP.TAG.Vanilla.Earley.Prob.Dijkstra.Tests.tests
     , NLP.TAG.Vanilla.Earley.New.Tests.tests
     ]
 --   where

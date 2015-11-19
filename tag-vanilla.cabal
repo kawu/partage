@@ -50,6 +50,7 @@ library
       , NLP.TAG.Vanilla.Earley.AutoAP
       , NLP.TAG.Vanilla.Earley.TreeGen
       , NLP.TAG.Vanilla.Earley.Prob.SymInf
+      , NLP.TAG.Vanilla.Earley.Prob.Dijkstra
       , NLP.TAG.Vanilla.Earley.New
 
     ghc-options: -Wall
