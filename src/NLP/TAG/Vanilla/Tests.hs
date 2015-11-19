@@ -8,12 +8,15 @@
 
 module NLP.TAG.Vanilla.Tests
 ( Test (..)
+, TestRes (..)
 , mkGram1
 , gram1Tests
 , mkGram2
 , gram2Tests
 , mkGram3
 , gram3Tests
+, mkGram4
+, gram4Tests
 
 , Gram
 , testTree
@@ -37,13 +40,13 @@ import           NLP.TAG.Vanilla.SubtreeSharing (compile)
 ---------------------------------------------------------------------
 
 
-type Tr = Tree String String
+type Tr    = Tree String String
 type AuxTr = AuxTree String String
-type Rl = Rule String String
+type Rl    = Rule String String
 
 
 -- | The compiled grammar.
-type Gram = S.Set Rl
+type Gram  = S.Set Rl
 
 
 ---------------------------------------------------------------------
@@ -58,8 +61,20 @@ data Test = Test {
     -- | The sentence to parse (list of words)
     , testSent  :: [String]
     -- | The expected recognition result
-    , testRes   :: Bool
+    , testRes   :: TestRes
     } deriving (Show, Eq, Ord)
+
+
+-- | The expected test result.  The set of parsed trees can be optionally
+-- specified.
+data TestRes
+    = No
+    -- ^ No parse
+    | Yes
+    -- ^ Parse
+    | Trees (S.Set Tr)
+    -- ^ Parseing results
+    deriving (Show, Eq, Ord)
 
 
 ---------------------------------------------------------------------
@@ -132,18 +147,45 @@ mkGram1 = compile $
 gram1Tests :: [Test]
 gram1Tests =
     -- group 1
-    [ Test "S" ["Tom", "sleeps"] True
-    , Test "S" ["Tom"] False
-    , Test "NP" ["Tom"] True
+    [ Test "S" ["Tom", "sleeps"] . Trees . S.singleton $
+        INode "S"
+            [ INode "NP"
+                [ INode "N"
+                    [FNode "Tom"]
+                ]
+            , INode "VP"
+                [INode "V" [FNode "sleeps"]]
+            ]
+    , Test "S" ["Tom"] No
+    , Test "NP" ["Tom"] Yes
     -- group 2
-    , Test "S" ["Tom", "almost", "caught", "a", "mouse"] True
-    , Test "S" ["Tom", "caught", "almost", "a", "mouse"] False
-    , Test "S" ["Tom", "quickly", "almost", "caught", "Tom"] True
-    , Test "S" ["Tom", "caught", "a", "mouse"] True
-    , Test "S" ["Tom", "caught", "Tom"] True
-    , Test "S" ["Tom", "caught", "a", "Tom"] False
-    , Test "S" ["Tom", "caught"] False
-    , Test "S" ["caught", "a", "mouse"] False ]
+    , Test "S" ["Tom", "almost", "caught", "a", "mouse"] . Trees . S.singleton $
+        INode "S"
+            [ INode "NP"
+                [ INode "N"
+                    [ FNode "Tom" ] ]
+            , INode "VP"
+                [ INode "V"
+                    [ INode "Ad"
+                        [FNode "almost"]
+                    , INode "V"
+                        [FNode "caught"]
+                    ]
+                , INode "NP"
+                    [ INode "D"
+                        [FNode "a"]
+                    , INode "N"
+                        [FNode "mouse"]
+                    ]
+                ]
+            ]
+    , Test "S" ["Tom", "caught", "almost", "a", "mouse"] No
+    , Test "S" ["Tom", "quickly", "almost", "caught", "Tom"] Yes
+    , Test "S" ["Tom", "caught", "a", "mouse"] Yes
+    , Test "S" ["Tom", "caught", "Tom"] Yes
+    , Test "S" ["Tom", "caught", "a", "Tom"] No
+    , Test "S" ["Tom", "caught"] No
+    , Test "S" ["caught", "a", "mouse"] No ]
 
 
 ---------------------------------------------------------------------
@@ -193,13 +235,13 @@ mkGram2 = compile $
 -- use either adjunction constraints or feature structures.
 gram2Tests :: [Test]
 gram2Tests =
-    [ Test "S" (words "a b e a b") True
-    , Test "S" (words "a b e a a") False
-    , Test "S" (words "a b a b a b a b e a b a b a b a b") True
-    , Test "S" (words "a b a b a b a b e a b a b a b a  ") False
-    , Test "S" (words "a b e b a") True
-    , Test "S" (words "b e a") False
-    , Test "S" (words "a b a b") False ]
+    [ Test "S" (words "a b e a b") Yes
+    , Test "S" (words "a b e a a") No
+    , Test "S" (words "a b a b a b a b e a b a b a b a b") Yes
+    , Test "S" (words "a b a b a b a b e a b a b a b a  ") No
+    , Test "S" (words "a b e b a") Yes
+    , Test "S" (words "b e a") No
+    , Test "S" (words "a b a b") No ]
 
 
 ---------------------------------------------------------------------
@@ -228,8 +270,93 @@ mkGram3 = compile $
 -- recognized before it can be adjoined.
 gram3Tests :: [Test]
 gram3Tests =
-    [ Test "S" (words "p a e b b") True
-    , Test "S" (words "p a e b") False ]
+    [ Test "S" (words "p a e b b") Yes
+    , Test "S" (words "p a e b") No ]
+
+
+
+---------------------------------------------------------------------
+-- Grammar 4 (make a cat drink)
+---------------------------------------------------------------------
+
+
+make1 :: Tr
+make1 = INode "S"
+    [ INode "VP"
+        [ INode "V" [FNode "make"]
+        , INode "NP" [] ]
+    ]
+
+
+make2 :: Tr
+make2 = INode "S"
+    [ INode "VP"
+        [ INode "V" [FNode "make"]
+        , INode "NP" []
+        , INode "VP" [] ]
+    ]
+
+
+cat :: Tr
+cat = INode "NP"
+    [ INode "D" []
+    , INode "N"
+        [FNode "cat"]
+    ]
+
+
+drink :: Tr
+drink = INode "VP"
+    [ INode "V"
+        [FNode "drink"]
+    ]
+
+
+catDrink :: Tr
+catDrink = INode "NP"
+    [ INode "D" []
+    , INode "N"
+        [FNode "cat"]
+    , INode "N"
+        [FNode "drink"]
+    ]
+
+
+-- | Compile the first grammar.
+mkGram4 :: IO Gram
+mkGram4 = compile $
+    map Left
+        [ make1, make2, a, cat, mouse, tom
+        , drink, catDrink ] ++
+    map Right [almost, quickly]
+
+
+-- | Here we check that the auxiliary tree must be fully
+-- recognized before it can be adjoined.
+gram4Tests :: [Test]
+gram4Tests =
+    [ Test "S" ["make", "a", "cat", "drink"] . Trees $ S.fromList
+        [ INode "S"
+          [ INode "VP"
+            [ INode "V" [FNode "make"]
+            , INode "NP"
+              [ INode "D" [FNode "a"]
+              , INode "N" [FNode "cat"] ]
+            , INode "VP"
+              [ INode "V" [FNode "drink"] ]
+            ]
+          ]
+        , INode "S"
+          [ INode "VP"
+            [ INode "V" [FNode "make"]
+            , INode "NP"
+              [ INode "D" [FNode "a"]
+              , INode "N" [FNode "cat"]
+              , INode "N" [FNode "drink"] ]
+            ]
+          ]
+        ]
+    ]
 
 
 ---------------------------------------------------------------------
@@ -241,13 +368,14 @@ gram3Tests =
 data Res = Res
     { gram1 :: Gram
     , gram2 :: Gram
-    , gram3 :: Gram }
+    , gram3 :: Gram
+    , gram4 :: Gram }
 
 
 -- | Construct the shared resource (i.e. the grammars) used in
 -- tests.
 mkGrams :: IO Res
-mkGrams = Res <$> mkGram1 <*> mkGram2 <*> mkGram3
+mkGrams = Res <$> mkGram1 <*> mkGram2 <*> mkGram3 <*> mkGram4
 
 
 ---------------------------------------------------------------------
@@ -261,17 +389,30 @@ testTree
         -- ^ Name of the tested module
     -> (Gram -> String -> [String] -> IO Bool)
         -- ^ Recognition function
+    -> Maybe (Gram -> String -> [String] -> IO (S.Set Tr))
+        -- ^ Parsing function (optional)
     -> TestTree
-testTree modName reco = withResource mkGrams (const $ return ()) $
+testTree modName reco parse = withResource mkGrams (const $ return ()) $
     \resIO -> testGroup modName $
         map (testIt resIO gram1) gram1Tests ++
         map (testIt resIO gram2) gram2Tests ++
-        map (testIt resIO gram3) gram3Tests
+        map (testIt resIO gram3) gram3Tests ++
+        map (testIt resIO gram4) gram4Tests
   where
-    testIt resIO getGram test@Test{..} = testCase (show test) $ do
+    testIt resIO getGram test = testCase (show test) $ do
         gram <- getGram <$> resIO
-        reco gram startSym testSent @@?= testRes
+        doTest gram test
 
+    doTest gram test@Test{..} = case (parse, testRes) of
+        (Nothing, _) ->
+            reco gram startSym testSent @@?= simplify testRes
+        (Just pa, Trees ts) ->
+            pa gram startSym testSent @@?= ts
+        _ ->
+            reco gram startSym testSent @@?= simplify testRes
+    simplify No         = False
+    simplify Yes        = True
+    simplify (Trees _)  = True
 
 ---------------------------------------------------------------------
 -- Utils

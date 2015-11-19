@@ -17,4 +17,4 @@ import qualified NLP.TAG.Vanilla.Tests as T
 
 -- | All the tests of the parsing algorithm.
 tests :: TestTree
-tests = T.testTree "NLP.TAG.Vanilla.Earley.Pred" recognize'
+tests = T.testTree "NLP.TAG.Vanilla.Earley.Pred" recognize' Nothing
