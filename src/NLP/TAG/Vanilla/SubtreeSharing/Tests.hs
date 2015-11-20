@@ -13,6 +13,7 @@ import           Test.Tasty.HUnit (testCase)
 import           NLP.TAG.Vanilla.Tree (Tree (..), AuxTree (..))
 import           NLP.TAG.Vanilla.Earley.Basic (recognize, recognizeFrom)
 import           NLP.TAG.Vanilla.Rule (Rule)
+import qualified NLP.TAG.Vanilla.Rule as R
 import           NLP.TAG.Vanilla.SubtreeSharing (compile)
 
 
@@ -142,11 +143,17 @@ testShareAux = do
     S.size gram @?= 5
 
 
+localTest :: Assertion
+localTest = do
+    gram <- mkGram1
+    mapM_ print $ S.toList gram
+
+
 -- ---------------------------------------------------------------------
 -- -- Utils
 -- ---------------------------------------------------------------------
--- 
--- 
+--
+--
 -- (@@?=) :: (Show a, Eq a) => IO a -> a -> Assertion
 -- mx @@?= y = do
 --     x <- mx

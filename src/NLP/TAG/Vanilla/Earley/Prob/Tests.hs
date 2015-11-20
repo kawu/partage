@@ -49,7 +49,7 @@ type Rl    = Rule String String
 
 
 -- | The compiled grammar.
-type Gram  = M.Map Rl Int
+type Gram  = M.Map Rl Double
 
 
 ---------------------------------------------------------------------
@@ -427,7 +427,7 @@ mx @@?= y = do
 
 
 -- | Default weights for grammar rules.
-addWeights :: Ord a => S.Set a -> M.Map a Int
+addWeights :: Ord a => S.Set a -> M.Map a Double
 addWeights s = M.fromList
     [ (x, 1)
     | x <- S.toList s ]

@@ -47,8 +47,8 @@ compile ts =
         (   hoist (hoist lift) rules
         >-> hoist lift rmDups )
     rules = mapM_ getRules ts
-    getRules (Left t)  = Rule.treeRules True t
-    getRules (Right t) = Rule.auxRules  True t
+    getRules (Left t)  = Rule.treeRules t
+    getRules (Right t) = Rule.auxRules  t
 
 
 --------------------------------------------------
@@ -225,7 +225,7 @@ updateBody (RuleP r) = do
 
 
 -- | Find a rule if already present.
-findRule 
+findRule
     :: (Ord n, Ord t)
     => RuleP n t
     -> DupM n t (Maybe (RuleP n t))
@@ -238,10 +238,10 @@ findRule x = do
 joinSym :: SymID -> SymID -> DupM n t ()
 joinSym x y = E.modify $ \s@DupS{..} -> s
     { symDisj = Part.joinElems x y symDisj }
-    
 
 
--- | Save the rule in the underlying deposit. 
+
+-- | Save the rule in the underlying deposit.
 keepRule
     :: (Ord n, Ord t)
     => RuleP n t
@@ -270,7 +270,7 @@ rmDups
     :: (Ord n, Ord t)
     => P.Pipe
         (Rule n t)    -- Input
-        (Rule n t)    -- Output 
+        (Rule n t)    -- Output
         (DupM n t)    -- Underlying state
         ()            -- No result
 rmDups = forever $ do
@@ -291,7 +291,7 @@ rmDups = forever $ do
 
 -- | Lookup an element in a set.
 lookupSet :: Ord a => a -> S.Set a -> Maybe a
-lookupSet x s = do    
+lookupSet x s = do
     y <- S.lookupLE x s
     guard $ x == y
     return y

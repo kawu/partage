@@ -13,18 +13,40 @@ import           Test.Tasty (TestTree)
 
 import qualified NLP.TAG.Vanilla.Earley.Prob.Dijkstra as E
 import qualified NLP.TAG.Vanilla.Tree as E
-import qualified NLP.TAG.Vanilla.Earley.Prob.Tests as T
+-- import qualified NLP.TAG.Vanilla.Earley.Prob.Tests as T
+import qualified NLP.TAG.Vanilla.Tests as T
 
 
 -- | All the tests of the parsing algorithm.
 tests :: TestTree
 tests = T.testTree "NLP.TAG.Vanilla.Earley.Dijkstra"
-    E.recognize E.parse
+    -- E.recognize simpleParse E.parse
+    recognize
+    (Just simpleParse)
+    (Just E.parse)
+  where
+    recognize = E.recognize . weigh
+    simpleParse gram start =
+        fmap M.keysSet . E.parse (weigh gram) start
+    weigh gram = M.fromList
+        [(rule, 0) | rule <- S.toList gram]
 
 
 --------------------------------------------------
 -- Testing by Hand
 --------------------------------------------------
+
+
+-- | A local test.
+localTest :: IO ()
+localTest = do
+    gram <- T.mkGram4
+    treeMap <- E.parse gram "S"
+        ["make", "a", "cat", "drink"]
+    putStrLn ""
+    forM_ (M.toList treeMap) $ \(tree, cost) -> do
+        putStr $ E.showTree' tree
+        putStrLn $ " => " ++ show cost
 
 
 -- -- | A local test.
@@ -48,14 +70,14 @@ tests = T.testTree "NLP.TAG.Vanilla.Earley.Dijkstra"
 --     mapM_ (putStrLn . E.showTree') (S.toList treeSet)
 
 
--- | A local test.
-localTest3 :: IO ()
-localTest3 = do
-    gram <- T.mkGram4
-    treeMap <- E.parse gram "S"
-        ["make", "a", "cat", "drink"]
-    putStrLn ""
-    forM_ (M.toList treeMap) $ \(tree, cost) -> do
-        putStr $ E.showTree' tree
-        putStrLn $ " => " ++ show cost
-    -- mapM_ (putStrLn . E.showTree') (S.toList treeSet)
+-- -- | A local test.
+-- localTest3 :: IO ()
+-- localTest3 = do
+--     gram <- T.mkGram4
+--     treeMap <- E.parse gram "S"
+--         ["make", "a", "cat", "drink"]
+--     putStrLn ""
+--     forM_ (M.toList treeMap) $ \(tree, cost) -> do
+--         putStr $ E.showTree' tree
+--         putStrLn $ " => " ++ show cost
+--     -- mapM_ (putStrLn . E.showTree') (S.toList treeSet)

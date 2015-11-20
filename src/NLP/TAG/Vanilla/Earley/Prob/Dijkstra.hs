@@ -205,7 +205,7 @@ data Trav n t
 -- hypergraph.
 --
 -- TODO: Change `Prio` -> `Weight` (or `Cost`?)
-type Prio = Int
+type Prio = Double
 
 
 -- -- | Neutral element of the priority.  Corresponds at the moment to

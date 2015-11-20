@@ -1,4 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 
 module NLP.TAG.Vanilla.Rule where
@@ -8,7 +9,8 @@ import           Control.Monad.Trans.Class (lift)
 import qualified Control.Monad.State.Strict   as E
 
 import qualified Data.Set as S
-import           Data.List (intercalate)
+import qualified Data.Map.Strict as M
+import qualified Data.Tree as T
 
 import qualified Pipes as P
 
@@ -31,12 +33,41 @@ compile
     -> m (S.Set (Rule n t))
 compile ts =
     flip E.execStateT S.empty $ runRM $ P.runEffect $
-        P.for rules $ \rule -> do
+        P.for rules $ \rule ->
             lift . lift $ E.modify $ S.insert rule
   where
     rules = mapM_ getRules ts
-    getRules (Left t)  = treeRules True t
-    getRules (Right t) = auxRules  True t
+    getRules (Left t)  = treeRules t
+    getRules (Right t) = auxRules  t
+
+
+-- | Compile the given probabilistic grammar into the list of rules.  No
+-- structure sharing takes place.  Weights are evenly distributed over all
+-- rules representing the corresponding elementary trees.
+compileWeights
+    :: (Monad m, Ord n, Ord t)
+    => [ Either
+        (G.Tree n t, Cost)
+        (G.AuxTree n t, Cost) ]
+    -> m (M.Map (Rule n t) Cost)
+compileWeights ts =
+    flip E.execStateT M.empty $ runRM $ P.runEffect $
+        P.for rules $ \(rule, cost) ->
+            lift . lift $ E.modify $ M.insert rule cost
+  where
+    rules = mapM_ getRules ts
+    getRules (Left (t, c0))  = do
+        labTree <- lift $ labelTree True t
+        keepRules labTree c0
+        return $ T.rootLabel labTree
+    getRules (Right (t, c0)) = do
+        labTree <- lift $ labelAux True t
+        keepRules labTree c0
+        return $ T.rootLabel labTree
+    keepRules labTree c0 = do
+        let rs = collect labTree
+            c = c0 / fromIntegral (length rs)
+        mapM_ keepRule [ (r, c) | r <- rs ]
 
 
 ----------------------
@@ -110,7 +141,7 @@ printRule
 printRule Rule{..} = do
     putStr $ viewLab headR
     putStr " -> "
-    putStr $ intercalate " " $ map viewLab bodyR
+    putStr . unwords $ map viewLab bodyR
 
 
 --------------------------
@@ -119,17 +150,20 @@ printRule Rule{..} = do
 
 
 -- | Identifier generation monad.
--- type RM n t i f a = RWS.RWS () [Rule n t i f a] Int
-type RM n t m = P.Producer (Rule n t) (E.StateT Int m)
+type ID m = E.StateT Int m
+
+
+-- | Generating rules in a pipe.
+type RM r m = P.Producer r (ID m)
 
 
 -- | Pull the next identifier.
-nextSymID :: Monad m => RM n t m SymID
+nextSymID :: E.MonadState SymID m => m SymID
 nextSymID = E.state $ \i -> (i, i + 1)
 
 
 -- | Save the rule in the writer component of the monad.
-keepRule :: Monad m => Rule n t -> RM n t m ()
+keepRule :: Monad m => r -> RM r m ()
 keepRule = P.yield
 
 
@@ -153,45 +187,42 @@ runRM = flip E.evalStateT 0
 -- | Take an initial tree and factorize it into a list of rules.
 treeRules
     :: (Monad m)
+    => G.Tree n t   -- ^ The tree itself
+    -> RM (Rule n t) m (Lab n t)
+treeRules t = do
+    labTree <- lift $ labelTree True t
+    mapM_ keepRule $ collect labTree
+    return $ T.rootLabel labTree
+
+
+-- | Take an initial tree and factorize it into a tree of labels.
+labelTree
+    :: (Monad m)
     => Bool         -- ^ Is it a top level tree?  `True' for
                     -- an entire initial tree, `False' otherwise.
     -> G.Tree n t   -- ^ The tree itself
-    -> RM n t m (Lab n t)
-treeRules isTop G.INode{..} = case (subTrees, isTop) of
-    ([], _) -> return $ NonT
-        -- Foot or substitution node:
+    -> ID m (T.Tree (Lab n t))
+labelTree isTop G.INode{..} = case (subTrees, isTop) of
+    -- Foot or substitution node:
+    ([], _) -> return . flip T.Node [] $ NonT
         { nonTerm = labelI
         , labID   = Nothing }
+    -- Root node:
     (_, True) -> do
-        -- Root node:
         let x = NonT
               { nonTerm = labelI
               , labID   = Nothing }
-        xs <- mapM (treeRules False) subTrees
-        keepRule $ Rule x xs
-        return x
+        xs <- mapM (labelTree False) subTrees
+        return $ T.Node x xs
+    -- Internal node:
     (_, False) -> do
-        -- Internal node; top and bottom feature structures
-        -- are split between different rules, dummy attributes
-        -- have to be added in order to preserve relations between
-        -- tree-local variables.
         i <- nextSymID
-        -- First compute the set of all identifiers which occur
-        -- in the `botFS` and the sub-trees.  These IDs will be
-        -- kept as special attribute values in `rootTopFS`.
---         let is = S.unions
---                 $ idsIn botFS
---                 : map idsInTree subTrees
-        -- Compute the map from identifiers (occuring in the `botFS`
-        -- and the sub-trees) to their addresses.  These IDs will be
-        -- kept as special attribute values in `rootTopFS`.
-        let x0 = NonT
+        let x = NonT
                 { nonTerm = labelI
                 , labID   = Just i }
-        xs <- mapM (treeRules False) subTrees
-        keepRule $ Rule x0 xs
-        return x0
-treeRules _ G.FNode{..} = return $ Term labelF
+        xs <- mapM (labelTree False) subTrees
+        return $ T.Node x xs
+labelTree _ G.FNode{..} = return $ T.Node (Term labelF) []
 
 
 -----------------------------------------
@@ -199,41 +230,54 @@ treeRules _ G.FNode{..} = return $ Term labelF
 -----------------------------------------
 
 
--- | Convert an auxiliary tree to a lower-level auxiliary
--- representation and a list of corresponding rules which
--- represent the "substitution" trees on the left and on the
--- right of the spine.
+-- | Take an auxiliary tree and factorize it into a tree of labels.
 auxRules
+    :: (Monad m)
+    => G.AuxTree n t
+    -> RM (Rule n t) m (Lab n t)
+auxRules t = do
+    labTree <- lift $ labelAux True t
+    mapM_ keepRule $ collect labTree
+    return $ T.rootLabel labTree
+
+
+-- | Take an auxiliary tree and factorize it into a tree of labels.
+labelAux
     :: (Monad m)
     => Bool
     -> G.AuxTree n t
-    -> RM n t m (Lab n t)
-auxRules b G.AuxTree{..} =
+    -> ID m (T.Tree (Lab n t))
+labelAux b G.AuxTree{..} =
     doit b auxTree auxFoot
   where
-    doit _ G.INode{..} [] = return $
+    doit _ G.INode{..} [] = return . flip T.Node [] $
         AuxFoot {nonTerm = labelI}
     doit isTop G.INode{..} (k:ks) = do
         let (ls, bt, rs) = split k subTrees
-        ls' <- mapM (treeRules False) ls
+        ls' <- mapM (labelTree False) ls
         bt' <- doit False bt ks
-        rs' <- mapM (treeRules False) rs
+        rs' <- mapM (labelTree False) rs
         -- In case of an internal node `xt` and `xb` are slighly
         -- different; for a root, they are the same:
         x0 <- if isTop
-            then do
-                return $ AuxRoot
+            then return AuxRoot
                         { nonTerm = labelI }
-            else nextSymID >>= \i -> do
-                return $ AuxVert
+            else nextSymID >>= \i ->
+                 return AuxVert
                         { nonTerm = labelI
                         , symID   = i }
-        keepRule $ Rule x0 $ ls' ++ (bt' : rs')
-        return x0
+        -- keepRule $ Rule x0 $ ls' ++ (bt' : rs')
+        -- return x0
+        return $ T.Node x0 $ ls' ++ (bt' : rs')
     doit _ _ _ = error "auxRules: incorrect path"
 
 
+-----------------------------------------
+-- Utils
+-----------------------------------------
 
+
+-- | Split the given list on the given position.
 split :: Int -> [a] -> ([a], a, [a])
 split =
     doit []
@@ -241,3 +285,21 @@ split =
     doit acc 0 (x:xs) = (reverse acc, x, xs)
     doit acc k (x:xs) = doit (x:acc) (k-1) xs
     doit _ _ [] = error "auxRules.split: index to high"
+
+
+-- | Collect rules present in the tree produced by `labelTree`.
+collect :: T.Tree (Lab n t) -> [Rule n t]
+collect T.Node{..} = case subForest of
+    [] -> []
+    -- WARNING! It is crucial for substructure-sharing (at least in the current
+    -- implementation, that indexes (SymIDs) are generated in the ascending
+    -- order.  This stems from the fact that `Data.Partition.rep` returns the
+    -- minimum element of the given partition, thus making it impossible to
+    -- choose a custom representant of the given partition.
+    --
+    -- Note that this solution should be changed and that substructure sharing
+    -- should be implemented differently.  The current solution is too error
+    -- prone.
+    _  ->  concatMap collect subForest
+        ++ [ Rule rootLabel
+            (map T.rootLabel subForest) ]

@@ -19,19 +19,23 @@ module NLP.TAG.Vanilla.Tests
 , gram4Tests
 
 , Gram
+, WeightedGram
 , testTree
 )  where
 
 
 import           Control.Applicative ((<$>), (<*>))
+
 import qualified Data.Set as S
+import qualified Data.Map.Strict as M
 
 import           Test.Tasty (TestTree, testGroup, withResource)
 import           Test.HUnit (Assertion, (@?=))
 import           Test.Tasty.HUnit (testCase)
 
+import           NLP.TAG.Vanilla.Core (Cost)
 import           NLP.TAG.Vanilla.Tree (Tree (..), AuxTree (..))
-import           NLP.TAG.Vanilla.Rule (Rule)
+import           NLP.TAG.Vanilla.Rule (Rule, compileWeights)
 import           NLP.TAG.Vanilla.SubtreeSharing (compile)
 
 
@@ -45,8 +49,12 @@ type AuxTr = AuxTree String String
 type Rl    = Rule String String
 
 
--- | The compiled grammar.
+-- | A compiled grammar.
 type Gram  = S.Set Rl
+
+-- | A compiled grammar with weights.
+type WeightedTree  = (Tr, Cost)
+type WeightedGram  = M.Map Rl Cost
 
 
 ---------------------------------------------------------------------
@@ -74,6 +82,8 @@ data TestRes
     -- ^ Parse
     | Trees (S.Set Tr)
     -- ^ Parsing results
+    | WeightedTrees (M.Map Tr Cost)
+    -- ^ Parsing results with weights
     deriving (Show, Eq, Ord)
 
 
@@ -280,63 +290,67 @@ gram3Tests =
 ---------------------------------------------------------------------
 
 
-make1 :: Tr
-make1 = INode "S"
+make1 :: WeightedTree
+make1 = ( INode "S"
     [ INode "VP"
         [ INode "V" [FNode "make"]
         , INode "NP" [] ]
-    ]
+    ], 1)
 
 
-make2 :: Tr
-make2 = INode "S"
+make2 :: WeightedTree
+make2 = ( INode "S"
     [ INode "VP"
         [ INode "V" [FNode "make"]
         , INode "NP" []
         , INode "VP" [] ]
-    ]
+    ], 1)
 
 
-cat :: Tr
-cat = INode "NP"
+a' :: WeightedTree
+a' = (INode "D" [FNode "a"], 1)
+
+
+cat :: WeightedTree
+cat = ( INode "NP"
     [ INode "D" []
     , INode "N"
         [FNode "cat"]
-    ]
+    ], 1)
 
 
-drink :: Tr
-drink = INode "VP"
+drink :: WeightedTree
+drink = ( INode "VP"
     [ INode "V"
         [FNode "drink"]
-    ]
+    ], 1)
 
 
-catDrink :: Tr
-catDrink = INode "NP"
+catDrink :: WeightedTree
+catDrink = ( INode "NP"
     [ INode "D" []
     , INode "N"
         [FNode "cat"]
     , INode "N"
         [FNode "drink"]
-    ]
+    ], 0)
 
 
 -- | Compile the first grammar.
-mkGram4 :: IO Gram
-mkGram4 = compile $
+mkGram4 :: IO WeightedGram
+mkGram4 = compileWeights $
     map Left
-        [ make1, make2, a, cat, mouse, tom
-        , drink, catDrink ] ++
-    map Right [almost, quickly]
+        [ make1, make2, a', cat
+        , drink, catDrink ] -- ++
+    -- map Right [almost, quickly]
 
 
 -- | Here we check that the auxiliary tree must be fully
 -- recognized before it can be adjoined.
 gram4Tests :: [Test]
 gram4Tests =
-    [ Test "S" ["make", "a", "cat", "drink"] . Trees $ S.fromList
-        [ INode "S"
+    [ Test "S" ["make", "a", "cat", "drink"] . WeightedTrees $ M.fromList
+        [ ( INode "S"
           [ INode "VP"
             [ INode "V" [FNode "make"]
             , INode "NP"
@@ -345,8 +359,8 @@ gram4Tests =
             , INode "VP"
               [ INode "V" [FNode "drink"] ]
             ]
-          ]
-        , INode "S"
+          ], 4)
+        , ( INode "S"
           [ INode "VP"
             [ INode "V" [FNode "make"]
             , INode "NP"
@@ -354,7 +368,7 @@ gram4Tests =
               , INode "N" [FNode "cat"]
               , INode "N" [FNode "drink"] ]
             ]
-          ]
+          ], 2)
         ]
     ]
 
@@ -369,7 +383,7 @@ data Res = Res
     { gram1 :: Gram
     , gram2 :: Gram
     , gram3 :: Gram
-    , gram4 :: Gram }
+    , gram4 :: WeightedGram }
 
 
 -- | Construct the shared resource (i.e. the grammars) used in
@@ -391,17 +405,22 @@ testTree
         -- ^ Recognition function
     -> Maybe (Gram -> String -> [String] -> IO (S.Set Tr))
         -- ^ Parsing function (optional)
+    -> Maybe (WeightedGram -> String -> [String] -> IO (M.Map Tr Cost))
+        -- ^ Parsing with weights (optional)
     -> TestTree
-testTree modName reco parse = withResource mkGrams (const $ return ()) $
+testTree modName reco parse parseW = withResource mkGrams (const $ return ()) $
     \resIO -> testGroup modName $
         map (testIt resIO gram1) gram1Tests ++
         map (testIt resIO gram2) gram2Tests ++
         map (testIt resIO gram3) gram3Tests ++
-        map (testIt resIO gram4) gram4Tests
+        map (testWe resIO gram4) gram4Tests
   where
     testIt resIO getGram test = testCase (show test) $ do
         gram <- getGram <$> resIO
         doTest gram test
+    testWe resIO getGram test = testCase (show test) $ do
+        gram <- getGram <$> resIO
+        doTestW gram test
 
     doTest gram test@Test{..} = case (parse, testRes) of
         (Nothing, _) ->
@@ -410,9 +429,29 @@ testTree modName reco parse = withResource mkGrams (const $ return ()) $
             pa gram startSym testSent @@?= ts
         _ ->
             reco gram startSym testSent @@?= simplify testRes
+
+    doTestW gram test@Test{..} = case (parseW, parse, testRes) of
+--         (Nothing, Nothing, _) ->
+--             reco gram startSym testSent @@?= simplify testRes
+        (_, Just pa, Trees ts) ->
+            pa (remWeights gram) startSym testSent @@?= ts
+        (Just pa, _, WeightedTrees ts) ->
+            fmap smoothOut (pa gram startSym testSent) @@?= ts
+        (Nothing, Just pa, WeightedTrees ts) ->
+            pa (remWeights gram) startSym testSent @@?= remWeights ts
+        _ ->
+            reco (remWeights gram) startSym testSent @@?= simplify testRes
+
+    smoothOut = fmap $ roundWeight 5
+    roundWeight n x = (fromInteger $ round $ x * (10^n)) / (10.0^^n)
+
+    remWeights = M.keysSet
+
     simplify No         = False
     simplify Yes        = True
     simplify (Trees _)  = True
+    simplify (WeightedTrees _)
+                        = True
 
 ---------------------------------------------------------------------
 -- Utils

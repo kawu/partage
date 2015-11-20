@@ -45,3 +45,8 @@ type Pos = Int
 
 -- | Additional symbol identifier.
 type SymID = Int
+
+
+-- | Cost (weight, probability) of employing the given elementary unit (tree,
+-- rule)
+type Cost = Double
