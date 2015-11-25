@@ -42,6 +42,7 @@ library
         NLP.TAG.Vanilla.Core
       , NLP.TAG.Vanilla.Tree
       , NLP.TAG.Vanilla.Rule
+      , NLP.TAG.Vanilla.WRule
       , NLP.TAG.Vanilla.Earley.Basic
       , NLP.TAG.Vanilla.SubtreeSharing
       , NLP.TAG.Vanilla.Earley.Pred
@@ -51,8 +52,8 @@ library
       , NLP.TAG.Vanilla.Earley.TreeGen
       , NLP.TAG.Vanilla.Earley.Prob.SymInf
       , NLP.TAG.Vanilla.Earley.Prob.Dijkstra
+      , NLP.TAG.Vanilla.Earley.Prob.AStar
       , NLP.TAG.Vanilla.Earley.New
-      , NLP.TAG.Vanilla.WRule
 
     ghc-options: -Wall
 

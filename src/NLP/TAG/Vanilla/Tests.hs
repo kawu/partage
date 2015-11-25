@@ -17,6 +17,7 @@ module NLP.TAG.Vanilla.Tests
 , gram3Tests
 , mkGram4
 , gram4Tests
+, mkGram5
 
 , Gram
 , WeightedGram
@@ -381,6 +382,47 @@ gram4Tests =
           ], 2)
         ]
     ]
+
+
+---------------------------------------------------------------------
+-- Grammar 5 (give a lift)
+---------------------------------------------------------------------
+
+
+-- | Compile the first grammar.
+mkGram5 :: IO WeightedGram
+mkGram5 = W.compileWeights $
+    map Left trees ++ map Right auxTrees
+  where
+    trees =
+        [ det "a", det "my", det "your"
+        , noun "lift", noun "car", noun "house" ]
+        -- , give, give_a_lift, pron "me" ]
+    auxTrees =
+        [ ppVPMod "with", ppVPMod "to"
+        , ppNPMod "with", ppNPMod "to" ]
+    det x = (INode "D" [FNode x], 1)
+    noun x = ( INode "NP"
+        [ INode "D" []
+        , INode "N"
+            [FNode x]
+        ], 1)
+    pron x = ( INode "NP"
+        [ INode "Pron"
+            [FNode x]
+        ], 1)
+    ppVPMod x = ( AuxTree (INode "VP"
+        [ INode "VP" []
+        , INode "PP"
+            [ INode "P" [FNode x]
+            , INode "NP" [] ]
+        ]) [1], 1)
+    ppNPMod x = ( AuxTree (INode "NP"
+        [ INode "NP" []
+        , INode "PP"
+            [ INode "P" [FNode x]
+            , INode "NP" [] ]
+        ]) [1], 1)
 
 
 ---------------------------------------------------------------------
