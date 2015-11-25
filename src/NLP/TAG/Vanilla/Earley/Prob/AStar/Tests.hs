@@ -41,11 +41,14 @@ tests = T.testTree "NLP.TAG.Vanilla.Earley.AStar"
 -- | A local test.
 localTest :: IO ()
 localTest = do
-    gram <- T.mkGram4
-    treeMap <- E.parse gram "S"
-        ["almost", "make", "a", "cat", "drink"]
+    gram <- T.mkGram5
+    treeMap <- E.parse gram "VP"
+        [ "give", "me", "a", "lift" , "to", "the", "nearest"
+        , "main", "train", "station", "with", "your", "car" ]
+--     treeMap <- E.parse gram "NP"
+--         [ "the", "nearest", "main", "train", "station" ]
     putStrLn ""
     forM_ (M.toList treeMap) $ \(tree, cost) -> do
         putStr $ E.showTree' tree
         putStrLn $ " => " ++ show cost
-
+        putStrLn ""

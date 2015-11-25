@@ -985,10 +985,10 @@ step
     => Binding (Item n t) (ExtCost n t)
     -> Earley n t ()
 step (ItemP p :-> e) = do
-    lift $ do
-        putStr $ "### " ++ show (prioVal e)
-        putStr $ ", "   ++ show (estCost e) ++ " ### "
-        printPassive p
+--     lift $ do
+--         putStr $ "### " ++ show (prioVal e)
+--         putStr $ ", "   ++ show (estCost e) ++ " ### "
+--         printPassive p
     mapM_ (\f -> f p $ prioVal e)
       [ trySubst
       , tryAdjoinInit
@@ -997,10 +997,10 @@ step (ItemP p :-> e) = do
       , tryAdjoinTerm' ]
     savePassive p e
 step (ItemA p :-> e) = do
-    lift $ do
-        putStr $ "### " ++ show (prioVal e)
-        putStr $ ", "   ++ show (estCost e) ++ " ### "
-        printActive p
+--     lift $ do
+--         putStr $ "### " ++ show (prioVal e)
+--         putStr $ ", "   ++ show (estCost e) ++ " ### "
+--         printActive p
     mapM_ (\f -> f p $ prioVal e)
       [ tryScan
       , trySubst'

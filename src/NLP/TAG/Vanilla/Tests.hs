@@ -394,35 +394,86 @@ mkGram5 :: IO WeightedGram
 mkGram5 = W.compileWeights $
     map Left trees ++ map Right auxTrees
   where
-    trees =
-        [ det "a", det "my", det "your"
-        , noun "lift", noun "car", noun "house" ]
-        -- , give, give_a_lift, pron "me" ]
-    auxTrees =
+    trees = concat
+        [ det "a", det "my", det "your" , det "the" , noun "lift"
+        , noun "car", noun "house", pron "me" 
+        , give1, give2 , give_a_lift_to, give_a_lift
+        , train_station, noun "train", noun "station" ]
+    auxTrees = concat
         [ ppVPMod "with", ppVPMod "to"
-        , ppNPMod "with", ppNPMod "to" ]
-    det x = (INode "D" [FNode x], 1)
-    noun x = ( INode "NP"
-        [ INode "D" []
-        , INode "N"
-            [FNode x]
-        ], 1)
-    pron x = ( INode "NP"
+        , ppNPMod "with", ppNPMod "to"
+        , adj "main", adj "nearest" ]
+    det x = single (INode "D" [FNode x], 1)
+    noun x =
+        [ ( INode "NP"
+            [ INode "D" []
+            , INode "N"
+                [FNode x]
+            ], 1 )
+        , ( INode "NP"
+            [ INode "D" []
+            , INode "N"
+                [ FNode x
+                , INode "N" [] ]
+            ], 1 )
+        , (INode "N" [FNode x], 1) ]
+    pron x = single ( INode "NP"
         [ INode "Pron"
             [FNode x]
         ], 1)
-    ppVPMod x = ( AuxTree (INode "VP"
+    give1 = single ( INode "VP"
+        [ INode "V"  [FNode "give"]
+        , INode "NP" []
+        , INode "NP" []
+        ], 1)
+    give2 = single ( INode "VP"
+        [ INode "V"  [FNode "give"]
+        , INode "NP" []
+        , INode "PP"
+            [ INode "P" [FNode "to"]
+            , INode "NP" [] ]
+        ], 1)
+    give_a_lift_to = single ( INode "VP"
+        [ INode "V-MWE"  [FNode "give"]
+        , INode "NP" []
+        , INode "NP"
+            [ INode "D" [FNode "a"]
+            , INode "N" [FNode "lift"] ]
+        , INode "PP"
+            [ INode "P" [FNode "to"]
+            , INode "NP" [] ]
+        ], 1)
+    give_a_lift = single ( INode "VP"
+        [ INode "V-MWE"  [FNode "give"]
+        , INode "NP" []
+        , INode "NP"
+            [ INode "D" [FNode "a"]
+            , INode "N" [FNode "lift"] ]
+        ], 1)
+    ppVPMod x = single ( AuxTree (INode "VP"
         [ INode "VP" []
         , INode "PP"
             [ INode "P" [FNode x]
             , INode "NP" [] ]
-        ]) [1], 1)
-    ppNPMod x = ( AuxTree (INode "NP"
+        ]) [0], 1)
+    ppNPMod x = single ( AuxTree (INode "NP"
         [ INode "NP" []
         , INode "PP"
             [ INode "P" [FNode x]
             , INode "NP" [] ]
+        ]) [0], 1)
+    train_station = single ( INode "NP"
+        [ INode "D" []
+        , INode "N"
+            [ FNode "train"
+            , FNode "station" ]
+        ], 1)
+    adj x = single ( AuxTree (INode "N"
+        [ INode "Adj" [FNode x]
+        , INode "N" []
         ]) [1], 1)
+    -- Utils
+    single x = [x]
 
 
 ---------------------------------------------------------------------
