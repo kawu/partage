@@ -35,7 +35,8 @@ import           Test.Tasty.HUnit (testCase)
 
 import           NLP.TAG.Vanilla.Core (Cost)
 import           NLP.TAG.Vanilla.Tree (Tree (..), AuxTree (..))
-import           NLP.TAG.Vanilla.Rule (Rule, compileWeights)
+import           NLP.TAG.Vanilla.Rule (Rule)
+import qualified NLP.TAG.Vanilla.WRule as W
 import           NLP.TAG.Vanilla.SubtreeSharing (compile)
 
 
@@ -47,6 +48,7 @@ import           NLP.TAG.Vanilla.SubtreeSharing (compile)
 type Tr    = Tree String String
 type AuxTr = AuxTree String String
 type Rl    = Rule String String
+type WRl   = W.Rule String String
 
 
 -- | A compiled grammar.
@@ -54,7 +56,7 @@ type Gram  = S.Set Rl
 
 -- | A compiled grammar with weights.
 type WeightedTree  = (Tr, Cost)
-type WeightedGram  = M.Map Rl Cost
+type WeightedGram  = S.Set WRl
 
 
 ---------------------------------------------------------------------
@@ -338,7 +340,7 @@ catDrink = ( INode "NP"
 
 -- | Compile the first grammar.
 mkGram4 :: IO WeightedGram
-mkGram4 = compileWeights $
+mkGram4 = W.compileWeights $
     map Left
         [ make1, make2, a', cat
         , drink, catDrink ] -- ++
@@ -434,18 +436,22 @@ testTree modName reco parse parseW = withResource mkGrams (const $ return ()) $
 --         (Nothing, Nothing, _) ->
 --             reco gram startSym testSent @@?= simplify testRes
         (_, Just pa, Trees ts) ->
-            pa (remWeights gram) startSym testSent @@?= ts
+            pa (unWeighGram gram) startSym testSent @@?= ts
         (Just pa, _, WeightedTrees ts) ->
             fmap smoothOut (pa gram startSym testSent) @@?= ts
         (Nothing, Just pa, WeightedTrees ts) ->
-            pa (remWeights gram) startSym testSent @@?= remWeights ts
+            pa (unWeighGram gram) startSym testSent @@?= remWeights ts
         _ ->
-            reco (remWeights gram) startSym testSent @@?= simplify testRes
+            reco (unWeighGram gram) startSym testSent @@?= simplify testRes
 
     smoothOut = fmap $ roundWeight 5
-    roundWeight n x = (fromInteger $ round $ x * (10^n)) / (10.0^^n)
+    roundWeight n x = fromInteger (round $ x * (10^n)) / (10.0^^n)
 
     remWeights = M.keysSet
+    unWeighGram
+        = S.fromList
+        . map W.unWeighRule
+        . S.toList
 
     simplify No         = False
     simplify Yes        = True

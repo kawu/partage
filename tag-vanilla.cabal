@@ -52,6 +52,7 @@ library
       , NLP.TAG.Vanilla.Earley.Prob.SymInf
       , NLP.TAG.Vanilla.Earley.Prob.Dijkstra
       , NLP.TAG.Vanilla.Earley.New
+      , NLP.TAG.Vanilla.WRule
 
     ghc-options: -Wall
 

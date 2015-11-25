@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 
 
 module NLP.TAG.Vanilla.Earley.Prob.Dijkstra.Tests where
@@ -15,6 +16,8 @@ import qualified NLP.TAG.Vanilla.Earley.Prob.Dijkstra as E
 import qualified NLP.TAG.Vanilla.Tree as E
 -- import qualified NLP.TAG.Vanilla.Earley.Prob.Tests as T
 import qualified NLP.TAG.Vanilla.Tests as T
+import qualified NLP.TAG.Vanilla.Rule as R
+import qualified NLP.TAG.Vanilla.WRule as W
 
 
 -- | All the tests of the parsing algorithm.
@@ -25,11 +28,20 @@ tests = T.testTree "NLP.TAG.Vanilla.Earley.Dijkstra"
     (Just simpleParse)
     (Just E.parse)
   where
-    recognize = E.recognize . weigh
+    recognize = E.recognize . weighGram
     simpleParse gram start =
-        fmap M.keysSet . E.parse (weigh gram) start
-    weigh gram = M.fromList
-        [(rule, 0) | rule <- S.toList gram]
+        fmap M.keysSet . E.parse (weighGram gram) start
+    weighGram gram = S.fromList
+        -- [(rule, 0) | rule <- S.toList gram]
+        [W.weighRule 0 rule | rule <- S.toList gram]
+--     weighRule R.Rule{..} = W.Rule
+--         (weighLab headR)
+--         (map weighLab bodyR)
+--     weighLab R.NonT{..}    = W.NonT nonTerm labID
+--     weighLab (R.Term t)    = W.Term t 0
+--     weighLab R.AuxRoot{..} = W.AuxRoot nonTerm
+--     weighLab R.AuxFoot{..} = W.AuxFoot nonTerm
+--     weighLab R.AuxVert{..} = W.AuxVert nonTerm symID
 
 
 --------------------------------------------------

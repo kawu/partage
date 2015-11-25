@@ -30,7 +30,7 @@ import           Data.Lens.Light
 import qualified Pipes                      as P
 
 import           NLP.TAG.Vanilla.Core
-import           NLP.TAG.Vanilla.Rule       ( Lab(..), viewLab, Rule(..) )
+import           NLP.TAG.Vanilla.WRule       ( Lab(..), viewLab, Rule(..) )
 import qualified NLP.TAG.Vanilla.Tree       as T
 
 
@@ -168,8 +168,8 @@ data Trav n t
     = Scan
         { scanFrom :: Active n t
         -- ^ The input active state
-        , scanTerm :: t
-        -- ^ The scanned terminal
+        , scanTerm :: (t, Cost)
+        -- ^ The scanned terminal together with its cost
         }
     | Subst
     -- ^ Pseudo substitution
@@ -208,10 +208,10 @@ data Trav n t
 type Prio = Double
 
 
--- -- | Neutral element of the priority.  Corresponds at the moment to
--- -- a logarighm of probability 1.
--- prioDef :: Prio
--- prioDef = 0
+-- | Neutral element of the cost/priority.  Corresponds at the moment to
+-- the logarithm of probability 1.
+costZero :: Prio
+costZero = 0
 
 
 -- | Add two weights.
@@ -344,11 +344,11 @@ parsedTrees EarSt{..} start n
         -- | let travSet = donePassive M.! p
         , trav <- S.toList prioTrav ]
 
-    fromPassiveTrav p (Scan q t) =
+    fromPassiveTrav p (Scan q (term, termCost)) =
         [ ( T.INode
             (nonTerm $ getL label p)
-            (reverse $ T.FNode t : ts)
-          , c )
+            (reverse $ T.FNode term : ts)
+          , addPrio c termCost )
         | (ts, c) <- fromActive q ]
 
     fromPassiveTrav p (Foot q x) =
@@ -386,9 +386,8 @@ parsedTrees EarSt{..} start n
                 (fromActiveTrav p)
                 (S.toList prioTrav)
 
-    -- \ Here we assume that cost of reading a character is 0.
-    fromActiveTrav _p (Scan q t) =
-        [ (T.FNode t : ts, c)
+    fromActiveTrav _p (Scan q (term, termCost)) =
+        [ (T.FNode term : ts, addPrio c termCost)
         | (ts, c) <- fromActive q ]
 
     fromActiveTrav _p (Foot q x) =
@@ -572,7 +571,7 @@ tryScan
     -> Earley n t ()
 tryScan p cost = void $ runMaybeT $ do
     -- check that the state expects a terminal on the right
-    (Term t, _) <- expects p
+    (Term t termCost, _) <- expects p
     -- read the word immediately following the ending position of
     -- the state
     c <- readInput $ getL (spanA >>> end) p
@@ -588,7 +587,9 @@ tryScan p cost = void $ runMaybeT $ do
         putStr "[S]  " >> printActive p
         putStr "  :  " >> printActive q
     -- push the resulting state into the waiting queue
-    lift . pushInduced q . extPrio cost $ Scan p t
+    -- lift . pushInduced q . extPrio (addPrio cost termCost) $
+    lift . pushInduced q . extPrio (addPrio cost termCost) $
+        Scan p (t, termCost)
 
 
 --------------------------------------------------
@@ -836,13 +837,25 @@ tryAdjoinTerm' p cost = void $ P.runListT $ do
 --------------------------------------------------
 
 
+-- | Parse the given sentence and return the set of parsed trees.
+parse
+    :: (VOrd t, VOrd n)
+    => S.Set (Rule n t)         -- ^ The grammar
+    -> n                        -- ^ The start symbol
+    -> [t]                      -- ^ Input sentence
+    -> IO (M.Map (T.Tree n t) Prio)
+parse gram start xs = do
+    earSt <- _earley gram xs
+    return $ parsedTrees earSt start (length xs)
+
+
 -- | Does the given grammar generate the given sentence from the
 -- given non-terminal symbol (i.e. from an initial tree with this
 -- symbol in its root)?  Uses the `earley` algorithm under the
 -- hood.
 recognize
     :: (VOrd t, VOrd n)
-    => M.Map (Rule n t) Prio    -- ^ The grammar
+    => S.Set (Rule n t)         -- ^ The grammar
     -> n                        -- ^ The start symbol
     -> [t]                      -- ^ Input sentence
     -> IO Bool
@@ -850,18 +863,6 @@ recognize gram start xs = do
     done <- final start (length xs) . donePassive
         <$> _earley gram xs
     return $ (not.null) done
-
-
--- | Parse the given sentence and return the set of parsed trees.
-parse
-    :: (VOrd t, VOrd n)
-    => M.Map (Rule n t) Prio    -- ^ The grammar
-    -> n                        -- ^ The start symbol
-    -> [t]                      -- ^ Input sentence
-    -> IO (M.Map (T.Tree n t) Prio)
-parse gram start xs = do
-    earSt <- _earley gram xs
-    return $ parsedTrees earSt start (length xs)
 
 
 -- | Return the lit of final passive chart items.
@@ -884,8 +885,7 @@ final start n donePassive =
 -- the input sentence.
 _earley
     :: (VOrd t, VOrd n)
-    => M.Map (Rule n t) Prio    -- ^ The grammar (set of rules with
-                                -- corresponding weights)
+    => S.Set (Rule n t)         -- ^ The grammar (weight in terminals)
     -> [t]                      -- ^ Input sentence
     -> IO (EarSt n t)
 _earley gram xs =
@@ -903,8 +903,9 @@ _earley gram xs =
                 { _beg   = i
                 , _end   = i
                 , _gap   = Nothing } }
-          , cost )
-        | (Rule{..}, cost) <- M.toList gram
+          , costZero )
+        -- | (Rule{..}, cost) <- M.toList gram
+        | Rule{..} <- S.toList gram
         , i <- [0 .. length xs - 1] ]
     -- the computation is performed as long as the waiting queue
     -- is non-empty.
