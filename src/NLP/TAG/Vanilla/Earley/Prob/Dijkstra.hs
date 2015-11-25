@@ -196,38 +196,30 @@ data Trav n t
 
 
 --------------------------------------------------
--- Priority
+-- Cost (priority, weight)
 --------------------------------------------------
-
-
--- | Priority type.  Equivalent to a weight of reaching a given chart
--- configuration from the set of initial configurations in the underlying
--- hypergraph.
---
--- TODO: Change `Prio` -> `Weight` (or `Cost`?)
-type Prio = Double
 
 
 -- | Neutral element of the cost/priority.  Corresponds at the moment to
 -- the logarithm of probability 1.
-costZero :: Prio
+costZero :: Cost
 costZero = 0
 
 
 -- | Add two weights.
-addPrio :: Prio -> Prio -> Prio
-addPrio = (+)
-{-# INLINE addPrio #-}
+addCost :: Cost -> Cost -> Cost
+addCost = (+)
+{-# INLINE addCost #-}
 
 
 -- | Minimum of two weights.
-minPrio :: Prio -> Prio -> Prio
-minPrio = min
-{-# INLINE minPrio #-}
+minCost :: Cost -> Cost -> Cost
+minCost = min
+{-# INLINE minCost #-}
 
 
 --------------------------------------------------
--- Extended Priority
+-- Extended Costrity
 --
 -- NOTE: it forms a semiring?
 --------------------------------------------------
@@ -237,39 +229,39 @@ minPrio = min
 -- to the underlying chart item.  The best weight (priority) of reaching the
 -- underlying item is preserved as well.  Note that traversals themselves do
 -- not introduce any weights.
-data ExtPrio n t = ExtPrio
-    { prioVal   :: Prio
+data ExtCost n t = ExtCost
+    { prioVal   :: Cost
     -- ^ The actual priority.  In case of initial elements corresponds to
     -- weights (probabilities?) assigned to individual "elementary rules".
     , prioTrav  :: S.Set (Trav n t)
     -- ^ Traversal leading to the underlying chart item
     } deriving (Show)
 
-instance (Eq n, Eq t) => Eq (ExtPrio n t) where
+instance (Eq n, Eq t) => Eq (ExtCost n t) where
     (==) = (==) `on` prioVal
-instance (Ord n, Ord t) => Ord (ExtPrio n t) where
+instance (Ord n, Ord t) => Ord (ExtCost n t) where
     compare = compare `on` prioVal
 
 
--- | Construct an initial `ExtPrio`.  With an empty set of input traversals, it
+-- | Construct an initial `ExtCost`.  With an empty set of input traversals, it
 -- corresponds to a start node in the underlying hyper-graph.
-extPrio0 :: Prio -> ExtPrio n t
-extPrio0 p = ExtPrio p S.empty
+extCost0 :: Cost -> ExtCost n t
+extCost0 p = ExtCost p S.empty
 
 
--- | Construct an `ExtPrio` with one incoming traversal
+-- | Construct an `ExtCost` with one incoming traversal
 -- (traversal=hyper-edge).
-extPrio :: Prio -> Trav n t -> ExtPrio n t
-extPrio p = ExtPrio p . S.singleton
+extCost :: Cost -> Trav n t -> ExtCost n t
+extCost p = ExtCost p . S.singleton
 
 
 -- | Join two extended priorities:
 -- * The actual priority (cost) preserved is the lower of the two; we are
 -- simply keeping the lowest cost of reaching the underlying chart item.
 -- * The traversals are unioned.
-joinExtPrio :: (Ord n, Ord t) => ExtPrio n t -> ExtPrio n t -> ExtPrio n t
-joinExtPrio x y = ExtPrio
-    (minPrio (prioVal x) (prioVal y))
+joinExtCost :: (Ord n, Ord t) => ExtCost n t -> ExtCost n t -> ExtCost n t
+joinExtCost x y = ExtCost
+    (minCost (prioVal x) (prioVal y))
     (S.union (prioTrav x) (prioTrav y))
 
 
@@ -280,11 +272,11 @@ joinExtPrio x y = ExtPrio
 
 -- | The state of the earley monad.
 data EarSt n t = EarSt
-    { doneActive  :: M.Map (Active n t) (ExtPrio n t)
+    { doneActive  :: M.Map (Active n t) (ExtCost n t)
     -- ^ Processed active states.
-    , donePassive :: M.Map (Passive n t) (ExtPrio n t)
+    , donePassive :: M.Map (Passive n t) (ExtCost n t)
     -- ^ Processed active states.
-    , waiting     :: Q.PSQ (Item n t) (ExtPrio n t)
+    , waiting     :: Q.PSQ (Item n t) (ExtCost n t)
     -- ^ The set of states waiting on the queue to be processed.
     -- Invariant: the intersection of `done' and `waiting' states
     -- is empty.
@@ -292,12 +284,12 @@ data EarSt n t = EarSt
 
 
 -- | Make an initial `EarSt` from a set of initial states.
-mkEarSt :: (Ord n, Ord t) => M.Map (Active n t) Prio -> EarSt n t
+mkEarSt :: (Ord n, Ord t) => M.Map (Active n t) Cost -> EarSt n t
 mkEarSt s = EarSt
     { doneActive  = M.empty
     , donePassive = M.empty
     , waiting     = Q.fromList
-        [ ItemA p :-> extPrio0 c
+        [ ItemA p :-> extCost0 c
         | (p, c) <- M.toList s ] }
 
 
@@ -328,7 +320,7 @@ parsedTrees
     => EarSt n t    -- ^ Final state of the earley parser
     -> n            -- ^ The start symbol
     -> Int          -- ^ Length of the input sentence
-    -> M.Map (T.Tree n t) Prio
+    -> M.Map (T.Tree n t) Cost
 parsedTrees EarSt{..} start n
 
     = M.fromList
@@ -337,10 +329,10 @@ parsedTrees EarSt{..} start n
 
   where
 
-    fromPassive :: Passive n t -> [(T.Tree n t, Prio)]
+    fromPassive :: Passive n t -> [(T.Tree n t, Cost)]
     fromPassive p = concat
         [ fromPassiveTrav p trav
-        | ExtPrio{..} <- maybeToList $ M.lookup p donePassive
+        | ExtCost{..} <- maybeToList $ M.lookup p donePassive
         -- | let travSet = donePassive M.! p
         , trav <- S.toList prioTrav ]
 
@@ -348,7 +340,7 @@ parsedTrees EarSt{..} start n
         [ ( T.INode
             (nonTerm $ getL label p)
             (reverse $ T.FNode term : ts)
-          , addPrio c termCost )
+          , addCost c termCost )
         | (ts, c) <- fromActive q ]
 
     fromPassiveTrav p (Foot q x) =
@@ -362,12 +354,12 @@ parsedTrees EarSt{..} start n
         [ ( T.INode
             (nonTerm $ getL label p)
             (reverse $ t : ts)
-          , addPrio c1 c2 )
+          , addCost c1 c2 )
         | (ts, c1) <- fromActive qa
         , (t,  c2) <- fromPassive qp ]
 
     fromPassiveTrav _p (Adjoin qa qm) =
-        [ (replaceFoot ini aux, addPrio c1 c2)
+        [ (replaceFoot ini aux, addCost c1 c2)
         | (aux, c1) <- fromPassive qa
         , (ini, c2) <- fromPassive qm ]
 
@@ -377,17 +369,17 @@ parsedTrees EarSt{..} start n
     replaceFoot _ t@(T.FNode _)    = t
 
 
-    fromActive  :: Active n t -> [([T.Tree n t], Prio)]
+    fromActive  :: Active n t -> [([T.Tree n t], Cost)]
     fromActive p = case M.lookup p doneActive of
         Nothing -> error "fromActive: unknown active item"
-        Just ExtPrio{..} -> if S.null prioTrav
+        Just ExtCost{..} -> if S.null prioTrav
             then [([], prioVal)]
             else concatMap
                 (fromActiveTrav p)
                 (S.toList prioTrav)
 
     fromActiveTrav _p (Scan q (term, termCost)) =
-        [ (T.FNode term : ts, addPrio c termCost)
+        [ (T.FNode term : ts, addCost c termCost)
         | (ts, c) <- fromActive q ]
 
     fromActiveTrav _p (Foot q x) =
@@ -395,7 +387,7 @@ parsedTrees EarSt{..} start n
         | (ts, c) <- fromActive q ]
 
     fromActiveTrav _p (Subst qp qa) =
-        [ (t : ts, addPrio c1 c2)
+        [ (t : ts, addCost c1 c2)
         | (ts, c1) <- fromActive qa
         , (t,  c2) <- fromPassive qp ]
 
@@ -419,16 +411,16 @@ isProcessedP p = M.member p <$> RWS.gets donePassive
 
 
 -- | Add traversal to an active processed item.
-saveActive :: (Ord n, Ord t) => Active n t -> ExtPrio n t -> Earley n t ()
+saveActive :: (Ord n, Ord t) => Active n t -> ExtCost n t -> Earley n t ()
 saveActive p t = do
-    let newDone = M.insertWith joinExtPrio p t
+    let newDone = M.insertWith joinExtCost p t
     RWS.modify' $ \s -> s {doneActive = newDone (doneActive s)}
 
 
 -- | Add traversal to a passive processed item.
-savePassive :: (Ord n, Ord t) => Passive n t -> ExtPrio n t -> Earley n t ()
+savePassive :: (Ord n, Ord t) => Passive n t -> ExtCost n t -> Earley n t ()
 savePassive p t = do
-    let newDone = M.insertWith joinExtPrio p t
+    let newDone = M.insertWith joinExtCost p t
     RWS.modify' $ \s -> s {donePassive = newDone (donePassive s)}
 
 
@@ -439,28 +431,28 @@ savePassive p t = do
 
 -- | Add the active item to the waiting queue.  Check first if it
 -- is not already in the set of processed (`done') states.
-pushActive :: (Ord t, Ord n) => Active n t -> ExtPrio n t -> Earley n t ()
-pushActive p newPrio = isProcessedA p >>= \b -> if b
-    then saveActive p newPrio
+pushActive :: (Ord t, Ord n) => Active n t -> ExtCost n t -> Earley n t ()
+pushActive p newCost = isProcessedA p >>= \b -> if b
+    then saveActive p newCost
     else RWS.modify' $ \s -> s {waiting = newWait (waiting s)}
   where
-    newWait = Q.insertWith joinExtPrio (ItemA p) newPrio
+    newWait = Q.insertWith joinExtCost (ItemA p) newCost
 
 
 -- | Add the passive item to the waiting queue.  Check first if it
 -- is not already in the set of processed (`done') states.
-pushPassive :: (Ord t, Ord n) => Passive n t -> ExtPrio n t -> Earley n t ()
-pushPassive p newPrio = isProcessedP p >>= \b -> if b
-    then savePassive p newPrio
+pushPassive :: (Ord t, Ord n) => Passive n t -> ExtCost n t -> Earley n t ()
+pushPassive p newCost = isProcessedP p >>= \b -> if b
+    then savePassive p newCost
     else RWS.modify' $ \s -> s {waiting = newWait (waiting s)}
   where
-    newWait = Q.insertWith joinExtPrio (ItemP p) newPrio
+    newWait = Q.insertWith joinExtCost (ItemP p) newCost
 
 
 -- | Add to the waiting queue the item induced from the given item.
 -- Use instead of `pushActive` each time you are not sure the item is really
 -- active.
-pushInduced :: (Ord t, Ord n) => Active n t -> ExtPrio n t -> Earley n t ()
+pushInduced :: (Ord t, Ord n) => Active n t -> ExtCost n t -> Earley n t ()
 pushInduced p = if completed p
     then pushPassive $ Passive (p ^. root) (p ^. spanA)
     else pushActive p
@@ -470,7 +462,7 @@ pushInduced p = if completed p
 popItem
     :: (Ord t, Ord n)
     => Earley n t
-        (Maybe (Binding (Item n t) (ExtPrio n t)))
+        (Maybe (Binding (Item n t) (ExtCost n t)))
 popItem = RWS.state $ \st -> case Q.minView (waiting st) of
     Nothing -> (Nothing, st)
     Just (b, s) -> (Just b, st {waiting = s})
@@ -486,7 +478,7 @@ popItem = RWS.state $ \st -> case Q.minView (waiting st) of
 -- * end on the given position.
 expectEnd
     :: (Ord n, Ord t) => Lab n t -> Pos
-    -> P.ListT (Earley n t) (Active n t, Prio)
+    -> P.ListT (Earley n t) (Active n t, Cost)
 expectEnd x i = do
     EarSt{..} <- lift RWS.get
     each
@@ -500,7 +492,7 @@ expectEnd x i = do
 -- * the given span
 rootSpan
     :: Ord n => n -> (Pos, Pos)
-    -> P.ListT (Earley n t) (Passive n t, Prio)
+    -> P.ListT (Earley n t) (Passive n t, Cost)
 rootSpan x (i, j) = do
     EarSt{..} <- lift RWS.get
     each
@@ -516,7 +508,7 @@ rootSpan x (i, j) = do
 -- * begin on the given position.
 provideBeg
     :: (Ord n, Ord t) => Lab n t -> Pos
-    -> P.ListT (Earley n t) (Passive n t, Prio)
+    -> P.ListT (Earley n t) (Passive n t, Cost)
 provideBeg x i = do
     EarSt{..} <- lift RWS.get
     each
@@ -533,7 +525,7 @@ provideBeg x i = do
 -- (Note the similarity to `provideBeg`)
 provideBeg'
     :: (Ord n, Ord t) => n -> Pos
-    -> P.ListT (Earley n t) (Passive n t, Prio)
+    -> P.ListT (Earley n t) (Passive n t, Cost)
 provideBeg' x i = do
     EarSt{..} <- lift RWS.get
     each
@@ -548,7 +540,7 @@ provideBeg' x i = do
 -- * with the given gap.
 auxModifyGap
     :: Ord n => n -> (Pos, Pos)
-    -> P.ListT (Earley n t) (Passive n t, Prio)
+    -> P.ListT (Earley n t) (Passive n t, Cost)
 auxModifyGap x gapSpan = do
     EarSt{..} <- lift RWS.get
     each
@@ -567,7 +559,7 @@ auxModifyGap x gapSpan = do
 tryScan
     :: (VOrd t, VOrd n)
     => Active n t   -- ^ The item popped from the queue
-    -> Prio         -- ^ The corresponding cost
+    -> Cost         -- ^ The corresponding cost
     -> Earley n t ()
 tryScan p cost = void $ runMaybeT $ do
     -- check that the state expects a terminal on the right
@@ -587,8 +579,8 @@ tryScan p cost = void $ runMaybeT $ do
         putStr "[S]  " >> printActive p
         putStr "  :  " >> printActive q
     -- push the resulting state into the waiting queue
-    -- lift . pushInduced q . extPrio (addPrio cost termCost) $
-    lift . pushInduced q . extPrio (addPrio cost termCost) $
+    -- lift . pushInduced q . extCost (addCost cost termCost) $
+    lift . pushInduced q . extCost (addCost cost termCost) $
         Scan p (t, termCost)
 
 
@@ -602,7 +594,7 @@ tryScan p cost = void $ runMaybeT $ do
 trySubst
     :: (VOrd t, VOrd n)
     => Passive n t  -- ^ The item popped from the queue
-    -> Prio         -- ^ The corresponding cost
+    -> Cost         -- ^ The corresponding cost
     -> Earley n t ()
 trySubst p cost = void $ P.runListT $ do
     let pLab = getL label p
@@ -622,12 +614,12 @@ trySubst p cost = void $ P.runListT $ do
         putStr "  +  " >> printActive q
         putStr "  :  " >> printActive q'
     -- push the resulting state into the waiting queue
-    lift . pushInduced q' . extPrio (addPrio cost cost') $ Subst p q
+    lift . pushInduced q' . extCost (addCost cost cost') $ Subst p q
 
 
 -- | Reversed `trySubst` version.  Try to completent the item with another
 -- fully parsed item.
-trySubst' :: (VOrd t, VOrd n) => Active n t -> Prio -> Earley n t ()
+trySubst' :: (VOrd t, VOrd n) => Active n t -> Cost -> Earley n t ()
 trySubst' q cost = void $ P.runListT $ do
     -- Learn what `q` actually expects.
     (r@NonT{}, _) <- some $ expects' q
@@ -645,7 +637,7 @@ trySubst' q cost = void $ P.runListT $ do
         putStr "  +  " >> printPassive p
         putStr "  :  " >> printActive q'
     -- push the resulting state into the waiting queue
-    lift . pushInduced q' . extPrio (addPrio cost cost') $ Subst p q
+    lift . pushInduced q' . extCost (addCost cost cost') $ Subst p q
 
 
 --------------------------------------------------
@@ -656,7 +648,7 @@ trySubst' q cost = void $ P.runListT $ do
 -- | `tryAdjoinInit p q':
 -- * `p' is a completed state (regular or auxiliary)
 -- * `q' not completed and expects a *real* foot
-tryAdjoinInit :: (VOrd n, VOrd t) => Passive n t -> Prio -> Earley n t ()
+tryAdjoinInit :: (VOrd n, VOrd t) => Passive n t -> Cost -> Earley n t ()
 tryAdjoinInit p _cost = void $ P.runListT $ do
     let pLab = p ^. label
         pSpan = p ^. spanP
@@ -680,15 +672,15 @@ tryAdjoinInit p _cost = void $ P.runListT $ do
         putStr "  +  " >> printActive q
         putStr "  :  " >> printActive q'
     -- push the resulting state into the waiting queue
-    -- lift . pushInduced q' . extPrio (addPrio cost cost') $ Foot q (nonTerm foot)
-    lift . pushInduced q' . extPrio cost' $ Foot q (nonTerm foot)
+    -- lift . pushInduced q' . extCost (addCost cost cost') $ Foot q (nonTerm foot)
+    lift . pushInduced q' . extCost cost' $ Foot q (nonTerm foot)
 
 
 -- | Reverse of `tryAdjoinInit` where the given state `q`
 -- expects a real foot.
 -- * `q' not completed and expects a *real* foot
 -- * `p' is a completed state (regular or auxiliary)
-tryAdjoinInit' :: (VOrd n, VOrd t) => Active n t -> Prio -> Earley n t ()
+tryAdjoinInit' :: (VOrd n, VOrd t) => Active n t -> Cost -> Earley n t ()
 tryAdjoinInit' q cost = void $ P.runListT $ do
     -- Retrieve the foot expected by `q`.
     (AuxFoot footNT, _) <- some $ expects' q
@@ -712,8 +704,8 @@ tryAdjoinInit' q cost = void $ P.runListT $ do
         putStr "  +  " >> printPassive p
         putStr "  :  " >> printActive q'
     -- push the resulting state into the waiting queue
-    -- lift . pushInduced q' . extPrio (addPrio cost cost') $ Foot q footNT
-    lift . pushInduced q' . extPrio cost $ Foot q footNT
+    -- lift . pushInduced q' . extCost (addCost cost cost') $ Foot q footNT
+    lift . pushInduced q' . extCost cost $ Foot q footNT
 
 
 --------------------------------------------------
@@ -724,7 +716,7 @@ tryAdjoinInit' q cost = void $ P.runListT $ do
 -- | `tryAdjoinCont p q':
 -- * `p' is a completed, auxiliary state
 -- * `q' not completed and expects a *dummy* foot
-tryAdjoinCont :: (VOrd n, VOrd t) => Passive n t -> Prio -> Earley n t ()
+tryAdjoinCont :: (VOrd n, VOrd t) => Passive n t -> Cost -> Earley n t ()
 tryAdjoinCont p cost = void $ P.runListT $ do
     let pLab = p ^. label
         pSpan = p ^. spanP
@@ -748,11 +740,11 @@ tryAdjoinCont p cost = void $ P.runListT $ do
         putStr "  +  " >> printActive q
         putStr "  :  " >> printActive q'
     -- push the resulting state into the waiting queue
-    lift . pushInduced q' . extPrio (addPrio cost cost') $ Subst p q
+    lift . pushInduced q' . extCost (addCost cost cost') $ Subst p q
 
 
 -- | Reversed `tryAdjoinCont`.
-tryAdjoinCont' :: (VOrd n, VOrd t) => Active n t -> Prio -> Earley n t ()
+tryAdjoinCont' :: (VOrd n, VOrd t) => Active n t -> Cost -> Earley n t ()
 tryAdjoinCont' q cost = void $ P.runListT $ do
     -- Retrieve the auxiliary vertebrea expected by `q`
     (r@AuxVert{}, _) <- some $ expects' q
@@ -772,7 +764,7 @@ tryAdjoinCont' q cost = void $ P.runListT $ do
         putStr "  +  " >> printPassive p
         putStr "  :  " >> printActive q'
     -- push the resulting state into the waiting queue
-    lift . pushInduced q' . extPrio (addPrio cost cost') $ Subst p q
+    lift . pushInduced q' . extCost (addCost cost cost') $ Subst p q
 
 
 --------------------------------------------------
@@ -782,7 +774,7 @@ tryAdjoinCont' q cost = void $ P.runListT $ do
 
 -- | Adjoin a fully-parsed auxiliary state `q` to a partially parsed
 -- tree represented by a fully parsed rule/state `p`.
-tryAdjoinTerm :: (VOrd t, VOrd n) => Passive n t -> Prio -> Earley n t ()
+tryAdjoinTerm :: (VOrd t, VOrd n) => Passive n t -> Cost -> Earley n t ()
 tryAdjoinTerm q cost = void $ P.runListT $ do
     let qLab = q ^. label
         qSpan = q ^. spanP
@@ -806,11 +798,11 @@ tryAdjoinTerm q cost = void $ P.runListT $ do
         putStr "[C]  " >> printPassive q
         putStr "  +  " >> printPassive p
         putStr "  :  " >> printPassive p'
-    lift . pushPassive p' . extPrio (addPrio cost cost') $ Adjoin q p
+    lift . pushPassive p' . extCost (addCost cost cost') $ Adjoin q p
 
 
 -- | Reversed `tryAdjoinTerm`.
-tryAdjoinTerm' :: (VOrd t, VOrd n) => Passive n t -> Prio -> Earley n t ()
+tryAdjoinTerm' :: (VOrd t, VOrd n) => Passive n t -> Cost -> Earley n t ()
 tryAdjoinTerm' p cost = void $ P.runListT $ do
     let pLab = p ^. label
         pSpan = p ^. spanP
@@ -831,7 +823,7 @@ tryAdjoinTerm' p cost = void $ P.runListT $ do
         putStr "[C'] " >> printPassive p
         putStr "  +  " >> printPassive q
         putStr "  :  " >> printPassive p'
-    lift . pushPassive p' . extPrio (addPrio cost cost') $ Adjoin q p
+    lift . pushPassive p' . extCost (addCost cost cost') $ Adjoin q p
 
 
 --------------------------------------------------
@@ -845,7 +837,7 @@ parse
     => S.Set (Rule n t)         -- ^ The grammar
     -> n                        -- ^ The start symbol
     -> [t]                      -- ^ Input sentence
-    -> IO (M.Map (T.Tree n t) Prio)
+    -> IO (M.Map (T.Tree n t) Cost)
 parse gram start xs = do
     earSt <- _earley gram xs
     return $ parsedTrees earSt start (length xs)
@@ -872,7 +864,7 @@ final
     :: (Eq n, Eq t)
     => n            -- ^ The start symbol
     -> Int          -- ^ The length of the input sentence
-    -> M.Map (Passive n t) (ExtPrio n t)
+    -> M.Map (Passive n t) (ExtCost n t)
                     -- ^ Result of the earley computation
     -> [Passive n t]
 final start n donePassive =
@@ -920,7 +912,7 @@ _earley gram xs =
 -- the queue.
 step
     :: (VOrd t, VOrd n)
-    => Binding (Item n t) (ExtPrio n t)
+    => Binding (Item n t) (ExtCost n t)
     -> Earley n t ()
 step (ItemP p :-> e) = do
     lift $ do
