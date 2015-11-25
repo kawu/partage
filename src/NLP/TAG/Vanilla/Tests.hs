@@ -56,6 +56,7 @@ type Gram  = S.Set Rl
 
 -- | A compiled grammar with weights.
 type WeightedTree  = (Tr, Cost)
+type WeightedAux   = (AuxTr, Cost)
 type WeightedGram  = S.Set WRl
 
 
@@ -338,13 +339,20 @@ catDrink = ( INode "NP"
     ], 0)
 
 
+almostW :: WeightedAux
+almostW = ( AuxTree (INode "V"
+    [ INode "Ad" [FNode "almost"]
+    , INode "V" []
+    ]) [1], 1)
+
+
 -- | Compile the first grammar.
 mkGram4 :: IO WeightedGram
 mkGram4 = W.compileWeights $
     map Left
         [ make1, make2, a', cat
-        , drink, catDrink ] -- ++
-    -- map Right [almost, quickly]
+        , drink, catDrink ] ++
+    map Right [almostW]
 
 
 -- | Here we check that the auxiliary tree must be fully

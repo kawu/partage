@@ -54,7 +54,7 @@ localTest :: IO ()
 localTest = do
     gram <- T.mkGram4
     treeMap <- E.parse gram "S"
-        ["make", "a", "cat", "drink"]
+        ["almost", "make", "a", "cat", "drink"]
     putStrLn ""
     forM_ (M.toList treeMap) $ \(tree, cost) -> do
         putStr $ E.showTree' tree
@@ -70,8 +70,8 @@ localTest = do
 --     putStrLn ""
 --     mapM_ (putStrLn . E.showTree') (S.toList treeSet)
 --     -- mapM_ (putStrLn . show) (S.toList treeSet)
--- 
--- 
+--
+--
 -- -- | A local test.
 -- localTest2 :: IO ()
 -- localTest2 = do

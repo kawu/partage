@@ -657,7 +657,7 @@ trySubst' q cost = void $ P.runListT $ do
 -- * `p' is a completed state (regular or auxiliary)
 -- * `q' not completed and expects a *real* foot
 tryAdjoinInit :: (VOrd n, VOrd t) => Passive n t -> Prio -> Earley n t ()
-tryAdjoinInit p cost = void $ P.runListT $ do
+tryAdjoinInit p _cost = void $ P.runListT $ do
     let pLab = p ^. label
         pSpan = p ^. spanP
     -- make sure that the corresponding rule is either regular or
@@ -680,7 +680,8 @@ tryAdjoinInit p cost = void $ P.runListT $ do
         putStr "  +  " >> printActive q
         putStr "  :  " >> printActive q'
     -- push the resulting state into the waiting queue
-    lift . pushInduced q' . extPrio (addPrio cost cost') $ Foot q (nonTerm foot)
+    -- lift . pushInduced q' . extPrio (addPrio cost cost') $ Foot q (nonTerm foot)
+    lift . pushInduced q' . extPrio cost' $ Foot q (nonTerm foot)
 
 
 -- | Reverse of `tryAdjoinInit` where the given state `q`
@@ -693,7 +694,7 @@ tryAdjoinInit' q cost = void $ P.runListT $ do
     (AuxFoot footNT, _) <- some $ expects' q
     -- Find all fully parsed items which provide the given source
     -- non-terminal and which begin where `q` ends.
-    (p, cost') <- provideBeg' footNT (q ^. spanA ^. end)
+    (p, _cost') <- provideBeg' footNT (q ^. spanA ^. end)
     let pLab = p ^. label
         pSpan = p ^. spanP
     -- The retrieved items must not be auxiliary top-level.
@@ -711,7 +712,8 @@ tryAdjoinInit' q cost = void $ P.runListT $ do
         putStr "  +  " >> printPassive p
         putStr "  :  " >> printActive q'
     -- push the resulting state into the waiting queue
-    lift . pushInduced q' . extPrio (addPrio cost cost') $ Foot q footNT
+    -- lift . pushInduced q' . extPrio (addPrio cost cost') $ Foot q footNT
+    lift . pushInduced q' . extPrio cost $ Foot q footNT
 
 
 --------------------------------------------------
@@ -921,6 +923,9 @@ step
     => Binding (Item n t) (ExtPrio n t)
     -> Earley n t ()
 step (ItemP p :-> e) = do
+    lift $ do
+        putStr $ "### " ++ show (prioVal e) ++ " ### "
+        printPassive p
     mapM_ (\f -> f p $ prioVal e)
       [ trySubst
       , tryAdjoinInit
