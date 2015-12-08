@@ -52,3 +52,18 @@ localTest = do
         putStr $ E.showTree' tree
         putStrLn $ " => " ++ show cost
         putStrLn ""
+
+
+-- | A local test.
+localTest2 :: IO ()
+localTest2 = do
+    gram <- T.mkGram6
+    treeMap <- E.parse gram "S"
+        [ "customs", "service" ]
+--     treeMap <- E.parse gram "NP"
+--         [ "the", "nearest", "main", "train", "station" ]
+    putStrLn ""
+    forM_ (M.toList treeMap) $ \(tree, cost) -> do
+        putStr $ E.showTree' tree
+        putStrLn $ " => " ++ show cost
+        putStrLn ""

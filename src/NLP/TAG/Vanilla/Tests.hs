@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TupleSections #-}
 
 
 -- | A module collecting the toy grammars used for testing and
@@ -17,7 +18,10 @@ module NLP.TAG.Vanilla.Tests
 , gram3Tests
 , mkGram4
 , gram4Tests
+
+-- Temporary
 , mkGram5
+, mkGram6
 
 , Gram
 , WeightedGram
@@ -37,6 +41,7 @@ import           Test.Tasty.HUnit (testCase)
 import           NLP.TAG.Vanilla.Core (Cost)
 import           NLP.TAG.Vanilla.Tree (Tree (..), AuxTree (..))
 import           NLP.TAG.Vanilla.Rule (Rule)
+import qualified NLP.TAG.Vanilla.Rule  as R
 import qualified NLP.TAG.Vanilla.WRule as W
 import           NLP.TAG.Vanilla.SubtreeSharing (compile)
 
@@ -396,7 +401,7 @@ mkGram5 = W.compileWeights $
   where
     trees = concat
         [ det "a", det "my", det "your" , det "the" , noun "lift"
-        , noun "car", noun "house", pron "me" 
+        , noun "car", noun "house", pron "me"
         , give1, give2 , give_a_lift_to, give_a_lift
         , train_station, noun "train", noun "station" ]
     auxTrees = concat
@@ -474,6 +479,59 @@ mkGram5 = W.compileWeights $
         ]) [1], 1)
     -- Utils
     single x = [x]
+
+
+---------------------------------------------------------------------
+-- Grammar 6 (acid rains)
+---------------------------------------------------------------------
+
+
+-- | Compile the first grammar and return two results: a simple factorized
+-- grammar (fst) and factorized grammar with subtree sharing (snd).
+mkGram6 :: IO (Gram, Gram)
+mkGram6 = do
+    gramPlain <- R.compile trees
+    gramShare <- compile   trees
+    return (gramPlain, gramShare)
+  where
+    trees =
+--         map Left  [rainsN, rainsV, acid_rains, ghana] ++
+--         map Right [ppMod "in" "S", ppMod "in" "NP"]
+        map Left [rainsN, rainsV, acidNP, acid_rains] ++
+        map Right [nounM "acid" "A", nounM "acid" "N"]
+    rainsN = INode "NP"
+        [ INode "N"
+            [FNode "rains"]
+        ]
+    rainsV = INode "S"
+        [ INode "NP" []
+        , INode "VP"
+            [ INode "V"
+                [FNode "rains"]
+            ]
+        ]
+    acidNP = INode "NP"
+        [ INode "N"
+            [FNode "acid"]
+        ]
+    acid_rains = INode "NP"
+        [ INode "N" [FNode "acid"]
+        , INode "N" [FNode "rains"]
+        ]
+    nounM x cat = AuxTree (INode "N"
+        [ INode cat [FNode x]
+        , INode "N" []
+        ]) [1]
+--     ghana = INode "NP"
+--         [ INode "N"
+--             [FNode "Ghana"]
+--         ]
+--     ppMod x cat = AuxTree (INode cat
+--         [ INode cat []
+--         , INode "PP"
+--             [ INode "P" [FNode x]
+--             , INode "NP" [] ]
+--         ]) [0]
 
 
 ---------------------------------------------------------------------
