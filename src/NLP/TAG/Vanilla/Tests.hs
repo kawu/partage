@@ -21,7 +21,8 @@ module NLP.TAG.Vanilla.Tests
 
 -- Temporary
 , mkGram5
-, mkGram6
+, mkGramAcidRains
+, mkGramSetPoints
 
 , Gram
 , WeightedGram
@@ -482,14 +483,14 @@ mkGram5 = W.compileWeights $
 
 
 ---------------------------------------------------------------------
--- Grammar 6 (acid rains)
+-- Misc Grammars
 ---------------------------------------------------------------------
 
 
 -- | Compile the first grammar and return two results: a simple factorized
 -- grammar (fst) and factorized grammar with subtree sharing (snd).
-mkGram6 :: IO (Gram, Gram)
-mkGram6 = do
+mkGramAcidRains :: IO (Gram, Gram)
+mkGramAcidRains = do
     gramPlain <- R.compile trees
     gramShare <- compile   trees
     return (gramPlain, gramShare)
@@ -532,6 +533,88 @@ mkGram6 = do
 --             [ INode "P" [FNode x]
 --             , INode "NP" [] ]
 --         ]) [0]
+
+
+-- | Compile the first grammar and return two results: a simple factorized
+-- grammar (fst) and factorized grammar with subtree sharing (snd).
+mkGramSetPoints :: IO Gram
+mkGramSetPoints = do
+    -- gramPlain <- R.compile trees
+    gramShare <- compile trees
+    -- return (gramPlain, gramShare)
+    return gramShare
+  where
+    trees =
+        ( map Left
+            [ nounNoDet "set"
+            , nounNoDet "points"
+            -- , transVerbImper "set"
+            -- , transVerb "set"
+            -- , inTransVerb "lunches" 
+            , verbNPatNP "points" 
+            , nounNounComp "set" "points" ] ) ++
+        ( map Right
+            [ nounLeftMod "set" "Adj"
+            , nounLeftMod "set" "N"
+            , nounLeftMod "set" "Ppart" ] )
+
+    nounNoDet x = INode "NP"
+        [ INode "N"
+            [FNode x]
+        ]
+
+    transVerb x = INode "S"
+        [ INode "NP" []
+        , INode "VP"
+            [ INode "V"
+                [FNode x]
+            , INode "NP" []
+            ]
+        ]
+
+    inTransVerb x = INode "S"
+        [ INode "NP" []
+        , INode "VP"
+            [ INode "V"
+                [FNode x]
+            ]
+        ]
+
+    transVerbImper x = INode "S"
+        [ INode "VP"
+            [ INode "V"
+                [FNode x]
+            , INode "NP" []
+            ]
+        ]
+
+    verbNPatNP x = INode "S"
+        [ INode "NP" []
+        , INode "VP"
+            [ INode "V"
+                [FNode x]
+            , INode "NP" []
+            , INode "PP"
+                [ INode "P" [FNode "at"]
+                , INode "NP" [] ]
+            ]
+        ]
+
+    nounLeftMod x cat = AuxTree (INode "N"
+        [ INode cat [FNode x]
+        , INode "N" []
+        ]) [1]
+
+    nounNounComp x y = INode "NP"
+        [ INode "N" [FNode x]
+        , INode "N" [FNode y]
+        ]
+
+    adjNounComp x y = INode "NP"
+        [ INode "Adj" [FNode x]
+        , INode "N" [FNode y]
+        ]
+
 
 
 ---------------------------------------------------------------------

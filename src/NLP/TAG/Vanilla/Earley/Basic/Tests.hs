@@ -27,7 +27,7 @@ tests = T.testTree "NLP.TAG.Vanilla.Earley.Basic" recognizeFrom Nothing Nothing
 -- | A local test.
 localTest :: IO ()
 localTest = do
-    (_, gram) <- T.mkGram6
+    gram <- T.mkGramSetPoints
 
     mapM_ (\r -> R.printRule r >> putStrLn "") (S.toList gram)
 

@@ -31,9 +31,9 @@ tests = T.testTree "NLP.TAG.Vanilla.Earley.Auto" recognizeFrom Nothing Nothing
 -- | A local test.
 localTest :: IO ()
 localTest = do
-    gram <- snd <$> T.mkGram6
+    gram <- T.mkGramSetPoints
     (_done, auto) <- earley gram
-        ["acid", "rains"]
+        ["set", "points"]
 
     forM_ (A.edges auto) $ print
 
