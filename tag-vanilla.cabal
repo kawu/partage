@@ -43,6 +43,7 @@ library
       , NLP.TAG.Vanilla.Tree
       , NLP.TAG.Vanilla.Rule
       , NLP.TAG.Vanilla.WRule
+      , NLP.TAG.Vanilla.Gen
       , NLP.TAG.Vanilla.Earley.Basic
       , NLP.TAG.Vanilla.SubtreeSharing
       , NLP.TAG.Vanilla.Earley.Pred
