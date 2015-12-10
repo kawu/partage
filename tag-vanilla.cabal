@@ -41,6 +41,7 @@ library
     exposed-modules:
         NLP.TAG.Vanilla.Core
       , NLP.TAG.Vanilla.Tree
+      , NLP.TAG.Vanilla.Tree.Other
       , NLP.TAG.Vanilla.Rule
       , NLP.TAG.Vanilla.WRule
       , NLP.TAG.Vanilla.Gen
