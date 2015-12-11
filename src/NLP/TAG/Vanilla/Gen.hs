@@ -20,11 +20,14 @@ module NLP.TAG.Vanilla.Gen
 import qualified Control.Monad.State.Strict   as E
 -- import           Control.Monad.Trans.Maybe (MaybeT (..))
 -- import           Control.Monad.Trans.Class (lift)
+-- import           Control.Monad.IO.Class (liftIO)
 
 import           Pipes
+import           System.Random (randomRIO)
 
 import           Data.Maybe (maybeToList)
 import qualified Data.Set as S
+import qualified Data.Map.Strict as M
 import qualified Data.PSQueue as Q
 import           Data.PSQueue (Binding(..))
 import qualified Data.Tree as R
@@ -93,7 +96,8 @@ treeSize = length . R.flatten
 data GenST n t = GenST {
       waiting :: Q.PSQ (SomeTree n t) Int
     -- ^ Queue of the derived trees yet to be visited.
-    , doneSet :: S.Set (SomeTree n t)
+    , doneMap :: M.Map Int (S.Set (SomeTree n t))
+    -- ^ Set of visited trees divided by size
     }
 
 
@@ -103,7 +107,7 @@ newGenST gramSet = GenST {
       waiting = Q.fromList
         [ t :-> treeSize t
         | t <- S.toList gramSet ]
-    , doneSet = S.empty }
+    , doneMap = M.empty }
 
 
 -- | Pop the tree with the lowest score from the queue.
@@ -129,7 +133,9 @@ push t = do
 -- | Save tree as visited.
 save :: (E.MonadState (GenST n t) m, Ord n, Ord t) => SomeTree n t -> m ()
 save t = do
-    E.modify $ \s -> s {doneSet = S.insert t (doneSet s)}
+    E.modify $ \s -> s
+        { doneMap = M.insertWith S.union
+             (treeSize t) (S.singleton t) (doneMap s) }
 
 
 -- | Check if tree already visited.
@@ -137,8 +143,22 @@ visited
     :: (E.MonadState (GenST n t) m, Ord n, Ord t)
     => SomeTree n t -> m Bool
 visited t = do
-    done <- E.gets doneSet
-    return $ S.member t done 
+    done <- E.gets doneMap
+    return $ case M.lookup (treeSize t) done of
+         Just ts -> S.member t ts
+         Nothing -> False
+
+
+-- | Retrieve all visited trees with a size satsifying
+-- the given condition.
+visitedWith
+    :: (E.MonadState (GenST n t) m, Ord n, Ord t)
+    => (Int -> Bool) -> ListT m (SomeTree n t)
+visitedWith cond = do
+    done <- E.gets doneMap
+    some [ t
+      | (k, treeSet) <- M.toList done
+      , cond k, t <- S.toList treeSet ]
 
 
 --------------------------
@@ -154,9 +174,12 @@ type Gen m n t = E.StateT (GenST n t) (Producer (Tree n t) m) ()
 -- | Run generation on the given grammar.
 -- Generate trees up to a given size.
 generate
-    :: (Monad m, Ord n, Ord t)
-    => Gram n t -> Int -> Producer (Tree n t) m ()
-generate gram k = E.evalStateT (genPipe k) (newGenST gram)
+    :: (MonadIO m, Ord n, Ord t)
+    => Gram n t -> Int -> Double -> Producer (Tree n t) m ()
+generate gram sizeMax probMax =
+    E.evalStateT
+        (genPipe sizeMax probMax)
+        (newGenST gram)
 
 
 --------------------------
@@ -164,39 +187,54 @@ generate gram k = E.evalStateT (genPipe k) (newGenST gram)
 --------------------------
 
 
--- | A function which generates trees derived from the grammar.
-genPipe :: (Monad m, Ord n, Ord t) => Int -> Gen m n t
-genPipe k = runListT $ do
+-- | A function which generates trees derived from the grammar.  The second
+-- argument allows to specify a probability of ignoring a tree popped up from
+-- the waiting queue.  When set to `1`, all derived trees up to the given size
+-- should be generated.
+genPipe :: (MonadIO m, Ord n, Ord t) => Int -> Double -> Gen m n t
+genPipe sizeMax probMax = runListT $ do
     -- pop best-score tree from the queue
     t <- pop
     lift $ do
-        genStep k t
-        genPipe k
+        genStep sizeMax probMax t
+        genPipe sizeMax probMax
 
 
 -- | Generation step.
-genStep :: (Monad m, Ord n, Ord t) => Int -> SomeTree n t -> Gen m n t
-genStep k t = runListT $ do
+genStep
+    :: (MonadIO m, Ord n, Ord t)
+    => Int              -- ^ Tree size limit
+    -> Double           -- ^ Probability threshold
+    -> SomeTree n t     -- ^ Tree from the queue
+    -> Gen m n t
+genStep sizeMax probMax t = runListT $ do
     -- check if it's not in the set of visited trees yet
+    -- TODO: is it even necessary?
     E.guard . not =<< visited t
-
-    -- we have to extract the set of visited states before
-    -- we save the new one
-    treeSet <- E.gets doneSet
 
     -- save tree `t` and yield it
     save t
     lift . lift $ yield t
 
     -- find all possible combinations of 't' and some visited 'u',
-    -- and add them to the waiting queue.  NOTE: at this point we
-    -- know that `v` cannot yet be visited; it must be larger than
-    -- any tree in the set of visited trees.
-    u <- some $ S.toList treeSet
+    -- and add them to the waiting queue;
+    -- note that `t` is now in the set of visited trees --
+    -- this allows the process to generate `combinations t t`;
+    u <- visitedWith $
+        let n = treeSize t
+        in \k -> k + n <= sizeMax + 1
+
+    -- we select only a specified percentage of 'u's
+    p <- liftIO $ randomRIO (0, 1)
+    E.guard $ p <= probMax
+
+    -- NOTE: at this point we know that `v` cannot yet be visited;
+    -- it must be larger than any tree in the set of visited trees.
     v <- combinations t u
+
     -- we only put to the queue trees which do not exceed
     -- the specified size
-    E.guard $ treeSize v <= k
+    E.guard $ treeSize v <= sizeMax
     push v
 
 

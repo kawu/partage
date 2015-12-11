@@ -27,6 +27,7 @@ library
       , mmorph              >= 1.0
       , dawg-ord            >= 0.1      && < 0.2
       , data-lens-light     >= 0.1      && < 0.2
+      , random              >= 1.1      && < 1.2
       --
       -- from `ltag`, not needed any more:
       -- , feature-structure   >= 0.2      && < 0.3
