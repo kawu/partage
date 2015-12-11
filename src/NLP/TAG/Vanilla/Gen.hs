@@ -169,15 +169,14 @@ genPipe :: (Monad m, Ord n, Ord t) => Int -> Gen m n t
 genPipe k = runListT $ do
     -- pop best-score tree from the queue
     t <- pop
-    E.guard $ treeSize t <= k
     lift $ do
-        genStep t
+        genStep k t
         genPipe k
 
 
 -- | Generation step.
-genStep :: (Monad m, Ord n, Ord t) => SomeTree n t -> Gen m n t
-genStep t = runListT $ do
+genStep :: (Monad m, Ord n, Ord t) => Int -> SomeTree n t -> Gen m n t
+genStep k t = runListT $ do
     -- check if it's not in the set of visited trees yet
     E.guard . not =<< visited t
 
@@ -195,6 +194,9 @@ genStep t = runListT $ do
     -- any tree in the set of visited trees.
     u <- some $ S.toList treeSet
     v <- combinations t u
+    -- we only put to the queue trees which do not exceed
+    -- the specified size
+    E.guard $ treeSize v <= k
     push v
 
 
