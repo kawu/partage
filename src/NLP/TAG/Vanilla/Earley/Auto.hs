@@ -11,7 +11,7 @@
 module NLP.TAG.Vanilla.Earley.Auto where
 
 
-import           Control.Applicative        ((<$>), (<*>))
+import           Control.Applicative        ((<$>))
 import           Control.Monad              (guard, void, (>=>))
 import           Control.Monad.Trans.Class  (lift)
 import           Control.Monad.Trans.Maybe  (MaybeT (..))
@@ -511,14 +511,15 @@ recognize
     -> [t]                  -- ^ Input sentence
     -> IO Bool
 recognize gram xs = do
-    (done, _) <- earley gram xs
-    return $ (not.null) (complete done)
-  where
-    n = length xs
-    complete done =
-        [ True | st <- listDone done
-        , beg st == 0, end st == n
-        , gap st == Nothing ]
+    recognizeAuto (A.buildAuto gram) xs
+--     (done, _) <- earley gram xs
+--     return $ (not.null) (complete done)
+--   where
+--     n = length xs
+--     complete done =
+--         [ True | st <- listDone done
+--         , beg st == 0, end st == n
+--         , gap st == Nothing ]
 
 
 -- | Does the given grammar generate the given sentence from the
@@ -531,18 +532,19 @@ recognizeFrom
     -> n                    -- ^ The start symbol
     -> [t]                  -- ^ Input sentence
     -> IO Bool
-recognizeFrom gram start xs = do
-    (done, auto) <- earley gram xs
-    return $ (not.null) (complete done auto)
-  where
-    n = length xs
-    complete done auto =
-        [ True | item <- listDone done
-        , beg item == 0, end item == n
-        , isJust $ D.follow
-            (state item)
-            (A.Head $ NonT start Nothing)
-            auto ]
+recognizeFrom gram start xs =
+    recognizeFromAuto (A.buildAuto gram) start xs
+--     (done, auto) <- earley gram xs
+--     return $ (not.null) (complete done auto)
+--   where
+--     n = length xs
+--     complete done auto =
+--         [ True | item <- listDone done
+--         , beg item == 0, end item == n
+--         , isJust $ D.follow
+--             (state item)
+--             (A.Head $ NonT start Nothing)
+--             auto ]
 
 
 -- | Perform the earley-style computation given the grammar and
@@ -552,28 +554,31 @@ earley
     => S.Set (Rule n t)     -- ^ The grammar (set of rules)
     -> [t]                  -- ^ Input sentence
     -> IO (Done n t, A.DAWG n t)
-earley gram xs =
-    ((,) <$> done <*> automat) . fst <$> RWS.execRWST loop xs st0
-  where
-    -- the automaton
-    dawg = A.buildAuto gram
-    -- we put in the initial state all the states with the dot on
-    -- the left of the body of the rule (-> left = []) on all
-    -- positions of the input sentence.
-    st0 = mkEarSt dawg $ S.fromList
-        [ Item
-            { state = D.root dawg
-            , beg   = i
-            , end   = i
-            , gap   = Nothing }
-        | Rule{..} <- S.toList gram
-        , i <- [0 .. length xs - 1] ]
-    -- the computation is performed as long as the waiting queue
-    -- is non-empty.
-    loop = popItem >>= \mp -> case mp of
-        Nothing -> return ()
-        Just p -> do
-            step p >> loop
+earley gram xs = do
+    let dawg = A.buildAuto gram
+    doneSet <- earleyAuto dawg xs
+    return (doneSet, dawg)
+--     ((,) <$> done <*> automat) . fst <$> RWS.execRWST loop xs st0
+--   where
+--     -- the automaton
+--     dawg = A.buildAuto gram
+--     -- we put in the initial state all the states with the dot on
+--     -- the left of the body of the rule (-> left = []) on all
+--     -- positions of the input sentence.
+--     st0 = mkEarSt dawg $ S.fromList
+--         [ Item
+--             { state = D.root dawg
+--             , beg   = i
+--             , end   = i
+--             , gap   = Nothing }
+--         | Rule{..} <- S.toList gram
+--         , i <- [0 .. length xs - 1] ]
+--     -- the computation is performed as long as the waiting queue
+--     -- is non-empty.
+--     loop = popItem >>= \mp -> case mp of
+--         Nothing -> return ()
+--         Just p -> do
+--             step p >> loop
 
 
 -- | Step of the algorithm loop.  `p' is the state popped up from
@@ -586,6 +591,77 @@ step p = do
       , tryAdjoinCont
       , tryAdjoinTerm ]
     saveItem p
+
+
+--------------------------------------------------
+-- Alternative
+--------------------------------------------------
+
+
+-- | Alternative to `recognize`.
+recognizeAuto
+    :: (VOrd t, VOrd n)
+    => A.DAWG n t           -- ^ Grammar automaton
+    -> [t]                  -- ^ Input sentence
+    -> IO Bool
+recognizeAuto auto xs = do
+    done <- earleyAuto auto xs
+    return $ (not.null) (complete done)
+  where
+    n = length xs
+    complete done =
+        [ True | st <- listDone done
+        , beg st == 0, end st == n
+        , gap st == Nothing ]
+
+
+-- | Alternative to `recognizeFrom`.
+recognizeFromAuto
+    :: (VOrd t, VOrd n)
+    => A.DAWG n t           -- ^ Grammar automaton
+    -> n                    -- ^ The start symbol
+    -> [t]                  -- ^ Input sentence
+    -> IO Bool
+recognizeFromAuto auto start xs = do
+    done <- earleyAuto auto xs
+    return $ (not.null) (complete done)
+  where
+    n = length xs
+    complete done =
+        [ True | item <- listDone done
+        , beg item == 0, end item == n
+        , isJust $ D.follow
+            (state item)
+            (A.Head $ NonT start Nothing)
+            auto ]
+
+
+-- | Perform the earley-style computation given the grammar and
+-- the input sentence.
+earleyAuto
+    :: (VOrd t, VOrd n)
+    => A.DAWG n t           -- ^ Grammar automaton
+    -> [t]                  -- ^ Input sentence
+    -> IO (Done n t)
+earleyAuto dawg xs =
+    done . fst <$> RWS.execRWST loop xs st0
+  where
+    -- we put in the initial state all the states with the dot on
+    -- the left of the body of the rule (-> left = []) on all
+    -- positions of the input sentence.
+    st0 = mkEarSt dawg $ S.fromList
+        [ Item
+            { state = D.root dawg
+            , beg   = i
+            , end   = i
+            , gap   = Nothing }
+        | i <- [0 .. length xs - 1] ]
+    -- the computation is performed as long as the waiting queue
+    -- is non-empty.
+    loop = popItem >>= \mp -> case mp of
+        Nothing -> return ()
+        Just p -> do
+            step p >> loop
 
 
 --------------------------------------------------

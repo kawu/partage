@@ -17,11 +17,17 @@ module NLP.TAG.Vanilla.Tree.Other
 
 -- * Composition
 , inject
+
+-- * Utils
+, isTerm
+, final
+, proj
 ) where
 
 
 -- import           Control.Applicative ((<$>))
 import           Control.Monad (msum)
+import qualified Data.Foldable as F
 
 import qualified Data.Tree as R
 
@@ -41,9 +47,10 @@ data Node n t
     deriving (Show, Eq, Ord)
 
 
--- -- | Partial function returning the non-terminal symbol
--- -- for `NonTerm` and `Foot`.
--- nonTerm :: Node n t -> n
+-- | Is it a teminal?
+isTerm :: Node n t -> Bool
+isTerm (Term _) = True
+isTerm _        = False
 
 
 -- | TAG initial or auxiliary tree.
@@ -173,7 +180,7 @@ subst s (R.Node n ts) =
     map (R.Node n) (doit ts)
   where
     doit [] = []
-    doit (x:xs) = 
+    doit (x:xs) =
         [u : xs | u <- subst s x] ++
         [x : us | us <- doit xs]
 
@@ -182,3 +189,24 @@ subst s (R.Node n ts) =
 isAux :: Tree n t -> Bool
 isAux (R.Node (Foot _) _) = True
 isAux (R.Node _ xs) = or (map isAux xs)
+
+
+---------------------------------------------------------------------
+-- Utils
+---------------------------------------------------------------------
+
+
+-- | Is it a final tree (i.e. does it contain only terminals
+-- in its leaves?)
+final :: Tree n t -> Bool
+final (R.Node n []) = isTerm n
+final (R.Node _ xs) = and (map final xs)
+
+
+-- | Projection of a tree, i.e. a list of terminals.
+proj :: Tree n t -> [t]
+proj =
+    F.foldMap term
+  where
+    term (Term x) = [x]
+    term _        = []
