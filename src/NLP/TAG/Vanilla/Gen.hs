@@ -23,7 +23,7 @@ import qualified Control.Monad.State.Strict   as E
 -- import           Control.Monad.IO.Class (liftIO)
 
 import           Pipes
-import           System.Random (randomRIO)
+import           System.Random (randomRIO, randomRs, getStdGen)
 
 import           Data.Maybe (maybeToList)
 import qualified Data.Set as S
@@ -176,10 +176,21 @@ type Gen m n t = E.StateT (GenST n t) (Producer (Tree n t) m) ()
 generate
     :: (MonadIO m, Ord n, Ord t)
     => Gram n t -> Int -> Double -> Producer (Tree n t) m ()
-generate gram sizeMax probMax =
+generate gram0 sizeMax probMax = do
+    gram <- subGram probMax gram0
     E.evalStateT
         (genPipe sizeMax probMax)
         (newGenST gram)
+
+
+-- | Select sub-grammar rules.
+subGram
+    :: (MonadIO m, Ord n, Ord t) => Double -> Gram n t -> m (Gram n t)
+subGram probMax gram = do
+    stdGen <- liftIO getStdGen
+    let ps = randomRs (0, 1) stdGen
+    return $ S.fromList
+        [t | (t, p) <- zip (S.toList gram) ps, p <= probMax]
 
 
 --------------------------
@@ -187,15 +198,19 @@ generate gram sizeMax probMax =
 --------------------------
 
 
--- | A function which generates trees derived from the grammar.  The second
--- argument allows to specify a probability of ignoring a tree popped up from
--- the waiting queue.  When set to `1`, all derived trees up to the given size
--- should be generated.
+-- | A function which generates trees derived from the grammar.  The
+-- second argument allows to specify a probability of ignoring a tree
+-- popped up from the waiting queue.  When set to `1`, all derived
+-- trees up to the given size should be generated.
 genPipe :: (MonadIO m, Ord n, Ord t) => Int -> Double -> Gen m n t
 genPipe sizeMax probMax = runListT $ do
     -- pop best-score tree from the queue
     t <- pop
     lift $ do
+--         -- we select only a specified percentage of 't's
+--         p <- liftIO $ randomRIO (0, 1)
+--         E.when (p <= probMax)
+--             (genStep sizeMax probMax t)
         genStep sizeMax probMax t
         genPipe sizeMax probMax
 
@@ -224,9 +239,9 @@ genStep sizeMax probMax t = runListT $ do
         let n = treeSize t
         in \k -> k + n <= sizeMax + 1
 
-    -- we select only a specified percentage of 'u's
-    p <- liftIO $ randomRIO (0, 1)
-    E.guard $ p <= probMax
+--     -- we select only a specified percentage of 'u's
+--     p <- liftIO $ randomRIO (0, 1)
+--     E.guard $ p <= probMax
 
     -- NOTE: at this point we know that `v` cannot yet be visited;
     -- it must be larger than any tree in the set of visited trees.
@@ -235,7 +250,7 @@ genStep sizeMax probMax t = runListT $ do
     -- we only put to the queue trees which do not exceed
     -- the specified size
     E.guard $ treeSize v <= sizeMax
-    push v
+    lottery probMax >> push v
 
 
 ----------------------------------
@@ -265,3 +280,11 @@ combinations s t = some $ inject s t ++ inject t s
 -- | ListT from a list.
 some :: Monad m => [a] -> ListT m a
 some = Select . each
+
+
+-- | Draw a number between 0 and 1, and check if it is <= the given
+-- maximal probability.
+lottery :: (MonadPlus m, MonadIO m) => Double -> m ()
+lottery probMax = do
+    p <- liftIO $ randomRIO (0, 1)
+    E.guard $ p <= probMax
