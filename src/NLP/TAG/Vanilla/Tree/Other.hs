@@ -15,9 +15,6 @@ module NLP.TAG.Vanilla.Tree.Other
 , encode
 , decode
 
--- * Composition
-, inject
-
 -- * Utils
 , isTerm
 , final
@@ -125,70 +122,6 @@ findFoot (R.Node n xs) = case n of
   where
     addID i (Just is) = Just (i:is)
     addID _ Nothing   = Nothing
-
-
----------------------------------------------------------------------
--- Composition
----------------------------------------------------------------------
-
-
--- | Identify all possible ways to inject (i.e. substitute
--- or adjoin) the first tree to the second one.
-inject :: (Eq n, Eq t) => Tree n t -> Tree n t -> [Tree n t]
-inject s t = if isAux s
-    then adjoin s t
-    else subst s t
-
-
--- | Compute all possible ways of adjoining the first tree into the
--- second one.
-adjoin :: (Eq n, Eq t) => Tree n t -> Tree n t -> [Tree n t]
-adjoin _ (R.Node (NonTerm _) []) = []
--- adjoin _ (R.Node (Foot _) _) = []
--- adjoin _ (R.Node (Term _) _) = []
-adjoin s (R.Node n ts) =
-    here ++ below
-  where
-    -- perform adjunction here
-    here = if R.rootLabel s == n
-        then [replaceFoot (R.Node n ts) s]
-        else []
-    -- consider to perform adjunction lower in the tree
-    below = map (R.Node n) (doit ts)
-    doit [] = []
-    doit (x:xs) =
-        [u : xs | u <- adjoin s x] ++
-        [x : us | us <- doit xs]
-
-
--- | Replace foot of the second tree with the first tree.
--- If there is no foot in the second tree, it will be returned
--- unchanged.
-replaceFoot :: Tree n t -> Tree n t -> Tree n t
-replaceFoot t (R.Node (Foot _) []) = t
-replaceFoot t (R.Node x xs) = R.Node x $ map (replaceFoot t) xs
-
-
--- | Compute all possible ways of substituting the first tree into
--- the second one.
-subst :: (Eq n, Eq t) => Tree n t -> Tree n t -> [Tree n t]
-subst s (R.Node n []) =
-    if R.rootLabel s == n
-        then [s]
-        else []
-subst s (R.Node n ts) =
-    map (R.Node n) (doit ts)
-  where
-    doit [] = []
-    doit (x:xs) =
-        [u : xs | u <- subst s x] ++
-        [x : us | us <- doit xs]
-
-
--- | Check if the tree is auxiliary.
-isAux :: Tree n t -> Bool
-isAux (R.Node (Foot _) _) = True
-isAux (R.Node _ xs) = or (map isAux xs)
 
 
 ---------------------------------------------------------------------

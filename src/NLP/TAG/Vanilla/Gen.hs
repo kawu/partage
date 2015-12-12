@@ -53,38 +53,13 @@ type Gram n t = S.Set (SomeTree n t)
 
 
 --------------------------
--- Tree score
+-- Tree size
 --------------------------
 
 
 -- | Size of a tree, i.e. number of nodes.
 treeSize :: SomeTree n t -> Int
 treeSize = length . R.flatten
---     case st of
---         Left t -> realSize t
---         Right (AuxTree t _) -> realSize t
---   where
---     realSize INode{..} = 1 + sum (map realSize subTrees)
---     realSize FNode{..} = 1
-
-
--- -- | Is it a final tree (i.e. does it contain only terminals
--- in its leaves?)
--- final :: SomeTree n t -> Bool
--- final st =
---     case st of
---         Left t  -> doit t
---         Right _ -> False
---   where
---     doit INode{..} = (not.null) subTrees
---                   && and (map doit subTrees)
---     doit FNode{..} = True
-
-
--- -- | Extract the underlying tree.
--- theTree :: SomeTree n t -> Tree n t
--- theTree (Left t) = t
--- theTree (Right (AuxTree t _)) = t
 
 
 --------------------------
@@ -92,12 +67,18 @@ treeSize = length . R.flatten
 --------------------------
 
 
+-- | Map of visited trees.
+type DoneMap n t = M.Map Int (S.Set (SomeTree n t))
+
+
 -- | Underlying state of the generation pipe.
 data GenST n t = GenST {
       waiting :: Q.PSQ (SomeTree n t) Int
     -- ^ Queue of the derived trees yet to be visited.
-    , doneMap :: M.Map Int (S.Set (SomeTree n t))
-    -- ^ Set of visited trees divided by size
+    , doneFinal :: DoneMap n t
+    -- ^ Set of visited, final trees divided by size
+    , doneActive :: DoneMap n t
+    -- ^ Set of visited, active (not final) trees divided by size
     }
 
 
@@ -107,7 +88,8 @@ newGenST gramSet = GenST {
       waiting = Q.fromList
         [ t :-> treeSize t
         | t <- S.toList gramSet ]
-    , doneMap = M.empty }
+    , doneFinal  = M.empty
+    , doneActive = M.empty }
 
 
 -- | Pop the tree with the lowest score from the queue.
@@ -132,33 +114,58 @@ push t = do
 
 -- | Save tree as visited.
 save :: (E.MonadState (GenST n t) m, Ord n, Ord t) => SomeTree n t -> m ()
-save t = do
-    E.modify $ \s -> s
-        { doneMap = M.insertWith S.union
-             (treeSize t) (S.singleton t) (doneMap s) }
+save t = if final t
+    then E.modify $ \s -> s
+            { doneFinal = M.insertWith S.union
+                 (treeSize t) (S.singleton t) (doneFinal s) }
+    else E.modify $ \s -> s
+            { doneActive = M.insertWith S.union
+                 (treeSize t) (S.singleton t) (doneActive s) }
 
 
 -- | Check if tree already visited.
 visited
     :: (E.MonadState (GenST n t) m, Ord n, Ord t)
     => SomeTree n t -> m Bool
-visited t = do
-    done <- E.gets doneMap
-    return $ case M.lookup (treeSize t) done of
-         Just ts -> S.member t ts
-         Nothing -> False
+visited t = if final t
+    then isVisited doneFinal
+    else isVisited doneActive
+  where
+    isVisited doneMap = do
+        done <- E.gets doneMap
+        return $ case M.lookup (treeSize t) done of
+             Just ts -> S.member t ts
+             Nothing -> False
 
 
--- | Retrieve all visited trees with a size satsifying
+-- | Retrieve all trees from the given map with the size satsifying
 -- the given condition.
 visitedWith
     :: (E.MonadState (GenST n t) m, Ord n, Ord t)
-    => (Int -> Bool) -> ListT m (SomeTree n t)
-visitedWith cond = do
+    => (GenST n t -> DoneMap n t)
+    -> (Int -> Bool)
+    -> ListT m (SomeTree n t)
+visitedWith doneMap cond = do
     done <- E.gets doneMap
     some [ t
       | (k, treeSet) <- M.toList done
       , cond k, t <- S.toList treeSet ]
+
+
+-- -- | Retrieve all visited final trees with a size satsifying the
+-- -- given condition.
+-- finalWith
+--     :: (E.MonadState (GenST n t) m, Ord n, Ord t)
+--     => (Int -> Bool) -> ListT m (SomeTree n t)
+-- finalWith = visitedWith doneFinal
+-- 
+-- 
+-- -- | Retrieve all visited trees with a size satsifying
+-- -- the given condition.
+-- activeWith
+--     :: (E.MonadState (GenST n t) m, Ord n, Ord t)
+--     => (Int -> Bool) -> ListT m (SomeTree n t)
+-- activeWith cond = visitedWith doneActive
 
 
 --------------------------
@@ -177,20 +184,20 @@ generate
     :: (MonadIO m, Ord n, Ord t)
     => Gram n t -> Int -> Double -> Producer (Tree n t) m ()
 generate gram0 sizeMax probMax = do
-    gram <- subGram probMax gram0
+    -- gram <- subGram probMax gram0
     E.evalStateT
         (genPipe sizeMax probMax)
-        (newGenST gram)
+        (newGenST gram0)
 
 
--- | Select sub-grammar rules.
-subGram
-    :: (MonadIO m, Ord n, Ord t) => Double -> Gram n t -> m (Gram n t)
-subGram probMax gram = do
-    stdGen <- liftIO getStdGen
-    let ps = randomRs (0, 1) stdGen
-    return $ S.fromList
-        [t | (t, p) <- zip (S.toList gram) ps, p <= probMax]
+-- -- | Select sub-grammar rules.
+-- subGram
+--     :: (MonadIO m, Ord n, Ord t) => Double -> Gram n t -> m (Gram n t)
+-- subGram probMax gram = do
+--     stdGen <- liftIO getStdGen
+--     let ps = randomRs (0, 1) stdGen
+--     return $ S.fromList
+--         [t | (t, p) <- zip (S.toList gram) ps, p <= probMax]
 
 
 --------------------------
@@ -206,13 +213,12 @@ genPipe :: (MonadIO m, Ord n, Ord t) => Int -> Double -> Gen m n t
 genPipe sizeMax probMax = runListT $ do
     -- pop best-score tree from the queue
     t <- pop
-    lift $ do
+    lift $ genStep sizeMax probMax t
 --         -- we select only a specified percentage of 't's
 --         p <- liftIO $ randomRIO (0, 1)
 --         E.when (p <= probMax)
 --             (genStep sizeMax probMax t)
-        genStep sizeMax probMax t
-        genPipe sizeMax probMax
+    lift $ genPipe sizeMax probMax
 
 
 -- | Generation step.
@@ -231,26 +237,35 @@ genStep sizeMax probMax t = runListT $ do
     save t
     lift . lift $ yield t
 
+    -- choices based on whether 't' is final
+    let doneMap = if final t
+            then doneActive
+            else doneFinal
+
     -- find all possible combinations of 't' and some visited 'u',
     -- and add them to the waiting queue;
     -- note that `t` is now in the set of visited trees --
     -- this allows the process to generate `combinations t t`;
-    u <- visitedWith $
+    u <- visitedWith doneMap $
         let n = treeSize t
         in \k -> k + n <= sizeMax + 1
 
---     -- we select only a specified percentage of 'u's
---     p <- liftIO $ randomRIO (0, 1)
---     E.guard $ p <= probMax
+    -- we select only a specified percentage of 'u's
+    p <- liftIO $ randomRIO (0, 1)
+    E.guard $ p <= probMax
 
     -- NOTE: at this point we know that `v` cannot yet be visited;
     -- it must be larger than any tree in the set of visited trees.
-    v <- combinations t u
+    let  combine x y = some $
+            inject x y ++
+            inject y x
+    v <- combine t u
 
     -- we only put to the queue trees which do not exceed
     -- the specified size
     E.guard $ treeSize v <= sizeMax
-    lottery probMax >> push v
+    -- lottery probMax >>
+    push v
 
 
 ----------------------------------
@@ -258,13 +273,81 @@ genStep sizeMax probMax t = runListT $ do
 ----------------------------------
 
 
--- | Return all possible combinations of the two trees.
-combinations
-    :: (Monad m, Eq n, Eq t)
-    => SomeTree n t
-    -> SomeTree n t
-    -> ListT m (SomeTree n t)
-combinations s t = some $ inject s t ++ inject t s
+-- -- | Return all possible combinations of the two trees.
+-- combinations
+--     :: (Monad m, Eq n, Eq t)
+--     => SomeTree n t
+--     -> SomeTree n t
+--     -> ListT m (SomeTree n t)
+-- combinations s t = some $ inject s t ++ inject t s
+
+
+---------------------------------------------------------------------
+-- Composition
+---------------------------------------------------------------------
+
+
+-- | Identify all possible ways to inject (i.e. substitute
+-- or adjoin) the first tree to the second one.
+inject :: (Eq n, Eq t) => Tree n t -> Tree n t -> [Tree n t]
+inject s t = if isAux s
+    then adjoin s t
+    else subst s t
+
+
+-- | Compute all possible ways of adjoining the first tree into the
+-- second one.
+adjoin :: (Eq n, Eq t) => Tree n t -> Tree n t -> [Tree n t]
+adjoin _ (R.Node (NonTerm _) []) = []
+adjoin s (R.Node n ts) =
+    here ++ below
+  where
+    -- perform adjunction here
+    here = if R.rootLabel s == n
+        then [replaceFoot (R.Node n ts) s]
+        else []
+    -- consider to perform adjunction lower in the tree
+    below = map (R.Node n) (doit ts)
+    doit [] = []
+    doit (x:xs) =
+        [u : xs | u <- adjoin s x] ++
+        [x : us | us <- doit xs]
+
+
+-- | Replace foot of the second tree with the first tree.
+-- If there is no foot in the second tree, it will be returned
+-- unchanged.
+replaceFoot :: Tree n t -> Tree n t -> Tree n t
+replaceFoot t (R.Node (Foot _) []) = t
+replaceFoot t (R.Node x xs) = R.Node x $ map (replaceFoot t) xs
+
+
+-- | Compute all possible ways of substituting the first tree into
+-- the second one.
+subst :: (Eq n, Eq t) => Tree n t -> Tree n t -> [Tree n t]
+subst s = take 1 . _subst s
+
+
+-- | Compute all possible ways of substituting the first tree into
+-- the second one.
+_subst :: (Eq n, Eq t) => Tree n t -> Tree n t -> [Tree n t]
+_subst s (R.Node n []) =
+    if R.rootLabel s == n
+        then [s]
+        else []
+_subst s (R.Node n ts) =
+    map (R.Node n) (doit ts)
+  where
+    doit [] = []
+    doit (x:xs) =
+        [u : xs | u <- subst s x] ++
+        [x : us | us <- doit xs]
+
+
+-- | Check if the tree is auxiliary.
+isAux :: Tree n t -> Bool
+isAux (R.Node (Foot _) _) = True
+isAux (R.Node _ xs) = or (map isAux xs)
 
 
 --------------------------
@@ -282,9 +365,9 @@ some :: Monad m => [a] -> ListT m a
 some = Select . each
 
 
--- | Draw a number between 0 and 1, and check if it is <= the given
--- maximal probability.
-lottery :: (MonadPlus m, MonadIO m) => Double -> m ()
-lottery probMax = do
-    p <- liftIO $ randomRIO (0, 1)
-    E.guard $ p <= probMax
+-- -- | Draw a number between 0 and 1, and check if it is <= the given
+-- -- maximal probability.
+-- lottery :: (MonadPlus m, MonadIO m) => Double -> m ()
+-- lottery probMax = do
+--     p <- liftIO $ randomRIO (0, 1)
+--     E.guard $ p <= probMax
