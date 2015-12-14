@@ -14,6 +14,7 @@ import           Control.Monad (forM_)
 import           Test.Tasty (TestTree)
 import qualified Data.Set as S
 
+import qualified NLP.TAG.Vanilla.Rule as R
 import qualified NLP.TAG.Vanilla.Automaton  as A
 import qualified NLP.TAG.Vanilla.Earley.Auto as E
 import qualified NLP.TAG.Vanilla.Tree as E
@@ -35,24 +36,9 @@ localTest :: IO ()
 localTest = do
     gram <- T.mkGramSetPoints
 
+--     mapM_ (\r -> R.printRule r >> putStrLn "") (S.toList gram)
+
     treeSet <- E.parse gram "NP" ["set", "points"]
     putStrLn "\n## TREES ##\n"
     forM_ (S.toList treeSet) $ \tree -> do
         putStr $ E.showTree' tree ++ "\n"
-
---     EarSt{..} <- earley gram
---         ["set", "points"]
---
---     forM_ (A.edges automat) $ print
-
---     mapM_ (\r -> R.printRule r >> putStrLn "") (S.toList gram)
-
---     recognizeFrom gram "S"
---         ["acid", "rains", "in", "rains"]
---     return ()
-
---     putStrLn ""
---     forM_ (M.toList treeMap) $ \(tree, cost) -> do
---         putStr $ E.showTree' tree
---         putStrLn $ " => " ++ show cost
---         putStrLn ""

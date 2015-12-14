@@ -292,6 +292,26 @@ readInput i = do
     maybeT $ listToMaybe $ drop i xs
 
 
+--------------------------------------------------
+-- Hypergraph stats
+--------------------------------------------------
+
+
+-- | Number of nodes in the parsing hypergraph.
+hyperNodesNum :: EarSt n t -> Int
+hyperNodesNum EarSt{..} = M.size doneActive + M.size donePassive
+
+
+-- | Number of edges in the parsing hypergraph.
+hyperEdgesNum :: EarSt n t -> Int
+hyperEdgesNum EarSt{..} =
+    sumMap doneActive + sumMap donePassive
+  where
+    sumMap m = sum
+        [ S.size travSet
+        | travSet <- M.elems m ]
+
+
 ---------------------------
 -- Extracting Parsed Trees
 ---------------------------
@@ -506,9 +526,9 @@ tryScan p = void $ runMaybeT $ do
           . modL' right tail
           $ p
     -- print logging information
-    lift . lift $ do
-        putStr "[S]  " >> printActive p
-        putStr "  :  " >> printActive q
+--     lift . lift $ do
+--         putStr "[S]  " >> printActive p
+--         putStr "  :  " >> printActive q
     -- push the resulting state into the waiting queue
     lift $ pushInduced q $ Scan p t
 
@@ -537,10 +557,10 @@ trySubst p = void $ P.runListT $ do
            . modL' right tail
            $ q
     -- print logging information
-    lift . lift $ do
-        putStr "[U]  " >> printPassive p
-        putStr "  +  " >> printActive q
-        putStr "  :  " >> printActive q'
+--     lift . lift $ do
+--         putStr "[U]  " >> printPassive p
+--         putStr "  +  " >> printActive q
+--         putStr "  :  " >> printActive q'
     -- push the resulting state into the waiting queue
     lift $ pushInduced q' $ Subst p q
 
@@ -572,10 +592,10 @@ tryAdjoinInit p = void $ P.runListT $ do
            . modL' right tail
            $ q
     -- print logging information
-    lift . lift $ do
-        putStr "[A]  " >> printPassive p
-        putStr "  +  " >> printActive q
-        putStr "  :  " >> printActive q'
+--     lift . lift $ do
+--         putStr "[A]  " >> printPassive p
+--         putStr "  +  " >> printActive q
+--         putStr "  :  " >> printActive q'
     -- push the resulting state into the waiting queue
     lift $ pushInduced q' $ Foot q $ nonTerm foot
 
@@ -607,10 +627,10 @@ tryAdjoinCont p = void $ P.runListT $ do
            . modL' right tail
            $ q
     -- logging info
-    lift . lift $ do
-        putStr "[B]  " >> printPassive p
-        putStr "  +  " >> printActive q
-        putStr "  :  " >> printActive q'
+--     lift . lift $ do
+--         putStr "[B]  " >> printPassive p
+--         putStr "  +  " >> printActive q
+--         putStr "  :  " >> printActive q'
     -- push the resulting state into the waiting queue
     lift $ pushInduced q' $ Subst p q
 
@@ -642,10 +662,10 @@ tryAdjoinTerm q = void $ P.runListT $ do
     let p' = setL (spanP >>> beg) (qSpan ^. beg)
            . setL (spanP >>> end) (qSpan ^. end)
            $ p
-    lift . lift $ do
-        putStr "[C]  " >> printPassive q
-        putStr "  +  " >> printPassive p
-        putStr "  :  " >> printPassive p'
+--     lift . lift $ do
+--         putStr "[C]  " >> printPassive q
+--         putStr "  +  " >> printPassive p
+--         putStr "  :  " >> printPassive p'
     lift $ pushPassive p' $ Adjoin q p
 
 
@@ -666,7 +686,7 @@ recognize
     -> IO Bool
 recognize gram start xs = do
     done <- final start (length xs) . donePassive
-        <$> _earley gram xs
+        <$> earley gram xs
     return $ (not.null) done
 
 
@@ -678,7 +698,7 @@ parse
     -> [t]                  -- ^ Input sentence
     -> IO (S.Set (T.Tree n t))
 parse gram start xs = do
-    earSt <- _earley gram xs
+    earSt <- earley gram xs
     return $ parsedTrees earSt start (length xs)
 
 
@@ -700,12 +720,12 @@ final start n donePassive =
 
 -- | Perform the earley-style computation given the grammar and
 -- the input sentence.
-_earley
+earley
     :: (VOrd t, VOrd n)
     => S.Set (Rule n t)     -- ^ The grammar (set of rules)
     -> [t]                  -- ^ Input sentence
     -> IO (EarSt n t)
-_earley gram xs =
+earley gram xs =
     -- M.keysSet . donePassive . fst <$> RWS.execRWST loop xs st0
     fst <$> RWS.execRWST loop xs st0
   where

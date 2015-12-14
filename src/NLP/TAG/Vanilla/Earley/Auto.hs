@@ -212,6 +212,13 @@ listDone done = ($done) $
     M.elems >=> M.keys -- S.toList
 
 
+-- | List all done items together with the corresponding traversals.
+listDoneTrav :: Done n t -> [(Item n t, S.Set (Trav n t))]
+listDoneTrav done = ($done) $
+    M.elems >=> M.elems >=>
+    M.elems >=> M.toList
+
+
 -- | Return the corresponding set of traversals.
 doneTravs
     :: (Ord n, Ord t)
@@ -310,6 +317,23 @@ readInput i = do
     xs <- RWS.ask
     -- just a safe way to retrieve the i-th element
     maybeT $ listToMaybe $ drop i xs
+
+
+--------------------------------------------------
+-- Hypergraph stats
+--------------------------------------------------
+
+
+-- | Number of nodes in the parsing hypergraph.
+hyperNodesNum :: EarSt n t -> Int
+hyperNodesNum = length . listDone . done
+
+
+-- | Number of edges in the parsing hypergraph.
+hyperEdgesNum :: EarSt n t -> Int
+hyperEdgesNum EarSt{..} = sum
+    [ S.size travSet
+    | (_, travSet) <- listDoneTrav done ]
 
 
 ---------------------------
@@ -573,9 +597,9 @@ tryScan p = void $ runMaybeT $ do
     -- construct the resultant state
     let q = p {state = j, end = end p + 1}
     -- print logging information
-    lift . lift $ do
-        putStr "[S]  " >> printItem p
-        putStr "  :  " >> printItem q
+--     lift . lift $ do
+--         putStr "[S]  " >> printItem p
+--         putStr "  :  " >> printItem q
     -- push the resulting state into the waiting queue
     lift $ pushItem q $ Scan p c
 
@@ -601,10 +625,10 @@ trySubst p = void $ P.runListT $ do
     -- construct the resultant state
     let q' = q {state = j, end = end p}
     -- print logging information
-    lift . lift $ do
-        putStr "[U]  " >> printItem p
-        putStr "  +  " >> printItem q
-        putStr "  :  " >> printItem q'
+--     lift . lift $ do
+--         putStr "[U]  " >> printItem p
+--         putStr "  +  " >> printItem q
+--         putStr "  :  " >> printItem q'
     -- push the resulting state into the waiting queue
     lift . pushItem q' $ Subst p q (nonTerm x)
 
@@ -635,10 +659,10 @@ tryAdjoinInit p = void $ P.runListT $ do
                , gap = Just (beg p, end p)
                , end = end p }
     -- print logging information
-    lift . lift $ do
-        putStr "[A]  " >> printItem p
-        putStr "  +  " >> printItem q
-        putStr "  :  " >> printItem q'
+--     lift . lift $ do
+--         putStr "[A]  " >> printItem p
+--         putStr "  +  " >> printItem q
+--         putStr "  :  " >> printItem q'
     -- push the resulting state into the waiting queue
     lift $ pushItem q' $ Foot q $ nonTerm foot
 
@@ -674,10 +698,10 @@ tryAdjoinCont p = void $ P.runListT $ do
                , gap = gap p
                , end = end p }
     -- logging info
-    lift . lift $ do
-        putStr "[B]  " >> printItem p
-        putStr "  +  " >> printItem q
-        putStr "  :  " >> printItem q'
+--     lift . lift $ do
+--         putStr "[B]  " >> printItem p
+--         putStr "  +  " >> printItem q
+--         putStr "  :  " >> printItem q'
     -- push the resulting state into the waiting queue
     lift $ pushItem q' $ Subst p q (nonTerm x)
 
@@ -704,10 +728,10 @@ tryAdjoinTerm q = void $ P.runListT $ do
     -- construct the new state
     let p' = p { beg = beg q
                , end = end q }
-    lift . lift $ do
-        putStr "[C]  " >> printItem q
-        putStr "  +  " >> printItem p
-        putStr "  :  " >> printItem p'
+--     lift . lift $ do
+--         putStr "[C]  " >> printItem q
+--         putStr "  +  " >> printItem p
+--         putStr "  :  " >> printItem p'
     lift $ pushItem p' $ Adjoin q p
 
 
@@ -790,15 +814,16 @@ recognizeAuto
     => A.DAWG n t           -- ^ Grammar automaton
     -> [t]                  -- ^ Input sentence
     -> IO Bool
-recognizeAuto auto xs = do
-    doneSet <- done <$> earleyAuto auto xs
-    return $ (not.null) (complete doneSet)
-  where
-    n = length xs
-    complete doneSet =
-        [ True | p <- listDone doneSet
-        , beg p == 0, end p == n
-        , gap p == Nothing ]
+recognizeAuto auto xs =
+    flip isRecognized xs <$> earleyAuto auto xs
+--     doneSet <- done <$> earleyAuto auto xs
+--     return $ (not.null) (complete doneSet)
+--   where
+--     n = length xs
+--     complete doneSet =
+--         [ True | p <- listDone doneSet
+--         , beg p == 0, end p == n
+--         , gap p == Nothing ]
 
 
 -- | Alternative to `recognizeFrom`.
@@ -811,15 +836,6 @@ recognizeFromAuto
 recognizeFromAuto auto start xs = do
     earSt <- earleyAuto auto xs
     return $ (not.null) (final earSt start $ length xs)
---   where
---     n = length xs
---     complete doneSet =
---         [ True | item <- listDone doneSet
---         , beg item == 0, end item == n
---         , isJust $ D.follow
---             (state item)
---             (A.Head $ NonT start Nothing)
---             auto ]
 
 
 -- | Parse the given sentence and return the set of parsed trees.
@@ -887,6 +903,23 @@ final EarSt{..} start n =
 --     , p ^. spanP ^. beg == 0
 --     , p ^. spanP ^. end == n
 --     , p ^. label == NonT start Nothing ]
+
+
+-- | Check whether the given sentence is recognized
+-- based on the resulting state of the earley parser.
+isRecognized
+    :: (VOrd t, VOrd n)
+    => EarSt n t            -- ^ Earley parsing result
+    -> [t]                  -- ^ Input sentence
+    -> Bool
+isRecognized EarSt{..} xs =
+    not (null complete)
+  where
+    n = length xs
+    complete =
+        [ True | p <- listDone done
+        , beg p == 0, end p == n
+        , gap p == Nothing ]
 
 
 -- | MaybeT transformer.
