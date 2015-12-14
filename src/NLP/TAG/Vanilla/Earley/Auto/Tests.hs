@@ -12,15 +12,17 @@ module NLP.TAG.Vanilla.Earley.Auto.Tests where
 import           Control.Applicative ((<$>))
 import           Control.Monad (forM_)
 import           Test.Tasty (TestTree)
+import qualified Data.Set as S
 
 import qualified NLP.TAG.Vanilla.Automaton  as A
-import           NLP.TAG.Vanilla.Earley.Auto (recognizeFrom, earley)
+import qualified NLP.TAG.Vanilla.Earley.Auto as E
+import qualified NLP.TAG.Vanilla.Tree as E
 import qualified NLP.TAG.Vanilla.Tests as T
 
 
 -- | All the tests of the parsing algorithm.
 tests :: TestTree
-tests = T.testTree "NLP.TAG.Vanilla.Earley.Auto" recognizeFrom Nothing Nothing
+tests = T.testTree "NLP.TAG.Vanilla.Earley.Auto" E.recognizeFrom Nothing Nothing
 
 
 --------------------------------------------------
@@ -32,10 +34,16 @@ tests = T.testTree "NLP.TAG.Vanilla.Earley.Auto" recognizeFrom Nothing Nothing
 localTest :: IO ()
 localTest = do
     gram <- T.mkGramSetPoints
-    (_done, auto) <- earley gram
-        ["set", "points"]
 
-    forM_ (A.edges auto) $ print
+    treeSet <- E.parse gram "NP" ["set", "points"]
+    putStrLn "\n## TREES ##\n"
+    forM_ (S.toList treeSet) $ \tree -> do
+        putStr $ E.showTree' tree ++ "\n"
+
+--     EarSt{..} <- earley gram
+--         ["set", "points"]
+--
+--     forM_ (A.edges automat) $ print
 
 --     mapM_ (\r -> R.printRule r >> putStrLn "") (S.toList gram)
 

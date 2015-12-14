@@ -413,7 +413,7 @@ savePassive p ts = do
 -- | Add the active item to the waiting queue.  Check first if it
 -- is not already in the set of processed (`done') states.
 pushActive :: (Ord t, Ord n) => Active n t -> Trav n t -> Earley n t ()
-pushActive p t= isProcessedA p >>= \b -> if b
+pushActive p t = isProcessedA p >>= \b -> if b
     then saveActive p $ S.singleton t
     else RWS.modify' $ \s -> s {waiting = newWait (waiting s)}
   where

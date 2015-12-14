@@ -29,12 +29,12 @@ localTest :: IO ()
 localTest = do
     gram <- T.mkGramSetPoints
 
-    mapM_ (\r -> R.printRule r >> putStrLn "") (S.toList gram)
+--     mapM_ (\r -> R.printRule r >> putStrLn "") (S.toList gram)
 
---     recognizeFrom gram "S"
---         -- ["acid", "rains", "in", "Ghana"]
---         ["acid", "rains"]
---     return ()
+    recognizeFrom gram "S"
+        -- ["acid", "rains", "in", "Ghana"]
+        ["set", "points"]
+    return ()
 
 --     putStrLn ""
 --     forM_ (M.toList treeMap) $ \(tree, cost) -> do

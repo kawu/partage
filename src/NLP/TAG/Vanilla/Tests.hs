@@ -546,12 +546,12 @@ mkGramSetPoints = do
   where
     trees =
         ( map Left
-            [ nounNoDet "set"
-            , nounNoDet "points"
-            -- , transVerbImper "set"
+            -- [ nounNoDet "set"
+            [ nounNoDet "points"
+            , imperVerbNPprepNP "set" "in"
             -- , transVerb "set"
-            -- , inTransVerb "lunches" 
-            , verbNPatNP "points" 
+            -- , inTransVerb "lunches"
+            -- , verbNPatNP "points"
             , nounNounComp "set" "points" ] ) ++
         ( map Right
             [ nounLeftMod "set" "Adj"
@@ -585,6 +585,17 @@ mkGramSetPoints = do
             [ INode "V"
                 [FNode x]
             , INode "NP" []
+            ]
+        ]
+
+    imperVerbNPprepNP v p = INode "S"
+        [ INode "VP"
+            [ INode "V"
+                [FNode v]
+            , INode "NP" []
+            , INode "PP"
+                [ INode "P" [FNode p]
+                , INode "NP" [] ]
             ]
         ]
 

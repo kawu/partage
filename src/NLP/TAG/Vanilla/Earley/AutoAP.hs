@@ -763,6 +763,7 @@ earley gram xs
             { _beg  = i
             , _end  = i
             , _gap  = Nothing }
+            -- TODO: we don't need to look at rules here!
         | Rule{..} <- S.toList gram
         , i <- [0 .. length xs - 1] ]
     -- the computation is performed as long as the waiting queue

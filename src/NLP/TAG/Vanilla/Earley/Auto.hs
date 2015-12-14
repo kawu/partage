@@ -17,6 +17,7 @@ import           Control.Monad.Trans.Class  (lift)
 import           Control.Monad.Trans.Maybe  (MaybeT (..))
 import qualified Control.Monad.RWS.Strict   as RWS
 
+import           Data.Function              (on)
 import           Data.Maybe     ( isJust, isNothing, mapMaybe
                                 , listToMaybe, maybeToList)
 import qualified Data.Map.Strict            as M
@@ -32,6 +33,7 @@ import           NLP.TAG.Vanilla.Core
 import           NLP.TAG.Vanilla.Rule
                                 ( Lab(..), Rule(..) )
 import qualified NLP.TAG.Vanilla.Automaton  as A
+import qualified NLP.TAG.Vanilla.Tree       as T
 
 
 
@@ -69,7 +71,7 @@ topLevel x = case x of
     NonT{..}  -> isNothing labID
     AuxRoot{} -> True
     _         -> False
-    
+
 
 -- | Print the state.
 printItem :: (View n, View t) => Item n t -> IO ()
@@ -90,14 +92,97 @@ printItem Item{..} = do
     putStrLn ")"
 
 
+--------------------------------------------------
+-- Traversal
+--------------------------------------------------
+
+
+-- | Traversal represents an action of inducing a new item on the basis of one
+-- or two other chart items.  It can be seen as an application of one of the
+-- inference rules specifying the parsing algorithm.
+--
+-- TODO: Sometimes there is no need to store all the arguments of the inference
+-- rules, it seems.  From one of the arguments the other one could be derived.
+data Trav n t
+    = Scan
+        { scanFrom :: Item n t
+        -- ^ The input active state
+        , scanTerm :: t
+        -- ^ The scanned terminal
+        }
+    | Subst
+    -- ^ Pseudo substitution
+        { passArg  :: Item n t
+        -- ^ The passive argument of the action
+        , actArg   :: Item n t
+        -- ^ The active argument of the action
+        , passRoot :: n
+        -- ^ Root non-terminal of the passive item
+        }
+    | Foot
+    -- ^ Foot adjoin
+        { actArg   :: Item n t
+        -- ^ The active argument of the action
+        , theFoot  :: n
+        -- ^ The foot non-terminal
+        }
+    | Adjoin
+    -- ^ Adjoin terminate with two passive arguments
+        { passAdj  :: Item n t
+        -- ^ The adjoined item
+        , passMod  :: Item n t
+        -- ^ The modified item
+        }
+    deriving (Show, Eq, Ord)
+
+
+--------------------------------------------------
+-- Priority
+--------------------------------------------------
+
+
 -- | Priority type.
 type Prio = Int
+
 
 
 -- | Priority of a state.  Crucial for the algorithm -- states have
 -- to be removed from the queue in a specific order.
 prio :: Item n t -> Prio
 prio p = end p
+
+
+-- | Extended priority which preservs information about the traversal leading
+-- to the underlying chart item.
+data ExtPrio n t = ExtPrio
+    { prioVal   :: Prio
+    -- ^ The actual priority
+    , prioTrav  :: S.Set (Trav n t)
+    -- ^ Traversal leading to the underlying chart item
+    } deriving (Show)
+
+instance (Eq n, Eq t) => Eq (ExtPrio n t) where
+    (==) = (==) `on` prioVal
+instance (Ord n, Ord t) => Ord (ExtPrio n t) where
+    compare = compare `on` prioVal
+
+
+-- | Construct a new `ExtPrio`.
+extPrio :: Prio -> ExtPrio n t
+extPrio p = ExtPrio p S.empty
+
+
+-- | Join two priorities:
+-- * The actual priority preserved is the lower of the two,
+-- * The traversals are unioned.
+--
+-- NOTE: at the moment, priority is strictly specified by the underlying chart
+-- item itself so we know that both priorities must be equal.  Later when we
+-- start using probabilities this statement will no longer hold.
+joinPrio :: (Ord n, Ord t) => ExtPrio n t -> ExtPrio n t -> ExtPrio n t
+joinPrio x y = ExtPrio
+    (min (prioVal x) (prioVal y))
+    (S.union (prioTrav x) (prioTrav y))
 
 
 --------------------------------------------------
@@ -114,7 +199,8 @@ type Done n t =
     M.Map Pos
         ( M.Map ID
             ( M.Map Pos
-                ( S.Set (Item n t) )
+                -- ( S.Set (Item n t) )
+                ( M.Map (Item n t) (S.Set (Trav n t)) )
             )
         )
 
@@ -123,20 +209,28 @@ type Done n t =
 listDone :: Done n t -> [Item n t]
 listDone done = ($done) $
     M.elems >=> M.elems >=>
-    M.elems >=> S.toList
+    M.elems >=> M.keys -- S.toList
 
 
--- | Check if the state is not already processed (i.e. in one of the
--- done-related maps).
-isProcessed :: (Ord n, Ord t) => Item n t -> Done n t -> Bool
-isProcessed x@Item{..} = check .
-    (   M.lookup end 
+-- | Return the corresponding set of traversals.
+doneTravs
+    :: (Ord n, Ord t)
+    => Item n t -> Done n t
+    -> Maybe (S.Set (Trav n t))
+doneTravs x@Item{..}
+    =   M.lookup end
     >=> M.lookup state
     >=> M.lookup beg
-    >=> return . S.member x )
+    >=> M.lookup x
+
+
+-- | Check if the state is not already processed.
+_isProcessed :: (Ord n, Ord t) => Item n t -> Done n t -> Bool
+_isProcessed x =
+    check . doneTravs x
   where
-    check (Just True) = True
-    check _           = False
+    check (Just _) = True
+    check _        = False
 
 
 --------------------------------------------------
@@ -165,7 +259,7 @@ data EarSt n t = EarSt {
     -- | The set of states waiting on the queue to be processed.
     -- Invariant: the intersection of `done' and `waiting' states
     -- is empty.
-    , waiting :: Q.PSQ (Item n t) Prio }
+    , waiting :: Q.PSQ (Item n t) (ExtPrio n t) }
 
 
 -- | Make an initial `EarSt` from a set of states.
@@ -180,7 +274,7 @@ mkEarSt dag s = EarSt
     , withHead = mkWithHead dag
     , done = M.empty
     , waiting = Q.fromList
-        [ p :-> prio p
+        [ p :-> extPrio (prio p)
         | p <- S.toList s ] }
 
 
@@ -218,40 +312,155 @@ readInput i = do
     maybeT $ listToMaybe $ drop i xs
 
 
--- | Add item to the waiting queue.  Check first if it is
--- not already in the set of processed (`done') states.
-pushItem :: (Ord t, Ord n) => Item n t -> Earley n t ()
-pushItem p = RWS.state $ \s ->
-    let waiting' = if isProcessed p (done s)
-            then waiting s
-            else Q.insert p (prio p) (waiting s)
-    in  ((), s {waiting = waiting'})
+---------------------------
+-- Extracting Parsed Trees
+---------------------------
 
 
--- | Remove a state from the queue.  In future, the queue
--- will be probably replaced by a priority queue which will allow
--- to order the computations in some smarter way.
-popItem :: (Ord t, Ord n) => Earley n t (Maybe (Item n t))
-popItem = RWS.state $ \st -> case Q.minView (waiting st) of
-    Nothing -> (Nothing, st)
-    Just (x :-> _, s) -> (Just x, st {waiting = s})
+-- | Extract the set of parsed trees obtained on the given input sentence.
+-- Should be run on the result of the earley algorithm.
+parsedTrees
+    :: forall n t. (Ord n, Ord t, Show n, Show t)
+    => EarSt n t    -- ^ Final state of the earley parser
+    -- => Done n t     -- ^ `done` part of the final parsing state
+    -> n            -- ^ The start symbol
+    -> Int          -- ^ Length of the input sentence
+    -> S.Set (T.Tree n t)
+parsedTrees earSt@EarSt{..} start n
+
+    = S.fromList
+    $ concatMap (fromPassive start)
+    $ final earSt start n
+
+  where
+
+    fromPassive :: n -> Item n t -> [T.Tree n t]
+    fromPassive root p = concat
+        [ fromPassiveTrav root trav
+        | travSet <- maybeToList $ doneTravs p done
+        -- | let travSet = donePassive M.! p
+        , trav <- S.toList travSet ]
+
+    fromPassiveTrav root (Scan q t) =
+        [ T.INode
+            root -- (nonTerm $ getL label p)
+            (reverse $ T.FNode t : ts)
+        | ts <- fromActive q ]
+
+    fromPassiveTrav root (Foot q x) =
+        [ T.INode
+            root -- (nonTerm $ getL label p)
+            (reverse $ T.INode x [] : ts)
+        | ts <- fromActive q ]
+
+    fromPassiveTrav root (Subst qp qa x) =
+        [ T.INode
+            root -- (nonTerm $ getL label p)
+            (reverse $ t : ts)
+        | ts <- fromActive qa
+        , t  <- fromPassive x qp ]
+
+    fromPassiveTrav root (Adjoin qa qm) =
+        [ replaceFoot ini aux
+        | aux <- fromPassive root qa
+        , ini <- fromPassive root qm ]
+
+    -- | Replace foot (the only non-terminal leaf) by the given initial tree.
+    replaceFoot ini (T.INode _ []) = ini
+    replaceFoot ini (T.INode x ts) = T.INode x $ map (replaceFoot ini) ts
+    replaceFoot _ t@(T.FNode _)    = t
+
+
+    fromActive  :: Item n t -> [[T.Tree n t]]
+    fromActive p = case doneTravs p done of
+        Nothing -> error "fromActive: unknown active item"
+        Just travSet -> if S.null travSet
+            then [[]]
+            else concatMap
+                (fromActiveTrav p)
+                (S.toList travSet)
+
+    fromActiveTrav _p (Scan q t) =
+        [ T.FNode t : ts
+        | ts <- fromActive q ]
+
+    fromActiveTrav _p (Foot q x) =
+        [ T.INode x [] : ts
+        | ts <- fromActive q ]
+
+    fromActiveTrav _p (Subst qp qa x) =
+        [ t : ts
+        | ts <- fromActive qa
+        , t  <- fromPassive x qp ]
+
+    fromActiveTrav _p (Adjoin _ _) =
+        error "parsedTrees: fromActiveTrav called on a passive item"
+
+
+
+--------------------
+-- Processed Items
+--------------------
+
+
+-- | Check if the item is not already processed.
+isProcessed :: (Ord n, Ord t) => Item n t -> Earley n t Bool
+isProcessed p = _isProcessed p <$> RWS.gets done
 
 
 -- | Add the state to the set of processed (`done') states.
-saveItem :: (Ord t, Ord n) => Item n t -> Earley n t ()
-saveItem p =
+saveItem :: (Ord t, Ord n) => Item n t -> S.Set (Trav n t) -> Earley n t ()
+saveItem p ts =
     RWS.state $ \s -> ((), s {done = newDone s})
   where
     newDone st =
         M.insertWith
-            (M.unionWith (M.unionWith S.union))
+            (M.unionWith (M.unionWith (M.unionWith S.union)))
             (end p)
             ( M.singleton (state p)
                 ( M.singleton (beg p)
-                    ( S.singleton p )
+                    -- ( S.singleton p )
+                    ( M.singleton p ts )
+                    -- ( M.insertWith S.union p ts )
                 )
             )
             (done st)
+
+
+--------------------
+-- Waiting Queue
+--------------------
+
+
+-- | Add item to the waiting queue.  Check first if it is
+-- not already in the set of processed (`done') states.
+pushItem :: (Ord t, Ord n) => Item n t -> Trav n t -> Earley n t ()
+pushItem p t = isProcessed p >>= \b -> if b
+    then saveItem p $ S.singleton t
+    else RWS.modify' $ \s -> s {waiting = newWait (waiting s)}
+  where
+    newWait = Q.insertWith joinPrio p newPrio
+    newPrio = ExtPrio (prio p) (S.singleton t)
+-- pushItem p = RWS.state $ \s ->
+--     let waiting' = if isProcessed p (done s)
+--             then waiting s
+--             else Q.insert p (prio p) (waiting s)
+--     in  ((), s {waiting = waiting'})
+
+
+-- | Remove an item from the queue.
+popItem
+    :: (Ord t, Ord n)
+    => Earley n t
+        (Maybe (Binding (Item n t) (ExtPrio n t)))
+popItem = RWS.state $ \st -> case Q.minView (waiting st) of
+    Nothing -> (Nothing, st)
+    Just (b, s) -> (Just b, st {waiting = s})
+
+
+---------------------------------
+-- Extraction of Processed Items
+---------------------------------
 
 
 -- | Return all "done" items which:
@@ -262,7 +471,7 @@ expectEnd
     -> P.ListT (Earley n t) (Item n t)
 expectEnd sym i = do
     EarSt{..} <- lift RWS.get
-    -- determine items which end on the given position 
+    -- determine items which end on the given position
     doneEnd <- some $ M.lookup i done
     -- determine automaton states from which the given label
     -- leaves as a body transition
@@ -276,7 +485,7 @@ expectEnd sym i = do
     -- determine items which refer to the chosen states
     doneEndLab <- some $ M.lookup state doneEnd
     -- return them all!
-    each [x | xs <- M.elems doneEndLab, x <- S.toList xs]
+    each [x | xs <- M.elems doneEndLab, x <- M.keys xs]
 
 
 -- | Return all fully recognized "done" items with:
@@ -300,7 +509,7 @@ rootSpan x (i, j) = do
     -- determine items begining on the given position
     doneEndLabBeg <- some $ M.lookup i doneEndLab
     -- return what's left
-    each $ S.toList doneEndLabBeg
+    each $ M.keys doneEndLabBeg
 
 
 --------------------------------------------------
@@ -368,7 +577,7 @@ tryScan p = void $ runMaybeT $ do
         putStr "[S]  " >> printItem p
         putStr "  :  " >> printItem q
     -- push the resulting state into the waiting queue
-    lift $ pushItem q
+    lift $ pushItem q $ Scan p c
 
 
 --------------------------------------------------
@@ -397,7 +606,7 @@ trySubst p = void $ P.runListT $ do
         putStr "  +  " >> printItem q
         putStr "  :  " >> printItem q'
     -- push the resulting state into the waiting queue
-    lift $ pushItem q'
+    lift . pushItem q' $ Subst p q (nonTerm x)
 
 
 --------------------------------------------------
@@ -431,7 +640,7 @@ tryAdjoinInit p = void $ P.runListT $ do
         putStr "  +  " >> printItem q
         putStr "  :  " >> printItem q'
     -- push the resulting state into the waiting queue
-    lift $ pushItem q'
+    lift $ pushItem q' $ Foot q $ nonTerm foot
 
 
 --------------------------------------------------
@@ -442,6 +651,10 @@ tryAdjoinInit p = void $ P.runListT $ do
 -- | `tryAdjoinCont p q':
 -- * `p' is a completed, auxiliary state
 -- * `q' not completed and expects a *dummy* foot
+--
+-- TODO: seems it can be merged quite easily with `trySubst`!
+-- Just make the `topLevel x` check and the way resulting state
+-- is constructed on the basis of the type of `p`.
 tryAdjoinCont :: (VOrd n, VOrd t) => Item  n t -> Earley n t ()
 tryAdjoinCont p = void $ P.runListT $ do
     -- make sure that `p' is an auxiliary item
@@ -466,7 +679,7 @@ tryAdjoinCont p = void $ P.runListT $ do
         putStr "  +  " >> printItem q
         putStr "  :  " >> printItem q'
     -- push the resulting state into the waiting queue
-    lift $ pushItem q'
+    lift $ pushItem q' $ Subst p q (nonTerm x)
 
 
 --------------------------------------------------
@@ -495,7 +708,7 @@ tryAdjoinTerm q = void $ P.runListT $ do
         putStr "[C]  " >> printItem q
         putStr "  +  " >> printItem p
         putStr "  :  " >> printItem p'
-    lift $ pushItem p'
+    lift $ pushItem p' $ Adjoin q p
 
 
 --------------------------------------------------
@@ -512,14 +725,6 @@ recognize
     -> IO Bool
 recognize gram xs = do
     recognizeAuto (A.buildAuto gram) xs
---     (done, _) <- earley gram xs
---     return $ (not.null) (complete done)
---   where
---     n = length xs
---     complete done =
---         [ True | st <- listDone done
---         , beg st == 0, end st == n
---         , gap st == Nothing ]
 
 
 -- | Does the given grammar generate the given sentence from the
@@ -534,17 +739,16 @@ recognizeFrom
     -> IO Bool
 recognizeFrom gram start xs =
     recognizeFromAuto (A.buildAuto gram) start xs
---     (done, auto) <- earley gram xs
---     return $ (not.null) (complete done auto)
---   where
---     n = length xs
---     complete done auto =
---         [ True | item <- listDone done
---         , beg item == 0, end item == n
---         , isJust $ D.follow
---             (state item)
---             (A.Head $ NonT start Nothing)
---             auto ]
+
+
+-- | Parse the given sentence and return the set of parsed trees.
+parse
+    :: (VOrd t, VOrd n)
+    => S.Set (Rule n t)     -- ^ The grammar (set of rules)
+    -> n                    -- ^ The start symbol
+    -> [t]                  -- ^ Input sentence
+    -> IO (S.Set (T.Tree n t))
+parse gram = parseAuto $ A.buildAuto gram
 
 
 -- | Perform the earley-style computation given the grammar and
@@ -553,44 +757,26 @@ earley
     :: (VOrd t, VOrd n)
     => S.Set (Rule n t)     -- ^ The grammar (set of rules)
     -> [t]                  -- ^ Input sentence
-    -> IO (Done n t, A.DAWG n t)
-earley gram xs = do
-    let dawg = A.buildAuto gram
-    doneSet <- earleyAuto dawg xs
-    return (doneSet, dawg)
---     ((,) <$> done <*> automat) . fst <$> RWS.execRWST loop xs st0
---   where
---     -- the automaton
---     dawg = A.buildAuto gram
---     -- we put in the initial state all the states with the dot on
---     -- the left of the body of the rule (-> left = []) on all
---     -- positions of the input sentence.
---     st0 = mkEarSt dawg $ S.fromList
---         [ Item
---             { state = D.root dawg
---             , beg   = i
---             , end   = i
---             , gap   = Nothing }
---         | Rule{..} <- S.toList gram
---         , i <- [0 .. length xs - 1] ]
---     -- the computation is performed as long as the waiting queue
---     -- is non-empty.
---     loop = popItem >>= \mp -> case mp of
---         Nothing -> return ()
---         Just p -> do
---             step p >> loop
+    -> IO (EarSt n t)
+earley gram = earleyAuto (A.buildAuto gram)
+--     let dawg = A.buildAuto gram
+--     doneSet <- earleyAuto dawg xs
+--     return (doneSet, dawg)
 
 
 -- | Step of the algorithm loop.  `p' is the state popped up from
 -- the queue.
-step :: (VOrd t, VOrd n) => Item n t -> Earley n t ()
-step p = do
-    sequence_ $ map ($p)
+step
+    :: (VOrd t, VOrd n)
+    => Binding (Item n t) (ExtPrio n t)
+    -> Earley n t ()
+step (p :-> e) = do
+    mapM_ ($p)
       [ tryScan, trySubst
       , tryAdjoinInit
       , tryAdjoinCont
       , tryAdjoinTerm ]
-    saveItem p
+    saveItem p $ prioTrav e
 
 
 --------------------------------------------------
@@ -605,14 +791,14 @@ recognizeAuto
     -> [t]                  -- ^ Input sentence
     -> IO Bool
 recognizeAuto auto xs = do
-    done <- earleyAuto auto xs
-    return $ (not.null) (complete done)
+    doneSet <- done <$> earleyAuto auto xs
+    return $ (not.null) (complete doneSet)
   where
     n = length xs
-    complete done =
-        [ True | st <- listDone done
-        , beg st == 0, end st == n
-        , gap st == Nothing ]
+    complete doneSet =
+        [ True | p <- listDone doneSet
+        , beg p == 0, end p == n
+        , gap p == Nothing ]
 
 
 -- | Alternative to `recognizeFrom`.
@@ -623,17 +809,29 @@ recognizeFromAuto
     -> [t]                  -- ^ Input sentence
     -> IO Bool
 recognizeFromAuto auto start xs = do
-    done <- earleyAuto auto xs
-    return $ (not.null) (complete done)
-  where
-    n = length xs
-    complete done =
-        [ True | item <- listDone done
-        , beg item == 0, end item == n
-        , isJust $ D.follow
-            (state item)
-            (A.Head $ NonT start Nothing)
-            auto ]
+    earSt <- earleyAuto auto xs
+    return $ (not.null) (final earSt start $ length xs)
+--   where
+--     n = length xs
+--     complete doneSet =
+--         [ True | item <- listDone doneSet
+--         , beg item == 0, end item == n
+--         , isJust $ D.follow
+--             (state item)
+--             (A.Head $ NonT start Nothing)
+--             auto ]
+
+
+-- | Parse the given sentence and return the set of parsed trees.
+parseAuto
+    :: (VOrd t, VOrd n)
+    => A.DAWG n t           -- ^ Grammar automaton
+    -> n                    -- ^ The start symbol
+    -> [t]                  -- ^ Input sentence
+    -> IO (S.Set (T.Tree n t))
+parseAuto auto start xs = do
+    earSt <- earleyAuto auto xs
+    return $ parsedTrees earSt start (length xs)
 
 
 -- | Perform the earley-style computation given the grammar and
@@ -642,9 +840,9 @@ earleyAuto
     :: (VOrd t, VOrd n)
     => A.DAWG n t           -- ^ Grammar automaton
     -> [t]                  -- ^ Input sentence
-    -> IO (Done n t)
+    -> IO (EarSt n t)
 earleyAuto dawg xs =
-    done . fst <$> RWS.execRWST loop xs st0
+    fst <$> RWS.execRWST loop xs st0
   where
     -- we put in the initial state all the states with the dot on
     -- the left of the body of the rule (-> left = []) on all
@@ -667,6 +865,28 @@ earleyAuto dawg xs =
 --------------------------------------------------
 -- Utilities
 --------------------------------------------------
+
+
+-- | Return the list of final (passive) chart items.
+final
+    :: (Ord n, Ord t)
+    => EarSt n t    -- ^ Final state of the earley parser
+    -> n            -- ^ The start symbol
+    -> Int          -- ^ The length of the input sentence
+    -> [Item n t]
+final EarSt{..} start n =
+    [ p
+    | p <- listDone done
+    , beg p == 0, end p == n
+    , isJust $ D.follow
+        (state p)
+        (A.Head $ NonT start Nothing)
+        automat ]
+--     [ p
+--     | p <- S.toList $ M.keysSet done
+--     , p ^. spanP ^. beg == 0
+--     , p ^. spanP ^. end == n
+--     , p ^. label == NonT start Nothing ]
 
 
 -- | MaybeT transformer.
