@@ -27,7 +27,7 @@ module NLP.TAG.Vanilla.Tree.Other
 
 -- import           Control.Applicative ((<$>))
 import           Control.Monad (msum)
-import           Data.Maybe (isJust)
+-- import           Data.Maybe (isJust)
 import qualified Data.Foldable as F
 
 import qualified Data.Tree as R
@@ -120,8 +120,7 @@ findFoot :: Tree n t -> Maybe T.Path
 findFoot (R.Node n xs) = case n of
     Foot _  -> Just []
     _       -> msum
-        $ map (uncurry addID)
-        $ zip [0..]
+        $ zipWith addID [0..]
         $ map findFoot xs
   where
     addID i (Just is) = Just (i:is)
@@ -141,14 +140,14 @@ isInitial = not . isAuxiliary
 -- | Is it an auxiliary (i.e. with a foot) tree?
 isAuxiliary :: Tree n t -> Bool
 isAuxiliary (R.Node (Foot _) _) = True
-isAuxiliary (R.Node _ xs) = or (map isAuxiliary xs)
+isAuxiliary (R.Node _ xs) = any isAuxiliary xs
 
 
 -- | Is it a final tree (i.e. does it contain only terminals
 -- in its leaves?)
 isFinal :: Tree n t -> Bool
 isFinal (R.Node n []) = isTerm n
-isFinal (R.Node _ xs) = and (map isFinal xs)
+isFinal (R.Node _ xs) = all isFinal xs
 
 
 -- | Projection of a tree, i.e. a list of terminals.

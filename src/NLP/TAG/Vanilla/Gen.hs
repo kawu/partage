@@ -3,6 +3,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 
 -- | An simple, experimental tree generation module.
@@ -26,8 +27,9 @@ import           Control.Monad.Trans.Maybe (MaybeT (..))
 
 import           Pipes
 import qualified Pipes.Prelude as Pipes
-import           System.Random (randomRIO, randomRs, getStdGen)
+import           System.Random (randomRIO)
 
+import qualified Data.Foldable as F
 import           Data.Maybe (maybeToList)
 import qualified Data.Set as S
 import qualified Data.Map.Strict as M
@@ -105,9 +107,8 @@ pop = do
 
 -- | Push tree into the waiting queue.
 push :: (E.MonadState (GenST n t) m, Ord n, Ord t) => Tree n t -> m ()
-push t = do
-    E.modify $ \s -> s
-        {waiting = Q.insert t (treeSize t) (waiting s)}
+push t = E.modify $ \s -> s
+    {waiting = Q.insert t (treeSize t) (waiting s)}
 
 
 -- | Save tree as visited.
@@ -156,8 +157,8 @@ visitedWith doneMap cond = do
 --     :: (E.MonadState (GenST n t) m, Ord n, Ord t)
 --     => (Int -> Bool) -> ListT m (Tree n t)
 -- finalWith = visitedWith doneFinal
--- 
--- 
+--
+--
 -- -- | Retrieve all visited trees with a size satsifying
 -- -- the given condition.
 -- activeWith
@@ -167,7 +168,7 @@ visitedWith doneMap cond = do
 
 
 --------------------------
--- Higher-level generation 
+-- Higher-level generation
 --------------------------
 
 
@@ -188,9 +189,10 @@ generateRand
 generateRand gramSet cfg = E.forever $ do
     finalSet <- collect basePipe
     mayTree  <- drawTree gramSet finalSet cfg
-    case mayTree of
-        Nothing -> return ()
-        Just t  -> yield t
+    F.forM_ mayTree yield
+--     case mayTree of
+--         Nothing -> return ()
+--         Just t  -> yield t
   where
     -- first compute the base set of final trees
     basePipe = generateAll gramSet (genAllSize cfg)
@@ -205,8 +207,8 @@ drawTree
     -> Gram n t     -- ^ Final trees
     -> GenConf      -- ^ Global config
     -> m (Maybe (Tree n t))
-drawTree gramSet finalSet cfg@GenConf{..} = runMaybeT $ do
-    -- randomly draw an elementary tree 
+drawTree gramSet finalSet GenConf{..} = runMaybeT $ do
+    -- randomly draw an elementary tree
     t0 <- drawFrom $ limitTo isInitial gramSet
     -- recursivey modify the tree
     modify t0
@@ -230,7 +232,8 @@ drawTree gramSet finalSet cfg@GenConf{..} = runMaybeT $ do
     drawFrom s = do
         E.guard $ S.size s > 0
         i <- liftIO $ randomRIO (0, S.size s - 1)
-        return $ S.elemAt i s
+        -- return $ S.elemAt i s <- works starting from containers 0.5.2
+        return $ S.toList s !! i
     limitTo f = S.fromList . filter f . S.toList
 
 
@@ -249,7 +252,7 @@ type Gen m n t = E.StateT (GenST n t) (Producer (Tree n t) m) ()
 generateAll
     :: (MonadIO m, Ord n, Ord t)
     => Gram n t -> Int -> Producer (Tree n t) m ()
-generateAll gram0 sizeMax = do
+generateAll gram0 sizeMax =
     -- gram <- subGram gram0
     E.evalStateT
         (genPipe sizeMax)
@@ -341,9 +344,7 @@ adjoin s (R.Node n ts) =
     here ++ below
   where
     -- perform adjunction here
-    here = if R.rootLabel s == n
-        then [replaceFoot (R.Node n ts) s]
-        else []
+    here = [replaceFoot (R.Node n ts) s | R.rootLabel s == n]
     -- consider to perform adjunction lower in the tree
     below = map (R.Node n) (doit ts)
     doit [] = []
@@ -370,9 +371,7 @@ subst s = take 1 . _subst s
 -- the second one.
 _subst :: (Eq n, Eq t) => Tree n t -> Tree n t -> [Tree n t]
 _subst s (R.Node n []) =
-    if R.rootLabel s == n
-        then [s]
-        else []
+    [s | R.rootLabel s == n]
 _subst s (R.Node n ts) =
     map (R.Node n) (doit ts)
   where
@@ -421,6 +420,6 @@ collect inputPipe =
 lottery :: (MonadIO m, MonadPlus m) => Double -> m a -> m a -> m a
 lottery probMax mx my = do
     p <- liftIO $ randomRIO (0, 1)
-    if (p > probMax)
+    if p > probMax
         then mx
         else my
