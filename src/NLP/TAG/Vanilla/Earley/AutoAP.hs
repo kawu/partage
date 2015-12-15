@@ -173,19 +173,31 @@ data Trav n t
 
 
 -- | Priority type.
-type Prio = Int
+--
+-- NOTE: Priority has to be composed from two elements because
+-- otherwise `tryAdjoinTerm` could work incorrectly.  That is,
+-- the modified item could be popped from the queue after the
+-- modifier (auxiliary) item and, as a result, adjunction would
+-- not be considered.
+type Prio = (Int, Int)
 
 
 -- | Priority of an active item.  Crucial for the algorithm --
 -- states have to be removed from the queue in a specific order.
 prioA :: Active n t -> Prio
-prioA = getL (end . spanA)
+prioA p =
+    let i = getL (beg . spanA) p
+        j = getL (end . spanA) p
+    in  (j, j - i)
 
 
 -- | Priority of a passive item.  Crucial for the algorithm --
 -- states have to be removed from the queue in a specific order.
 prioP :: Passive n t -> Prio
-prioP = getL (end . spanP)
+prioP p =
+    let i = getL (beg . spanP) p
+        j = getL (end . spanP) p
+    in  (j, j - i)
 
 
 -- | Extended priority which preservs information about the traversal

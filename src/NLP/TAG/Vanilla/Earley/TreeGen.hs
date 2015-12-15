@@ -203,21 +203,25 @@ data Trav n t
 
 
 -- | Priority type.
-type Prio = Int
+type Prio = (Int, Int)
 
 
 -- | Priority of an active item.  Crucial for the algorithm --
 -- states have to be removed from the queue in a specific order.
 prioA :: Active n t -> Prio
--- prioA = negate . getL (end . spanA)
-prioA = getL (end . spanA)
+prioA p =
+    let i = getL (beg . spanA) p
+        j = getL (end . spanA) p
+    in  (j, j - i)
 
 
 -- | Priority of a passive item.  Crucial for the algorithm --
 -- states have to be removed from the queue in a specific order.
 prioP :: Passive n t -> Prio
--- prioP = negate . getL (end . spanP)
-prioP = getL (end . spanP)
+prioP p =
+    let i = getL (beg . spanP) p
+        j = getL (end . spanP) p
+    in  (j, j - i)
 
 
 -- | Extended priority which preservs information about the traversal

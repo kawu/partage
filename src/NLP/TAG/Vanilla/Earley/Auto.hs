@@ -144,18 +144,20 @@ data Trav n t
 
 
 -- | Priority type.
-type Prio = Int
-
+type Prio = (Int, Int)
 
 
 -- | Priority of a state.  Crucial for the algorithm -- states have
 -- to be removed from the queue in a specific order.
 prio :: Item n t -> Prio
-prio p = end p
+prio p =
+    let i = beg p
+        j = end p
+    in  (j, j - i)
 
 
--- | Extended priority which preservs information about the traversal leading
--- to the underlying chart item.
+-- | Extended priority which preservs information about the traversal
+-- leading to the underlying chart item.
 data ExtPrio n t = ExtPrio
     { prioVal   :: Prio
     -- ^ The actual priority
