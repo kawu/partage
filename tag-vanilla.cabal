@@ -59,6 +59,7 @@ library
       , NLP.TAG.Vanilla.Earley.New
 
     ghc-options: -Wall
+    cpp-options: -DDebug
 
 source-repository head
     type: git

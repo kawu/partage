@@ -3,6 +3,7 @@
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE CPP #-}
 
 
 -- | Earley-style parsing based on a DFSA with an additional
@@ -643,10 +644,12 @@ tryScan p = void $ P.runListT $ do
     let q = setL state j
           . modL' (spanA >>> end) (+1)
           $ p
---     -- print logging information
---     lift . lift $ do
---         putStr "[S]  " >> printActive p
---         putStr "  :  " >> printActive q
+#ifdef Debug
+    -- print logging information
+    lift . lift $ do
+        putStr "[S]  " >> printActive p
+        putStr "  :  " >> printActive q
+#endif
     -- push the resulting state into the waiting queue
     lift $ pushInduced q $ Scan p c
 
@@ -674,11 +677,13 @@ trySubst p = void $ P.runListT $ do
     let q' = setL state j
            . setL (end.spanA) (getL end pSpan)
            $ q
---     -- print logging information
---     lift . lift $ do
---         putStr "[U]  " >> printPassive p
---         putStr "  +  " >> printActive q
---         putStr "  :  " >> printActive q'
+#ifdef Debug
+    -- print logging information
+    lift . lift $ do
+        putStr "[U]  " >> printPassive p
+        putStr "  +  " >> printActive q
+        putStr "  :  " >> printActive q'
+#endif
     -- push the resulting state into the waiting queue
     lift $ pushInduced q' $ Subst p q
 
@@ -711,11 +716,13 @@ tryAdjoinInit p = void $ P.runListT $ do
                 ( pSpan ^. beg
                 , pSpan ^. end ))
            $ q
---     -- print logging information
---     lift . lift $ do
---         putStr "[A]  " >> printPassive p
---         putStr "  +  " >> printActive q
---         putStr "  :  " >> printActive q'
+#ifdef Debug
+    -- print logging information
+    lift . lift $ do
+        putStr "[A]  " >> printPassive p
+        putStr "  +  " >> printActive q
+        putStr "  :  " >> printActive q'
+#endif
     -- push the resulting state into the waiting queue
     lift $ pushInduced q' $ Foot q $ nonTerm foot
 
@@ -748,11 +755,13 @@ tryAdjoinCont p = void $ P.runListT $ do
            . setL (spanA >>> end) (pSpan ^. end)
            . setL (spanA >>> gap) (pSpan ^. gap)
            $ q
+#ifdef Debug
     -- logging info
---     lift . lift $ do
---         putStr "[B]  " >> printPassive p
---         putStr "  +  " >> printActive q
---         putStr "  :  " >> printActive q'
+    lift . lift $ do
+        putStr "[B]  " >> printPassive p
+        putStr "  +  " >> printActive q
+        putStr "  :  " >> printActive q'
+#endif
     -- push the resulting state into the waiting queue
     lift $ pushInduced q' $ Subst p q
 
@@ -779,10 +788,12 @@ tryAdjoinTerm q = void $ P.runListT $ do
     let p' = setL (spanP >>> beg) (qSpan ^. beg)
            . setL (spanP >>> end) (qSpan ^. end)
            $ p
---     lift . lift $ do
---         putStr "[C]  " >> printPassive q
---         putStr "  +  " >> printPassive p
---         putStr "  :  " >> printPassive p'
+#ifdef Debug
+    lift . lift $ do
+        putStr "[C]  " >> printPassive q
+        putStr "  +  " >> printPassive p
+        putStr "  :  " >> printPassive p'
+#endif
     lift $ pushPassive p' $ Adjoin q p
 
 
