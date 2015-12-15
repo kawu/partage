@@ -17,13 +17,17 @@ module NLP.TAG.Vanilla.Tree.Other
 
 -- * Utils
 , isTerm
-, final
+, isFinal
+, isInitial
+, isAuxiliary
+, hasRoot
 , proj
 ) where
 
 
 -- import           Control.Applicative ((<$>))
 import           Control.Monad (msum)
+import           Data.Maybe (isJust)
 import qualified Data.Foldable as F
 
 import qualified Data.Tree as R
@@ -129,11 +133,22 @@ findFoot (R.Node n xs) = case n of
 ---------------------------------------------------------------------
 
 
+-- | Is it an initial (i.e. non-auxiliary) tree?
+isInitial :: Tree n t -> Bool
+isInitial = not . isAuxiliary
+
+
+-- | Is it an auxiliary (i.e. with a foot) tree?
+isAuxiliary :: Tree n t -> Bool
+isAuxiliary (R.Node (Foot _) _) = True
+isAuxiliary (R.Node _ xs) = or (map isAuxiliary xs)
+
+
 -- | Is it a final tree (i.e. does it contain only terminals
 -- in its leaves?)
-final :: Tree n t -> Bool
-final (R.Node n []) = isTerm n
-final (R.Node _ xs) = and (map final xs)
+isFinal :: Tree n t -> Bool
+isFinal (R.Node n []) = isTerm n
+isFinal (R.Node _ xs) = and (map isFinal xs)
 
 
 -- | Projection of a tree, i.e. a list of terminals.
@@ -143,3 +158,9 @@ proj =
   where
     term (Term x) = [x]
     term _        = []
+
+
+-- | Is it a root label of the given tree?
+hasRoot :: Eq n => n -> Tree n t -> Bool
+hasRoot x (R.Node (NonTerm y) _) = x == y
+hasRoot _ _ = False
