@@ -157,12 +157,14 @@ expects' = decoList . getL right
 --------------------------------------------------
 
 
--- | Traversal represents an action of inducing a new item on the basis of one
--- or two other chart items.  It can be seen as an application of one of the
--- inference rules specifying the parsing algorithm.
+-- | Traversal represents an action of inducing a new item on the
+-- basis of one or two other chart items.  It can be seen as an
+-- application of one of the inference rules specifying the parsing
+-- algorithm.
 --
--- TODO: Sometimes there is no need to store all the arguments of the inference
--- rules, it seems.  From one of the arguments the other one could be derived.
+-- TODO: Sometimes there is no need to store all the arguments of the
+-- inference rules, it seems.  From one of the arguments the other
+-- one could be derived.
 data Trav n t
     = Scan
         { scanFrom :: Active n t
@@ -217,8 +219,8 @@ prioP :: Passive n t -> Prio
 prioP = getL (end . spanP)
 
 
--- | Extended priority which preservs information about the traversal leading
--- to the underlying chart item.
+-- | Extended priority which preservs information about the traversal
+-- leading to the underlying chart item.
 data ExtPrio n t = ExtPrio
     { prioVal   :: Prio
     -- ^ The actual priority
@@ -241,9 +243,10 @@ extPrio p = ExtPrio p S.empty
 -- * The actual priority preserved is the lower of the two,
 -- * The traversals are unioned.
 --
--- NOTE: at the moment, priority is strictly specified by the underlying chart
--- item itself so we know that both priorities must be equal.  Later when we
--- start using probabilities this statement will no longer hold.
+-- NOTE: at the moment, priority is strictly specified by the
+-- underlying chart item itself so we know that both priorities must
+-- be equal.  Later when we start using probabilities this statement
+-- will no longer hold.
 joinPrio :: (Ord n, Ord t) => ExtPrio n t -> ExtPrio n t -> ExtPrio n t
 joinPrio x y = ExtPrio
     (min (prioVal x) (prioVal y))
@@ -412,14 +415,22 @@ isProcessedP p = M.member p <$> RWS.gets donePassive
 
 
 -- | Add traversal to an active processed item.
-saveActive :: (Ord n, Ord t) => Active n t -> S.Set (Trav n t) -> Earley n t ()
+saveActive
+    :: (Ord n, Ord t)
+    => Active n t
+    -> S.Set (Trav n t)
+    -> Earley n t ()
 saveActive p ts = do
     let newDone = M.insertWith S.union p ts
     RWS.modify' $ \s -> s {doneActive = newDone (doneActive s)}
 
 
 -- | Add traversal to a passive processed item.
-savePassive :: (Ord n, Ord t) => Passive n t -> S.Set (Trav n t) -> Earley n t ()
+savePassive
+    :: (Ord n, Ord t)
+    => Passive n t
+    -> S.Set (Trav n t)
+    -> Earley n t ()
 savePassive p ts = do
     let newDone = M.insertWith S.union p ts
     RWS.modify' $ \s -> s {donePassive = newDone (donePassive s)}
@@ -453,8 +464,8 @@ pushPassive p t = isProcessedP p >>= \b -> if b
 
 
 -- | Add to the waiting queue the item induced from the given item.
--- Use instead of `pushActive` each time you are not sure the item is really
--- active.
+-- Use instead of `pushActive` each time you are not sure the item is
+-- really active.
 pushInduced :: (Ord t, Ord n) => Active n t -> Trav n t -> Earley n t ()
 pushInduced p = if completed p
     then pushPassive $ Passive (p ^. root) (p ^. spanA)

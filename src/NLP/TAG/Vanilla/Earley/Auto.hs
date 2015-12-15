@@ -97,12 +97,14 @@ printItem Item{..} = do
 --------------------------------------------------
 
 
--- | Traversal represents an action of inducing a new item on the basis of one
--- or two other chart items.  It can be seen as an application of one of the
--- inference rules specifying the parsing algorithm.
+-- | Traversal represents an action of inducing a new item on the
+-- basis of one or two other chart items.  It can be seen as an
+-- application of one of the inference rules specifying the parsing
+-- algorithm.
 --
--- TODO: Sometimes there is no need to store all the arguments of the inference
--- rules, it seems.  From one of the arguments the other one could be derived.
+-- TODO: Sometimes there is no need to store all the arguments of the
+-- inference rules, it seems.  From one of the arguments the other
+-- one could be derived.
 data Trav n t
     = Scan
         { scanFrom :: Item n t
@@ -220,11 +222,11 @@ listDoneTrav done = ($done) $
 
 
 -- | Return the corresponding set of traversals.
-doneTravs
+doneTrav
     :: (Ord n, Ord t)
     => Item n t -> Done n t
     -> Maybe (S.Set (Trav n t))
-doneTravs x@Item{..}
+doneTrav x@Item{..}
     =   M.lookup end
     >=> M.lookup state
     >=> M.lookup beg
@@ -234,7 +236,7 @@ doneTravs x@Item{..}
 -- | Check if the state is not already processed.
 _isProcessed :: (Ord n, Ord t) => Item n t -> Done n t -> Bool
 _isProcessed x =
-    check . doneTravs x
+    check . doneTrav x
   where
     check (Just _) = True
     check _        = False
@@ -361,7 +363,7 @@ parsedTrees earSt@EarSt{..} start n
     fromPassive :: n -> Item n t -> [T.Tree n t]
     fromPassive root p = concat
         [ fromPassiveTrav root trav
-        | travSet <- maybeToList $ doneTravs p done
+        | travSet <- maybeToList $ doneTrav p done
         -- | let travSet = donePassive M.! p
         , trav <- S.toList travSet ]
 
@@ -396,7 +398,7 @@ parsedTrees earSt@EarSt{..} start n
 
 
     fromActive  :: Item n t -> [[T.Tree n t]]
-    fromActive p = case doneTravs p done of
+    fromActive p = case doneTrav p done of
         Nothing -> error "fromActive: unknown active item"
         Just travSet -> if S.null travSet
             then [[]]
@@ -433,7 +435,11 @@ isProcessed p = _isProcessed p <$> RWS.gets done
 
 
 -- | Add the state to the set of processed (`done') states.
-saveItem :: (Ord t, Ord n) => Item n t -> S.Set (Trav n t) -> Earley n t ()
+saveItem 
+    :: (Ord t, Ord n)
+    => Item n t
+    -> S.Set (Trav n t)
+    -> Earley n t ()
 saveItem p ts =
     RWS.state $ \s -> ((), s {done = newDone s})
   where
@@ -516,12 +522,19 @@ expectEnd sym i = do
 -- * the given root non-terminal value (but not top-level
 --   auxiliary)
 -- * the given span
+--
+-- NOTE: this function can be potentially slow.  `withHead` can
+-- potentially contain a very high number of entries for a given
+-- source non-terminal.  Only later the information about the span
+-- beginning is taken into account.  As a result, a high number of
+-- entries for a given source-non-terminal head can be extracted only
+-- to be discarded in the next step.
 rootSpan
     :: Ord n => n -> (Pos, Pos)
     -> P.ListT (Earley n t) (Item n t)
 rootSpan x (i, j) = do
     EarSt{..} <- lift RWS.get
-    -- determine iterms ending on the given position
+    -- determine items ending on the given position
     doneEnd <- some $ M.lookup j done
     -- determine automaton states from which the given label
     -- leaves as a head transition
@@ -898,11 +911,6 @@ final EarSt{..} start n =
         (state p)
         (A.Head $ NonT start Nothing)
         automat ]
---     [ p
---     | p <- S.toList $ M.keysSet done
---     , p ^. spanP ^. beg == 0
---     , p ^. spanP ^. end == n
---     , p ^. label == NonT start Nothing ]
 
 
 -- | Check whether the given sentence is recognized
