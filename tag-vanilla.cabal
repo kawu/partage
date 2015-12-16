@@ -49,6 +49,9 @@ library
       , NLP.TAG.Vanilla.Earley.Basic
       , NLP.TAG.Vanilla.SubtreeSharing
       , NLP.TAG.Vanilla.Earley.Pred
+      , NLP.TAG.Vanilla.Auto.Edge
+      , NLP.TAG.Vanilla.Auto.Mini
+      , NLP.TAG.Vanilla.Auto.Trie
       , NLP.TAG.Vanilla.Auto.DAWG
       , NLP.TAG.Vanilla.Earley.Auto
       , NLP.TAG.Vanilla.Earley.AutoAP
