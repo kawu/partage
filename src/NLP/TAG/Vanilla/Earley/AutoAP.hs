@@ -37,12 +37,14 @@ import qualified Pipes                      as P
 -- import qualified Pipes.Prelude              as P
 
 import           Data.DAWG.Gen.Types (ID)
-import qualified Data.DAWG.Ord.Dynamic      as D
+-- import qualified Data.DAWG.Ord.Dynamic      as D
 
 import           NLP.TAG.Vanilla.Core
 import           NLP.TAG.Vanilla.Rule
                                 ( Lab(..), Rule(..), viewLab )
-import qualified NLP.TAG.Vanilla.Automaton  as A
+import qualified NLP.TAG.Vanilla.Auto.Edge  as A
+import qualified NLP.TAG.Vanilla.Auto.Mini  as A
+import qualified NLP.TAG.Vanilla.Auto.DAWG  as D
 import qualified NLP.TAG.Vanilla.Tree       as T
 
 
@@ -251,10 +253,14 @@ data Item n t
 --------------------------------------------------
 
 
+-- | Local automaton type.
+type Auto n t = A.Auto (A.Edge (Lab n t))
+
+
 -- | The state of the earley monad.
 data EarSt n t = EarSt
-    { automat :: A.DAWG n t
-    -- ^ The underlying automaton.
+    { automat :: Auto n t
+    -- ^ The underlying automaton (abstract implementation)
 
     , withBody :: M.Map (Lab n t) (S.Set ID)
     -- ^ A data structure which, for each label, determines the
@@ -290,7 +296,7 @@ data EarSt n t = EarSt
 -- | Make an initial `EarSt` from a set of states.
 mkEarSt
     :: (Ord n, Ord t)
-    => A.DAWG n t
+    => Auto n t
     -> S.Set (Active n t)
     -> (EarSt n t)
 mkEarSt dag s = EarSt
@@ -306,11 +312,11 @@ mkEarSt dag s = EarSt
 -- | Create the `withBody` component based on the automaton.
 mkWithBody
     :: (Ord n, Ord t)
-    => A.DAWG n t
+    => Auto n t
     -> M.Map (Lab n t) (S.Set ID)
 mkWithBody dag = M.fromListWith S.union
     [ (x, S.singleton i)
-    | (i, A.Body x, _j) <- A.edges dag ]
+    | (i, A.Body x, _j) <- A.allEdges dag ]
 
 
 -- | Earley parser monad.  Contains the input sentence (reader)
@@ -589,7 +595,7 @@ followTerm i c = do
     -- get the underlying automaton
     auto <- RWS.gets automat
     -- follow the label
-    some $ D.follow i (A.Body $ Term c) auto
+    some $ A.follow auto i (A.Body $ Term c)
 
 
 -- | Follow the given body transition in the underlying automaton.
@@ -601,7 +607,7 @@ follow i x = do
     -- get the underlying automaton
     auto <- RWS.gets automat
     -- follow the label
-    some $ D.follow i (A.Body x) auto
+    some $ A.follow auto i (A.Body x)
 
 
 -- | Rule heads outgoing from the given automaton state.
@@ -611,7 +617,7 @@ heads i = do
     let mayHead (x, _) = case x of
             A.Body _  -> Nothing
             A.Head y -> Just y
-    each $ mapMaybe mayHead $ D.edges i auto
+    each $ mapMaybe mayHead $ A.edges auto i
 
 
 -- | Rule body elements outgoing from the given automaton state.
@@ -621,7 +627,7 @@ elems i = do
     let mayBody (x, _) = case x of
             A.Body y  -> Just y
             A.Head _ -> Nothing
-    each $ mapMaybe mayBody $ D.edges i auto
+    each $ mapMaybe mayBody $ A.edges auto i
 
 
 -- | Check if any element leaves the given state.
@@ -634,7 +640,7 @@ hasElems i = do
     return
         . not . null
         . mapMaybe mayBody
-        $ D.edges i auto
+        $ A.edges auto i
 
 
 --------------------------------------------------
@@ -930,7 +936,7 @@ recognize
     -> [t]                  -- ^ Input sentence
     -> IO Bool
 recognize gram xs = do
-    recognizeAuto (A.buildAuto gram) xs
+    recognizeAuto (D.shell $ D.buildAuto gram) xs
 
 
 -- | Does the given grammar generate the given sentence from the
@@ -944,7 +950,7 @@ recognizeFrom
     -> [t]                  -- ^ Input sentence
     -> IO Bool
 recognizeFrom gram start xs =
-    recognizeFromAuto (A.buildAuto gram) start xs
+    recognizeFromAuto (D.shell $ D.buildAuto gram) start xs
 
 
 -- | Parse the given sentence and return the set of parsed trees.
@@ -954,7 +960,7 @@ parse
     -> n                    -- ^ The start symbol
     -> [t]                  -- ^ Input sentence
     -> IO (S.Set (T.Tree n t))
-parse gram = parseAuto $ A.buildAuto gram
+parse gram = parseAuto $ D.shell $ D.buildAuto gram
 
 
 -- | Perform the earley-style computation given the grammar and
@@ -964,7 +970,7 @@ earley
     => S.Set (Rule n t)     -- ^ The grammar (set of rules)
     -> [t]                  -- ^ Input sentence
     -> IO (EarSt n t)
-earley gram = earleyAuto (A.buildAuto gram)
+earley gram = earleyAuto $ D.shell $ D.buildAuto gram
 
 
 --------------------------------------------------
@@ -975,7 +981,7 @@ earley gram = earleyAuto (A.buildAuto gram)
 -- | Alternative to `recognize`.
 recognizeAuto
     :: (VOrd t, VOrd n)
-    => A.DAWG n t           -- ^ Grammar automaton
+    => Auto n t           -- ^ Grammar automaton
     -> [t]                  -- ^ Input sentence
     -> IO Bool
 recognizeAuto auto xs =
@@ -985,7 +991,7 @@ recognizeAuto auto xs =
 -- | Alternative to `recognizeFrom`.
 recognizeFromAuto
     :: (VOrd t, VOrd n)
-    => A.DAWG n t           -- ^ Grammar automaton
+    => Auto n t           -- ^ Grammar automaton
     -> n                    -- ^ The start symbol
     -> [t]                  -- ^ Input sentence
     -> IO Bool
@@ -997,7 +1003,7 @@ recognizeFromAuto auto start xs = do
 -- | Parse the given sentence and return the set of parsed trees.
 parseAuto
     :: (VOrd t, VOrd n)
-    => A.DAWG n t           -- ^ Grammar automaton
+    => Auto n t           -- ^ Grammar automaton
     -> n                    -- ^ The start symbol
     -> [t]                  -- ^ Input sentence
     -> IO (S.Set (T.Tree n t))
@@ -1010,7 +1016,7 @@ parseAuto auto start xs = do
 -- the input sentence.
 earleyAuto
     :: (VOrd t, VOrd n)
-    => A.DAWG n t           -- ^ Grammar automaton
+    => Auto n t           -- ^ Grammar automaton
     -> [t]                  -- ^ Input sentence
     -> IO (EarSt n t)
 earleyAuto dawg xs =
@@ -1020,7 +1026,7 @@ earleyAuto dawg xs =
     -- the left of the body of the rule (-> left = []) on all
     -- positions of the input sentence.
     st0 = mkEarSt dawg $ S.fromList
-        [ Active (D.root dawg) $ Span
+        [ Active (A.root dawg) $ Span
             { _beg   = i
             , _end   = i
             , _gap   = Nothing }

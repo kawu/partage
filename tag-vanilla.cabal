@@ -49,7 +49,7 @@ library
       , NLP.TAG.Vanilla.Earley.Basic
       , NLP.TAG.Vanilla.SubtreeSharing
       , NLP.TAG.Vanilla.Earley.Pred
-      , NLP.TAG.Vanilla.Automaton
+      , NLP.TAG.Vanilla.Auto.DAWG
       , NLP.TAG.Vanilla.Earley.Auto
       , NLP.TAG.Vanilla.Earley.AutoAP
       , NLP.TAG.Vanilla.Earley.TreeGen
@@ -59,7 +59,7 @@ library
       , NLP.TAG.Vanilla.Earley.New
 
     ghc-options: -Wall
-    cpp-options: -DDebug
+    -- cpp-options: -DDebug
 
 source-repository head
     type: git

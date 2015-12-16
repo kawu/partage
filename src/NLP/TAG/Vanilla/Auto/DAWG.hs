@@ -4,10 +4,10 @@
 -- | Automaton-based grammar representation.
 
 
-module NLP.TAG.Vanilla.Automaton where
+module NLP.TAG.Vanilla.Auto.DAWG where
 
 
-import           Control.Monad.State.Strict as E
+import qualified Control.Monad.State.Strict as E
 -- import           Control.Monad.Trans.Class (lift)
 
 import qualified Data.Set                   as S
@@ -19,12 +19,38 @@ import           NLP.TAG.Vanilla.Rule
     ( Lab(..), Rule(..) )
 
 
--- | A datatype to distinguish head non-terminals from body
--- non-terminals.
-data Edge a
-    = Head a
-    | Body a
-    deriving (Show, Eq, Ord)
+import qualified NLP.TAG.Vanilla.Auto.Mini as Mini
+-- import qualified NLP.TAG.Vanilla.Auto.Shell as Sh
+import           NLP.TAG.Vanilla.Auto.Edge (Edge(..))
+
+
+--------------------------------------------------
+-- Interface
+--------------------------------------------------
+
+
+-- -- | DAWG as automat with one parameter.
+-- newtype Auto a = Auto { unAuto :: D.DAWG a () }
+
+
+shell :: (Ord n, Ord t) => DAWG n t -> Mini.Auto (Edge (Lab n t))
+shell d = Mini.Auto
+    { root   = D.root d
+    , follow = \i x ->  D.follow i x d
+    , edges  = \i -> D.edges i d }
+
+
+--------------------------------------------------
+-- The rest
+--------------------------------------------------
+
+
+-- -- | A datatype to distinguish head non-terminals from body
+-- -- non-terminals.
+-- data Edge a
+--     = Head a
+--     | Body a
+--     deriving (Show, Eq, Ord)
 
 
 -- | The automaton-based representation of a factorized TAG
@@ -66,8 +92,8 @@ traverse dawg =
     -- already visited nodes.
     doit i = do
         b <- E.gets $ S.member i
-        when (not b) $ do
+        E.when (not b) $ do
             E.modify $ S.insert i
-            forM_ (D.edges i dawg) $ \(x, j) -> do
-                lift . E.modify $ S.insert (i, x, j)
+            E.forM_ (D.edges i dawg) $ \(x, j) -> do
+                E.lift . E.modify $ S.insert (i, x, j)
                 doit j

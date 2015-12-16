@@ -32,7 +32,8 @@ import qualified Data.DAWG.Ord.Dynamic      as D
 import           NLP.TAG.Vanilla.Core
 import           NLP.TAG.Vanilla.Rule
                                 ( Lab(..), Rule(..) )
-import qualified NLP.TAG.Vanilla.Automaton  as A
+import qualified NLP.TAG.Vanilla.Auto.Edge  as A
+import qualified NLP.TAG.Vanilla.Auto.DAWG  as A
 import qualified NLP.TAG.Vanilla.Tree       as T
 
 
