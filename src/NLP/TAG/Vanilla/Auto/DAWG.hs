@@ -35,22 +35,14 @@ import           NLP.TAG.Vanilla.Auto.Edge (Edge(..))
 
 shell :: (Ord n, Ord t) => DAWG n t -> Mini.Auto (Edge (Lab n t))
 shell d = Mini.Auto
-    { root   = D.root d
+    { roots  = S.singleton (D.root d)
     , follow = \i x ->  D.follow i x d
-    , edges  = \i -> D.edges i d }
+    , edges  = flip D.edges d }
 
 
 --------------------------------------------------
--- The rest
+-- Implementation
 --------------------------------------------------
-
-
--- -- | A datatype to distinguish head non-terminals from body
--- -- non-terminals.
--- data Edge a
---     = Head a
---     | Body a
---     deriving (Show, Eq, Ord)
 
 
 -- | The automaton-based representation of a factorized TAG
@@ -78,6 +70,9 @@ edges = S.toList . traverse
 
 
 -- | Traverse  the automaton and collect all the edges.
+--
+-- TODO: it is provided in the general case in the `Mini` module.
+-- Remove the version below.
 traverse
     :: (Ord n, Ord t)
     => DAWG n t

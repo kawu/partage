@@ -51,6 +51,7 @@ library
       , NLP.TAG.Vanilla.Earley.Pred
       , NLP.TAG.Vanilla.Auto.Edge
       , NLP.TAG.Vanilla.Auto.Mini
+      , NLP.TAG.Vanilla.Auto.List
       , NLP.TAG.Vanilla.Auto.Trie
       , NLP.TAG.Vanilla.Auto.DAWG
       , NLP.TAG.Vanilla.Earley.Auto

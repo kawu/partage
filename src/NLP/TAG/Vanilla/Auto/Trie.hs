@@ -5,18 +5,26 @@
 
 
 module NLP.TAG.Vanilla.Auto.Trie
-( Trie
+(
+-- * Trie
+  Trie
 , empty
 , insert
 , fromLang
+
+-- * From grammar
 , buildTrie
+
+-- * Interface
 , shell
 ) where
 
 
+import qualified Control.Arrow as Arr
 import           Control.Applicative ((<$>), (<*>), pure)
 import qualified Control.Monad.State.Strict as E
 
+import           Data.Maybe (fromMaybe)
 import           Data.List (foldl')
 import qualified Data.Set as S
 import qualified Data.Map.Strict as M
@@ -29,12 +37,12 @@ import           NLP.TAG.Vanilla.Rule (Lab(..), Rule(..))
 
 
 --------------------------------------------------
--- Base implementation
+-- Trie
 --------------------------------------------------
 
 
 -- | Simple trie implementation.
-newtype Trie a = Trie { unTrie :: M.Map a (Trie a) }
+newtype Trie a = Trie { _unTrie :: M.Map a (Trie a) }
 
 
 -- | Empty trie.
@@ -45,9 +53,7 @@ empty = Trie M.empty
 -- | Insert new element into the trie.
 insert :: Ord a => [a] -> Trie a -> Trie a
 insert (x:xs) (Trie t) =
-    let s = case M.lookup x t of
-            Nothing -> empty
-            Just x  -> x
+    let s = fromMaybe empty (M.lookup x t)
     in  Trie $ M.insert x (insert xs s) t
 insert [] t = t
 
@@ -55,6 +61,11 @@ insert [] t = t
 -- | Build trie from language.
 fromLang :: Ord a => [[a]] -> Trie a
 fromLang = foldl' (flip insert) empty
+
+
+--------------------------------------------------
+-- Trie from grammar
+--------------------------------------------------
 
 
 -- | Build trie from the given grammar.
@@ -75,7 +86,7 @@ shell
     => Trie (Edge (Lab n t))
     -> Mini.Auto (Edge (Lab n t))
 shell d0 = Mini.Auto
-    { root   = rootID d
+    { roots  = S.singleton (rootID d)
     , follow = follow d
     , edges  = edges d }
     where d = convert d0
@@ -122,4 +133,4 @@ convert t0 = ITrie
         yield i node
         return i
     newID = E.state $ \(n, m) -> (n, (n + 1, m))
-    yield i node = E.modify $ \(n, m) -> (n, M.insert i node m)
+    yield i node = E.modify $ Arr.second (M.insert i node)

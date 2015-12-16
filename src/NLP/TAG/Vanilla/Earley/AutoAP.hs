@@ -298,7 +298,7 @@ mkEarSt
     :: (Ord n, Ord t)
     => Auto n t
     -> S.Set (Active n t)
-    -> (EarSt n t)
+    -> EarSt n t
 mkEarSt dag s = EarSt
     { automat = dag
     , withBody = mkWithBody dag
@@ -827,14 +827,14 @@ step
     => Binding (Item n t) (ExtPrio n t)
     -> Earley n t ()
 step (ItemP p :-> e) = do
-    sequence_ $ map ($ p)
+    mapM_ ($ p)
       [ trySubst
       , tryAdjoinInit
       , tryAdjoinCont
       , tryAdjoinTerm ]
     savePassive p $ prioTrav e
 step (ItemA p :-> e) = do
-    sequence_ $ map ($ p)
+    mapM_ ($ p)
       [ tryScan ]
     saveActive p $ prioTrav e
 
@@ -935,8 +935,8 @@ recognize
     => S.Set (Rule n t)     -- ^ The grammar (set of rules)
     -> [t]                  -- ^ Input sentence
     -> IO Bool
-recognize gram xs = do
-    recognizeAuto (D.shell $ D.buildAuto gram) xs
+recognize gram =
+    recognizeAuto (D.shell $ D.buildAuto gram)
 
 
 -- | Does the given grammar generate the given sentence from the
@@ -949,8 +949,8 @@ recognizeFrom
     -> n                    -- ^ The start symbol
     -> [t]                  -- ^ Input sentence
     -> IO Bool
-recognizeFrom gram start xs =
-    recognizeFromAuto (D.shell $ D.buildAuto gram) start xs
+recognizeFrom gram =
+    recognizeFromAuto (D.shell $ D.buildAuto gram)
 
 
 -- | Parse the given sentence and return the set of parsed trees.
@@ -1026,17 +1026,17 @@ earleyAuto dawg xs =
     -- the left of the body of the rule (-> left = []) on all
     -- positions of the input sentence.
     st0 = mkEarSt dawg $ S.fromList
-        [ Active (A.root dawg) $ Span
+        [ Active root Span
             { _beg   = i
             , _end   = i
             , _gap   = Nothing }
-        | i <- [0 .. length xs - 1] ]
+        | i <- [0 .. length xs - 1]
+        , root <- S.toList (A.roots dawg) ]
     -- the computation is performed as long as the waiting queue
     -- is non-empty.
     loop = popItem >>= \mp -> case mp of
         Nothing -> return ()
-        Just p -> do
-            step p >> loop
+        Just p  -> step p >> loop
 
 
 --------------------------------------------------
@@ -1077,7 +1077,7 @@ isRecognized xs EarSt{..} =
         [ True | item <- S.toList done
         , item ^. spanP ^. beg == 0
         , item ^. spanP ^. end == n
-        , item ^. spanP ^. gap == Nothing ]
+        , isNothing (item ^. spanP ^. gap) ]
     agregate = S.unions . map M.keysSet . M.elems
 
 

@@ -19,8 +19,10 @@ import           Data.DAWG.Gen.Types (ID)
 
 
 -- | Minimal automaton implementation.
+-- Multiple roots are allowed in order to account for
+-- list implementation of an automaton.
 data Auto a = Auto
-    { root      :: ID
+    { roots     :: S.Set ID
     -- ^ Root node
     , follow    :: ID -> a -> Maybe ID
     -- ^ Follow the given symbol from the given node
@@ -39,7 +41,7 @@ traverse :: Ord a => Auto a -> S.Set (ID, a, ID)
 traverse Auto{..} =
     flip E.execState S.empty $
         flip E.evalStateT S.empty $
-            doit root
+            mapM_ doit (S.toList roots)
   where
     -- The embedded state serves to store the resulting set of
     -- transitions; the surface state serves to keep track of
