@@ -6,6 +6,7 @@
 
 module NLP.TAG.Vanilla.Auto.Mini
 ( Auto (..)
+, allIDs
 , allEdges
 ) where
 
@@ -29,6 +30,12 @@ data Auto a = Auto
     , edges     :: ID -> [(a, ID)]
     -- ^ List of outgoing edges
     }
+
+
+-- | Extract the set of underlying IDs.
+allIDs :: Ord a => Auto a -> S.Set ID
+allIDs d = S.fromList $ concat
+    [[i, j] | (i, _, j) <- allEdges d]
 
 
 -- | Return the list of automaton transitions.

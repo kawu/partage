@@ -54,6 +54,7 @@ library
       , NLP.TAG.Vanilla.Auto.List
       , NLP.TAG.Vanilla.Auto.Trie
       , NLP.TAG.Vanilla.Auto.DAWG
+      , NLP.TAG.Vanilla.Auto.Set
       , NLP.TAG.Vanilla.Earley.Auto
       , NLP.TAG.Vanilla.Earley.AutoAP
       , NLP.TAG.Vanilla.Earley.TreeGen
