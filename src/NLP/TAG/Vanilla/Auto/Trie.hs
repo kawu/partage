@@ -17,6 +17,7 @@ module NLP.TAG.Vanilla.Auto.Trie
 
 -- * Interface
 , shell
+, mkAuto
 ) where
 
 
@@ -31,7 +32,7 @@ import qualified Data.Map.Strict as M
 
 import           Data.DAWG.Gen.Types (ID)
 
-import qualified NLP.TAG.Vanilla.Auto.Mini as Mini
+import qualified NLP.TAG.Vanilla.Auto.Mini as A
 import           NLP.TAG.Vanilla.Auto.Edge (Edge(..))
 import           NLP.TAG.Vanilla.Rule (Lab(..), Rule(..))
 
@@ -81,15 +82,17 @@ buildTrie gram = fromLang
 
 
 -- | Abstract over the concrete implementation.
-shell
-    :: (Ord n, Ord t)
-    => Trie (Edge (Lab n t))
-    -> Mini.Auto (Edge (Lab n t))
-shell d0 = Mini.Auto
+shell :: (Ord n, Ord t) => Trie (Edge (Lab n t)) -> A.AutoR n t
+shell d0 = A.Auto
     { roots  = S.singleton (rootID d)
     , follow = follow d
     , edges  = edges d }
     where d = convert d0
+
+
+-- | A composition of `shell` and `buildTrie`.
+mkAuto :: (Ord n, Ord t) => S.Set (Rule n t) -> A.AutoR n t
+mkAuto = shell . buildTrie
 
 
 -- | Node type.

@@ -5,7 +5,12 @@
 -- each distinct rule head symbol.
 
 
-module NLP.TAG.Vanilla.Auto.Set where
+module NLP.TAG.Vanilla.Auto.Set
+( AutoSet
+, buildAutoSet
+, shell
+, mkAuto
+) where
 
 
 import           Control.Applicative ((<$>))
@@ -13,6 +18,7 @@ import           Control.Monad (forM)
 import qualified Control.Monad.State.Strict as E
 -- -- import           Control.Monad.Trans.Class (lift)
 
+import           Data.List (foldl')
 import           Data.Maybe (maybeToList)
 import qualified Data.Set                   as S
 import qualified Data.Map.Strict            as M
@@ -36,20 +42,39 @@ import           NLP.TAG.Vanilla.Auto.Edge (Edge(..))
 --------------------------------------------------
 
 
--- -- | DAWG as automat with one parameter.
--- newtype Auto a = Auto { unAuto :: D.DAWG a () }
-
-
 shell :: (Ord a) => AutoSet a -> A.Auto a
 shell AutoSet{..} = A.Auto
-    { roots  = rootSet
-    , follow = \i x -> do
-        (auto, j) <- M.lookup i nodeMap
-        A.follow auto j x
-    , edges  = \i -> do
-        (auto, j) <- maybeToList (M.lookup i nodeMap)
-        A.edges auto j
+    { roots  = S.fromList 
+             . map unExID
+             . S.toList $ rootSet
+             -- ^ we should note in the specification of the
+             -- `Mini.Auto` that it doesn't have to be very
+             -- efficient because it is run only once per
+             -- parsing session
+    , follow = \e x -> do
+        (autoID, i) <- M.lookup (ExID e) fromExID
+        auto        <- M.lookup autoID autoMap
+        j           <- A.follow auto i x
+        unExID     <$> M.lookup (autoID, j) toExID
+    , edges  = \e -> do
+        let mtl = maybeToList
+        (autoID, i) <- mtl $ M.lookup (ExID e) fromExID
+        auto        <- mtl $ M.lookup autoID autoMap
+        (x, j)      <- A.edges auto i
+        e           <- mtl $ M.lookup (autoID, j) toExID
+        return (x, unExID e)
     }
+
+
+-- | A composition of `shell` and `buildAuto`.
+mkAuto
+    :: (Ord n, Ord t)
+    => (S.Set (Rule n t) -> A.AutoR n t)
+        -- ^ The underlying automaton construction method
+    -> S.Set (Rule n t)
+        -- ^ The grammar to compress
+    -> A.AutoR n t
+mkAuto mkAuto = shell . buildAutoSet mkAuto
 
 
 --------------------------------------------------
@@ -57,50 +82,89 @@ shell AutoSet{..} = A.Auto
 --------------------------------------------------
 
 
--- | A collection of DFAs.
+-- | An external identifier (in contrast to internal identifiers
+-- which are local to individual component automata).
+newtype ExID = ExID { unExID :: ID }
+    deriving (Show, Eq, Ord)
+
+
+-- | An automaton identifier.
+newtype AutoID = AutoID { unAutoID :: ID }
+    deriving (Show, Eq, Ord)
+
+
+-- | An ensemble of automata.
 data AutoSet a = AutoSet
-    { rootSet   :: S.Set ID
-    -- ^ A set of roots
-    , nodeMap   :: M.Map ID (A.Auto a, ID)
-    -- ^ For a given external ID, an automaton it corresponds to
-    -- and the corresponding internal ID (in this automaton)
+    { autoMap   :: M.Map AutoID (A.Auto a)
+    -- ^ individual automata and their identifiers
+    , rootSet   :: S.Set ExID
+    -- ^ A set of roots of the ensemble
+    , fromExID  :: M.Map ExID (AutoID, ID)
+    -- ^ Map external IDs to internal ones
+    , toExID    :: M.Map (AutoID, ID) ExID
+    -- ^ Reverse of `fromEx`
     }
 
 
+-- | An empty `AutoSet`.
+emptyAS :: AutoSet a
+emptyAS = AutoSet M.empty S.empty M.empty M.empty
+
+
+-- | Assuming that two `AutoSet`s are disjoint (i.e. they have
+-- disjoint sets of `AutoID`s and disjoin sets of `ExID`s), we can
+-- union them easily.
+unionAS :: AutoSet a -> AutoSet a -> AutoSet a
+unionAS p q = AutoSet
+    { autoMap   = M.union (autoMap p) (autoMap q)
+    , rootSet   = S.union (rootSet p) (rootSet q)
+    , fromExID  = M.union (fromExID p) (fromExID q)
+    , toExID    = M.union (toExID p) (toExID q) }
+
+
+-- | Union a list of `AutoSet`s.
+unionsAS :: [AutoSet a] -> AutoSet a
+unionsAS = foldl' unionAS emptyAS
+
+
 -- | Build automata from the given grammar.
-buildAuto
+buildAutoSet
     :: (Ord n, Ord t)
-    => S.Set (Rule n t)
-        -- ^ The grammar to compress
-    -> (S.Set (Rule n t) -> A.Auto (Edge (Lab n t)))
+    => (S.Set (Rule n t) -> A.AutoR n t)
         -- ^ The underlying automaton construction method
+    -> S.Set (Rule n t)
+        -- ^ The grammar to compress
     -> AutoSet (Edge (Lab n t))
-buildAuto gram mkAuto = runM $ do
-    (rootSets, nodeMaps) <- unzip <$> mapM reID
-        [ ruleSet
-        | (_headSym, ruleSet) <- M.toList gramByHead ]
-    return AutoSet
-        { rootSet   = S.unions rootSets
-        , nodeMap   = M.unions nodeMaps }
+buildAutoSet mkAuto gram = runM $
+    unionsAS <$> sequence
+        [ mkAutoSet
+            (AutoID autoID)
+            (mkAuto ruleSet)
+        | (autoID, ruleSet)
+            <- zip [0..] (M.elems gramByHead) ]
   where
-    -- grammar divided by heads
-    gramByHead = M.fromList
-        [ (nonTerm (headR r), r)
+    -- grammar divided by rule heads
+    gramByHead = M.fromListWith S.union
+        [ (headR r, S.singleton r)
         | r <- S.toList gram ]
-    -- reidentification
-    reID ruleSet = do
-        auto <- mkAuto ruleSet
-        nodeMap <- M.fromList <$>
-            forM (S.toList (A.allIDs auto)) $ \i -> do
-                e <- newID
-                return (e, (auto, i))
-        rootSet <- do
-            internRoots <- A.roots auto
-            S.fromList <$> mapM
-                -- NOPE, nodeMap does not map internal to
-                -- external but the other way around.
-                (snd . (nodeMap M.!))
-                (S.toList internRoots)
-        return (rootSet, nodeMap)
-    runM = flip E.evalState 0
-    newID = E.state $ \n -> (n, n + 1)
+    -- build a single automatom
+    mkAutoSet autoID auto = do
+        rootMap <- mkNodeMap (A.roots auto)
+        descMap <- mkNodeMap (A.allIDs auto S.\\ A.roots auto)
+        let nodeMap = rootMap `M.union` descMap
+        return AutoSet
+            { autoMap   = M.singleton autoID auto
+            , rootSet   = M.keysSet rootMap
+            , fromExID  = nodeMap
+            , toExID    = rev1to1 nodeMap }
+      where
+        mkNodeMap inNodeSet = fmap M.fromList $
+            forM (S.toList inNodeSet) $ \i -> do
+                e <- newExID
+                return (e, (autoID, i))
+    -- low-level monad-related functions
+    runM = flip E.evalState (0 :: Int)
+    newExID = E.state $ \k -> (ExID k, k + 1)
+    -- reverse bijection
+    rev1to1 = M.fromList . map swap . M.toList
+    swap (x, y) = (y, x)

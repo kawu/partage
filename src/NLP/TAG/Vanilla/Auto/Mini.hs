@@ -8,6 +8,7 @@ module NLP.TAG.Vanilla.Auto.Mini
 ( Auto (..)
 , allIDs
 , allEdges
+, AutoR
 ) where
 
 
@@ -15,8 +16,9 @@ import qualified Control.Monad.State.Strict as E
 
 import qualified Data.Set                   as S
 
-
 import           Data.DAWG.Gen.Types (ID)
+import           NLP.TAG.Vanilla.Rule (Lab(..))
+import           NLP.TAG.Vanilla.Auto.Edge (Edge(..))
 
 
 -- | Minimal automaton implementation.
@@ -30,6 +32,10 @@ data Auto a = Auto
     , edges     :: ID -> [(a, ID)]
     -- ^ List of outgoing edges
     }
+
+
+-- | Automaton type specialized to represent grammar rules.
+type AutoR n t = Auto (Edge (Lab n t))
 
 
 -- | Extract the set of underlying IDs.

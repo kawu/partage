@@ -19,7 +19,7 @@ import           NLP.TAG.Vanilla.Rule
     ( Lab(..), Rule(..) )
 
 
-import qualified NLP.TAG.Vanilla.Auto.Mini as Mini
+import qualified NLP.TAG.Vanilla.Auto.Mini as A
 -- import qualified NLP.TAG.Vanilla.Auto.Shell as Sh
 import           NLP.TAG.Vanilla.Auto.Edge (Edge(..))
 
@@ -33,11 +33,16 @@ import           NLP.TAG.Vanilla.Auto.Edge (Edge(..))
 -- newtype Auto a = Auto { unAuto :: D.DAWG a () }
 
 
-shell :: (Ord n, Ord t) => DAWG n t -> Mini.Auto (Edge (Lab n t))
-shell d = Mini.Auto
+shell :: (Ord n, Ord t) => DAWG n t -> A.AutoR n t
+shell d = A.Auto
     { roots  = S.singleton (D.root d)
     , follow = \i x ->  D.follow i x d
     , edges  = flip D.edges d }
+
+
+-- | A composition of `shell` and `buildAuto`.
+mkAuto :: (Ord n, Ord t) => S.Set (Rule n t) -> A.AutoR n t
+mkAuto = shell . buildAuto
 
 
 --------------------------------------------------
