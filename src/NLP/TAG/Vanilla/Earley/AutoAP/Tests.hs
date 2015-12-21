@@ -38,7 +38,9 @@ localTest = do
 
 --     mapM_ (\r -> R.printRule r >> putStrLn "") (S.toList gram)
 
-    treeSet <- E.parse gram "NP" ["set", "points"]
-    putStrLn "\n## TREES ##\n"
-    forM_ (S.toList treeSet) $ \tree -> do
-        putStr $ E.showTree' tree ++ "\n"
+--     treeSet <- E.parse gram "NP" ["set", "points"]
+--     putStrLn "\n## TREES ##\n"
+--     forM_ (S.toList treeSet) $ \tree -> do
+--         putStr $ E.showTree' tree ++ "\n"
+
+    E.printHype =<< E.earley gram ["set", "points"]

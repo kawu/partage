@@ -18,7 +18,7 @@ module NLP.TAG.Vanilla.Earley.AutoAP where
 
 import           Prelude hiding             (span, (.))
 import           Control.Applicative        ((<$>))
-import           Control.Monad              (guard, void, (>=>), when)
+import           Control.Monad      (guard, void, (>=>), when, forM_)
 import           Control.Monad.Trans.Class  (lift)
 import           Control.Monad.Trans.Maybe  (MaybeT (..))
 import qualified Control.Monad.RWS.Strict   as RWS
@@ -28,6 +28,8 @@ import           Data.Function              (on)
 import           Data.Maybe     ( isJust, isNothing, mapMaybe
                                 , maybeToList )
 import qualified Data.Map.Strict            as M
+import           Data.Ord       ( comparing )
+import           Data.List      ( sortBy )
 import qualified Data.Set                   as S
 import qualified Data.PSQueue               as Q
 import           Data.PSQueue (Binding(..))
@@ -156,7 +158,8 @@ data Trav n t
     -- ^ Foot adjoin
         { actArg   :: Active n t
         -- ^ The passive argument of the action
-        , theFoot  :: n
+        -- , theFoot  :: n
+        , theFoot  :: Passive n t
         -- ^ The foot non-terminal
         }
     | Adjoin
@@ -167,6 +170,26 @@ data Trav n t
         -- ^ The modified item
         }
     deriving (Show, Eq, Ord)
+
+
+-- | Print a traversal.
+printTrav :: (View n, View t) => Item n t -> Trav n t -> IO ()
+printTrav q' (Scan p x) = do
+    putStr "# " >> printActive p
+    putStr "+ " >> print x
+    putStr "= " >> printItem q'
+printTrav q' (Subst p q) = do
+    putStr "# " >> printActive q
+    putStr "+ " >> printPassive p
+    putStr "= " >> printItem q'
+printTrav q' (Foot q p) = do
+    putStr "# " >> printActive q
+    putStr "+ " >> printPassive p
+    putStr "= " >> printItem q'
+printTrav q' (Adjoin p s) = do
+    putStr "# " >> printPassive p
+    putStr "+ " >> printPassive s
+    putStr "= " >> printItem q'
 
 
 --------------------------------------------------
@@ -246,6 +269,19 @@ data Item n t
     = ItemP (Passive n t)
     | ItemA (Active n t)
     deriving (Show, Eq, Ord)
+
+
+-- | Print an active item.
+printItem :: (View n, View t) => Item n t -> IO ()
+printItem (ItemP p) = printPassive p
+printItem (ItemA p) = printActive p
+
+
+-- | Priority of an active item.  Crucial for the algorithm --
+-- states have to be removed from the queue in a specific order.
+prio :: Item n t -> Prio
+prio (ItemP p) = prioP p
+prio (ItemA p) = prioA p
 
 
 --------------------------------------------------
@@ -356,6 +392,32 @@ hyperEdgesNum earSt
     sumOver listIt = sum
         [ S.size travSet
         | (_, travSet) <- listIt earSt ]
+
+
+-- | Extract hypergraph (hyper)edges.
+hyperEdges :: EarSt n t -> [(Item n t, Trav n t)]
+hyperEdges earSt =
+    passiveEdges ++ activeEdges
+  where
+    passiveEdges =
+        [ (ItemP p, trav)
+        | (p, travSet) <- listPassive earSt
+        , trav <- S.toList travSet ]
+    activeEdges =
+        [ (ItemA p, trav)
+        | (p, travSet) <- listActive earSt
+        , trav <- S.toList travSet ]
+
+
+-- | Print the hypergraph edges.
+printHype :: (View n, View t) => EarSt n t -> IO ()
+printHype earSt =
+    forM_ edges $ \(p, trav) ->
+        printTrav p trav
+  where
+    edges  = sortIt (hyperEdges earSt)
+    sortIt = sortBy (comparing $ prio.fst)
+    
 
 
 --------------------
@@ -742,7 +804,7 @@ tryAdjoinInit p = void $ P.runListT $ do
         putStr "  :  " >> printActive q'
 #endif
     -- push the resulting state into the waiting queue
-    lift $ pushInduced q' $ Foot q $ nonTerm foot
+    lift $ pushInduced q' $ Foot q p -- $ nonTerm foot
 
 
 --------------------------------------------------
@@ -856,7 +918,7 @@ parsedTrees earSt start n
 
     = S.fromList
     $ concatMap fromPassive
-    $ final start n earSt
+    $ finalFrom start n earSt
 
   where
 
@@ -872,10 +934,16 @@ parsedTrees earSt start n
             (reverse $ T.FNode t : ts)
         | ts <- fromActive q ]
 
-    fromPassiveTrav p (Foot q x) =
+--     fromPassiveTrav p (Foot q x) =
+--         [ T.INode
+--             (nonTerm $ getL label p)
+--             (reverse $ T.INode x [] : ts)
+--         | ts <- fromActive q ]
+
+    fromPassiveTrav p (Foot q p') =
         [ T.INode
             (nonTerm $ getL label p)
-            (reverse $ T.INode x [] : ts)
+            (reverse $ T.INode (nonTerm $ p ^. label) [] : ts)
         | ts <- fromActive q ]
 
     fromPassiveTrav p (Subst qp qa) =
@@ -910,9 +978,13 @@ parsedTrees earSt start n
         [ T.FNode t : ts
         | ts <- fromActive q ]
 
-    fromActiveTrav _p (Foot q x) =
-        [ T.INode x [] : ts
+    fromActiveTrav _p (Foot q p) =
+        [ T.INode (nonTerm $ p ^. label) [] : ts
         | ts <- fromActive q ]
+
+--     fromActiveTrav _p (Foot q x) =
+--         [ T.INode x [] : ts
+--         | ts <- fromActive q ]
 
     fromActiveTrav _p (Subst qp qa) =
         [ t : ts
@@ -997,7 +1069,7 @@ recognizeFromAuto
     -> IO Bool
 recognizeFromAuto auto start xs = do
     earSt <- earleyAuto auto xs
-    return $ (not.null) (final start (length xs) earSt)
+    return $ (not.null) (finalFrom start (length xs) earSt)
 
 
 -- | Parse the given sentence and return the set of parsed trees.
@@ -1045,13 +1117,13 @@ earleyAuto dawg xs =
 
 
 -- | Return the list of final passive chart items.
-final
+finalFrom
     :: (Ord n, Eq t)
     => n            -- ^ The start symbol
     -> Int          -- ^ The length of the input sentence
     -> EarSt n t    -- ^ Result of the earley computation
     -> [Passive n t]
-final start n EarSt{..} =
+finalFrom start n EarSt{..} =
     case M.lookup (0, start, n) donePassive of
         Nothing -> []
         Just m ->
@@ -1060,8 +1132,26 @@ final start n EarSt{..} =
             , p ^. label == NonT start Nothing ]
 
 
+-- -- | Return the list of final passive chart items.
+-- final
+--     :: (Ord n, Eq t)
+--     -> Int          -- ^ The length of the input sentence
+--     -> EarSt n t    -- ^ Result of the earley computation
+--     -> [Passive n t]
+-- final start n EarSt{..} =
+--     case M.lookup (0, start, n) donePassive of
+--         Nothing -> []
+--         Just m ->
+--             [ p
+--             | p <- M.keys m
+--             , p ^. label == NonT start Nothing ]
+
+
 -- | Check whether the given sentence is recognized
 -- based on the resulting state of the earley parser.
+--
+-- TODO: The function returns `True` also when a subtree
+-- of an elementary tree is recognized, it seems.
 isRecognized
     :: (VOrd t, VOrd n)
     => [t]                  -- ^ Input sentence
