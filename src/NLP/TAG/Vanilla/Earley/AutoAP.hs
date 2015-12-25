@@ -34,6 +34,7 @@ import qualified Data.Set                   as S
 import qualified Data.PSQueue               as Q
 import           Data.PSQueue (Binding(..))
 import           Data.Lens.Light
+import qualified Data.Vector                as V
 
 import qualified Pipes                      as P
 -- import qualified Pipes.Prelude              as P
@@ -293,6 +294,10 @@ prio (ItemA p) = prioA p
 type Auto n t = A.Auto (A.Edge (Lab n t))
 
 
+-- | The reader of the earley monad: vector of sets of terminals.
+type EarRd t = V.Vector (S.Set t)
+
+
 -- | The state of the earley monad.
 data EarSt n t = EarSt
     { automat :: Auto n t
@@ -357,17 +362,18 @@ mkWithBody dag = M.fromListWith S.union
 
 -- | Earley parser monad.  Contains the input sentence (reader)
 -- and the state of the computation `EarSt'.
-type Earley n t = RWS.RWST [t] () (EarSt n t) IO
+type Earley n t = RWS.RWST (EarRd t) () (EarSt n t) IO
 
 
 -- | Read word from the given position of the input.
 readInput :: Pos -> P.ListT (Earley n t) t
 readInput i = do
     -- ask for the input
-    xs <- RWS.ask
+    sent <- RWS.ask
     -- just a safe way to retrieve the i-th element
-    each $ take 1 $ drop i xs
-    -- maybeT $ listToMaybe $ drop i xs
+    -- each $ take 1 $ drop i xs
+    xs <- some $ sent V.!? i
+    each $ S.toList xs
 
 
 --------------------------------------------------
@@ -1005,7 +1011,7 @@ parsedTrees earSt start n
 recognize
     :: (VOrd t, VOrd n)
     => S.Set (Rule n t)     -- ^ The grammar (set of rules)
-    -> [t]                  -- ^ Input sentence
+    -> [S.Set t]            -- ^ Input sentence
     -> IO Bool
 recognize gram =
     recognizeAuto (D.shell $ D.buildAuto gram)
@@ -1019,7 +1025,7 @@ recognizeFrom
     :: (VOrd t, VOrd n)
     => S.Set (Rule n t)     -- ^ The grammar (set of rules)
     -> n                    -- ^ The start symbol
-    -> [t]                  -- ^ Input sentence
+    -> [S.Set t]            -- ^ Input sentence
     -> IO Bool
 recognizeFrom gram =
     recognizeFromAuto (D.shell $ D.buildAuto gram)
@@ -1030,7 +1036,7 @@ parse
     :: (VOrd t, VOrd n)
     => S.Set (Rule n t)     -- ^ The grammar (set of rules)
     -> n                    -- ^ The start symbol
-    -> [t]                  -- ^ Input sentence
+    -> [S.Set t]            -- ^ Input sentence
     -> IO (S.Set (T.Tree n t))
 parse gram = parseAuto $ D.shell $ D.buildAuto gram
 
@@ -1040,7 +1046,7 @@ parse gram = parseAuto $ D.shell $ D.buildAuto gram
 earley
     :: (VOrd t, VOrd n)
     => S.Set (Rule n t)     -- ^ The grammar (set of rules)
-    -> [t]                  -- ^ Input sentence
+    -> [S.Set t]            -- ^ Input sentence
     -> IO (EarSt n t)
 earley gram = earleyAuto $ D.shell $ D.buildAuto gram
 
@@ -1054,7 +1060,7 @@ earley gram = earleyAuto $ D.shell $ D.buildAuto gram
 recognizeAuto
     :: (VOrd t, VOrd n)
     => Auto n t           -- ^ Grammar automaton
-    -> [t]                  -- ^ Input sentence
+    -> [S.Set t]            -- ^ Input sentence
     -> IO Bool
 recognizeAuto auto xs =
     isRecognized xs <$> earleyAuto auto xs
@@ -1065,7 +1071,7 @@ recognizeFromAuto
     :: (VOrd t, VOrd n)
     => Auto n t           -- ^ Grammar automaton
     -> n                    -- ^ The start symbol
-    -> [t]                  -- ^ Input sentence
+    -> [S.Set t]            -- ^ Input sentence
     -> IO Bool
 recognizeFromAuto auto start xs = do
     earSt <- earleyAuto auto xs
@@ -1077,7 +1083,7 @@ parseAuto
     :: (VOrd t, VOrd n)
     => Auto n t           -- ^ Grammar automaton
     -> n                    -- ^ The start symbol
-    -> [t]                  -- ^ Input sentence
+    -> [S.Set t]            -- ^ Input sentence
     -> IO (S.Set (T.Tree n t))
 parseAuto auto start xs = do
     earSt <- earleyAuto auto xs
@@ -1089,10 +1095,10 @@ parseAuto auto start xs = do
 earleyAuto
     :: (VOrd t, VOrd n)
     => Auto n t           -- ^ Grammar automaton
-    -> [t]                  -- ^ Input sentence
+    -> [S.Set t]            -- ^ Input sentence
     -> IO (EarSt n t)
 earleyAuto dawg xs =
-    fst <$> RWS.execRWST loop xs st0
+    fst <$> RWS.execRWST loop (V.fromList xs) st0
   where
     -- we put in the initial state all the states with the dot on
     -- the left of the body of the rule (-> left = []) on all
@@ -1154,7 +1160,7 @@ finalFrom start n EarSt{..} =
 -- of an elementary tree is recognized, it seems.
 isRecognized
     :: (VOrd t, VOrd n)
-    => [t]                  -- ^ Input sentence
+    => [S.Set t]            -- ^ Input sentence
     -> EarSt n t            -- ^ Earley parsing result
     -> Bool
 isRecognized xs EarSt{..} =

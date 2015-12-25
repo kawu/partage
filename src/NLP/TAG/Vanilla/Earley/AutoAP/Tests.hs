@@ -23,7 +23,12 @@ import qualified NLP.TAG.Vanilla.Tests as T
 
 -- | All the tests of the parsing algorithm.
 tests :: TestTree
-tests = T.testTree "NLP.TAG.Vanilla.Earley.AutoAP" E.recognizeFrom Nothing Nothing
+tests = T.testTree "NLP.TAG.Vanilla.Earley.AutoAP"
+    recFrom Nothing Nothing
+  where
+    recFrom gram start
+        = E.recognizeFrom gram start
+        . map S.singleton
 
 
 --------------------------------------------------
@@ -43,4 +48,5 @@ localTest = do
 --     forM_ (S.toList treeSet) $ \tree -> do
 --         putStr $ E.showTree' tree ++ "\n"
 
-    E.printHype =<< E.earley gram ["set", "points"]
+    E.printHype =<< E.earley gram
+        (map S.singleton ["set", "points"])
