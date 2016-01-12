@@ -18,12 +18,12 @@ module NLP.TAG.Vanilla.Auto.DAWG
 ) where
 
 
-import qualified Control.Monad.State.Strict as E
+-- import qualified Control.Monad.State.Strict as E
 -- import           Control.Monad.Trans.Class (lift)
 
 import qualified Data.Set                   as S
 
-import           Data.DAWG.Ord (ID)
+-- import           Data.DAWG.Ord (ID)
 import qualified Data.DAWG.Ord              as D
 
 import           NLP.TAG.Vanilla.Rule

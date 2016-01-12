@@ -29,7 +29,7 @@ import           Control.Monad.Trans.Class (lift)
 import qualified Control.Monad.State.Strict   as E
 
 import qualified Data.Set as S
-import qualified Data.Map.Strict as M
+-- import qualified Data.Map.Strict as M
 import qualified Data.Tree as T
 
 import qualified Pipes as P
