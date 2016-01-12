@@ -569,7 +569,7 @@ savePassive p ts =
 pushActive :: (Ord t, Ord n) => Active n t -> Trav n t -> Earley n t ()
 pushActive p t = isProcessedA p >>= \b -> if b
     then saveActive p $ S.singleton t
-    else RWS.modify' $ \s -> s {waiting = newWait (waiting s)}
+    else modify' $ \s -> s {waiting = newWait (waiting s)}
   where
     newWait = Q.insertWith joinPrio (ItemA p) newPrio
     newPrio = ExtPrio (prioA p) (S.singleton t)
@@ -585,7 +585,7 @@ pushActive p t = isProcessedA p >>= \b -> if b
 pushPassive :: (Ord t, Ord n) => Passive n t -> Trav n t -> Earley n t ()
 pushPassive p t = isProcessedP p >>= \b -> if b
     then savePassive p $ S.singleton t
-    else RWS.modify' $ \s -> s {waiting = newWait (waiting s)}
+    else modify' $ \s -> s {waiting = newWait (waiting s)}
   where
     newWait = Q.insertWith joinPrio (ItemP p) newPrio
     newPrio = ExtPrio (prioP p) (S.singleton t)
@@ -1199,6 +1199,13 @@ isRecognized xs EarSt{..} =
 --------------------------------------------------
 -- Utilities
 --------------------------------------------------
+
+
+-- | Strict modify (in mtl starting from version 2.2).
+modify' :: RWS.MonadState s m => (s -> s) -> m ()
+modify' f = do
+  x <- RWS.get
+  RWS.put $! f x
 
 
 -- -- | MaybeT transformer.
