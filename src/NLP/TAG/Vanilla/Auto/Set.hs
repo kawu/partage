@@ -1,13 +1,20 @@
 {-# LANGUAGE RecordWildCards #-}
 
 
--- | A version in which a separate (abstract) automaton is built for
--- each distinct rule head symbol.
+-- | A version in which a separate automaton is built (according to
+-- the underlying building function) for each distinct rule head
+-- symbol, i.e. the set of rules is first partitioned w.r.t. the
+-- heads of the individual rules, and then for each partition a
+-- separate automaton is built.
 
 
 module NLP.TAG.Vanilla.Auto.Set
-( AutoSet
+(
+-- AutoSet
+  AutoSet
 , buildAutoSet
+
+-- * Interface
 , shell
 , mkAuto
 ) where
@@ -29,7 +36,7 @@ import           NLP.TAG.Vanilla.Rule
     ( Lab(..), Rule(..) )
 
 
-import qualified NLP.TAG.Vanilla.Auto.Mini as A
+import qualified NLP.TAG.Vanilla.Auto.Abstract as A
 -- import qualified NLP.TAG.Vanilla.Auto.Shell as Sh
 import           NLP.TAG.Vanilla.Auto.Edge (Edge(..))
 
@@ -42,12 +49,13 @@ import           NLP.TAG.Vanilla.Auto.Edge (Edge(..))
 --------------------------------------------------
 
 
+-- | Abstract over the concrete implementation of automaton.
 shell :: (Ord a) => AutoSet a -> A.Auto a
 shell AutoSet{..} = A.Auto
-    { roots  = S.fromList 
+    { roots  = S.fromList
              . map unExID
              . S.toList $ rootSet
-             -- ^ we should note in the specification of the
+             -- we could note in the specification of the
              -- `Mini.Auto` that it doesn't have to be very
              -- efficient because it is run only once per
              -- parsing session
@@ -61,12 +69,12 @@ shell AutoSet{..} = A.Auto
         (autoID, i) <- mtl $ M.lookup (ExID e) fromExID
         auto        <- mtl $ M.lookup autoID autoMap
         (x, j)      <- A.edges auto i
-        e           <- mtl $ M.lookup (autoID, j) toExID
-        return (x, unExID e)
+        e'          <- mtl $ M.lookup (autoID, j) toExID
+        return (x, unExID e')
     }
 
 
--- | A composition of `shell` and `buildAuto`.
+-- | A composition of `shell` and `buildAutoSet`.
 mkAuto
     :: (Ord n, Ord t)
     => (S.Set (Rule n t) -> A.AutoR n t)
@@ -74,7 +82,7 @@ mkAuto
     -> S.Set (Rule n t)
         -- ^ The grammar to compress
     -> A.AutoR n t
-mkAuto mkAuto = shell . buildAutoSet mkAuto
+mkAuto mkOne = shell . buildAutoSet mkOne
 
 
 --------------------------------------------------
@@ -89,7 +97,7 @@ newtype ExID = ExID { unExID :: ID }
 
 
 -- | An automaton identifier.
-newtype AutoID = AutoID { unAutoID :: ID }
+newtype AutoID = AutoID { _unAutoID :: ID }
     deriving (Show, Eq, Ord)
 
 
@@ -135,11 +143,11 @@ buildAutoSet
     -> S.Set (Rule n t)
         -- ^ The grammar to compress
     -> AutoSet (Edge (Lab n t))
-buildAutoSet mkAuto gram = runM $
+buildAutoSet mkOne gram = runM $
     unionsAS <$> sequence
         [ mkAutoSet
             (AutoID autoID)
-            (mkAuto ruleSet)
+            (mkOne ruleSet)
         | (autoID, ruleSet)
             <- zip [0..] (M.elems gramByHead) ]
   where

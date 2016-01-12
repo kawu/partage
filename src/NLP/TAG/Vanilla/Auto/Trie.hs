@@ -2,7 +2,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 
--- | (Prefix) trie grammar representation.
+-- | Prefix tree grammar representation.
 
 
 module NLP.TAG.Vanilla.Auto.Trie
@@ -33,7 +33,7 @@ import qualified Data.Map.Strict as M
 
 import           Data.DAWG.Ord (ID)
 
-import qualified NLP.TAG.Vanilla.Auto.Mini as A
+import qualified NLP.TAG.Vanilla.Auto.Abstract as A
 import           NLP.TAG.Vanilla.Auto.Edge (Edge(..))
 import           NLP.TAG.Vanilla.Rule (Lab(..), Rule(..))
 

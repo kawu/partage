@@ -1,7 +1,18 @@
 {-# LANGUAGE RecordWildCards      #-}
 
 
-module NLP.TAG.Vanilla.SubtreeSharing where
+-- | TAG conversion into flat production rules.
+-- Due to subtree sharing provided by `compile`, a single
+-- rule can be responsible for recognizing a subtree common to many
+-- different elementary trees.
+--
+
+
+module NLP.TAG.Vanilla.SubtreeSharing
+(
+-- * Grammar flattening
+  compile
+) where
 
 
 import           Control.Applicative        ((<$>))
@@ -21,8 +32,8 @@ import qualified Pipes                      as P
 import           Pipes                      (hoist, (>->))
 
 import           NLP.TAG.Vanilla.Core
-import           NLP.TAG.Vanilla.Rule       (Lab(..), Rule(..))
-import qualified NLP.TAG.Vanilla.Rule as Rule
+import           NLP.TAG.Vanilla.Rule.Internal (Lab(..), Rule(..))
+import qualified NLP.TAG.Vanilla.Rule.Internal as Rule
 import qualified NLP.TAG.Vanilla.Tree as G
 
 

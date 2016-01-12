@@ -2,14 +2,22 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 
--- | Automaton -- minimal implementation.
+-- | Abstract implementation of an automaton (or a set of automata,
+-- in general).  `Auto` provides a minimal interface needed to
+-- use automata in parsing.  It thus allows to use different
+-- concrete implementations (see e.g. "NLP.TAG.Vanilla.Auto.FSA"
+-- or "NLP.TAG.Vanilla.Auto.Trie").
 
 
-module NLP.TAG.Vanilla.Auto.Mini
-( Auto (..)
+module NLP.TAG.Vanilla.Auto.Abstract
+(
+-- * Automata
+  Auto (..)
+, AutoR
+
+-- * Utilities
 , allIDs
 , allEdges
-, AutoR
 ) where
 
 

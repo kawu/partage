@@ -2,10 +2,20 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 
--- | Automaton-based grammar representation.
+-- | A version where the grammar is actually compressed to a form of
+-- a /directed acyclic word graph/.
 
 
-module NLP.TAG.Vanilla.Auto.DAWG where
+module NLP.TAG.Vanilla.Auto.DAWG
+(
+-- * DAWG
+  DAWG
+, buildAuto
+
+-- * Interface
+, shell
+, mkAuto
+) where
 
 
 import qualified Control.Monad.State.Strict as E
@@ -20,7 +30,7 @@ import           NLP.TAG.Vanilla.Rule
     ( Lab(..), Rule(..) )
 
 
-import qualified NLP.TAG.Vanilla.Auto.Mini as A
+import qualified NLP.TAG.Vanilla.Auto.Abstract as A
 -- import qualified NLP.TAG.Vanilla.Auto.Shell as Sh
 import           NLP.TAG.Vanilla.Auto.Edge (Edge(..))
 
@@ -34,6 +44,7 @@ import           NLP.TAG.Vanilla.Auto.Edge (Edge(..))
 -- newtype Auto a = Auto { unAuto :: D.DAWG a () }
 
 
+-- | Abstract over the concrete implementation of automaton.
 shell :: (Ord n, Ord t) => DAWG n t -> A.AutoR n t
 shell d = A.Auto
     { roots  = S.singleton (D.root d)
@@ -70,31 +81,31 @@ buildAuto gram = D.fromLang
     | Rule{..} <- S.toList gram ]
 
 
--- | Return the list of automaton transitions.
-edges :: (Ord n, Ord t) => DAWG n t -> [(ID, Edge (Lab n t), ID)]
-edges = S.toList . walk
-
-
--- | Traverse  the automaton and collect all the edges.
+-- -- | Return the list of automaton transitions.
+-- edges :: (Ord n, Ord t) => DAWG n t -> [(ID, Edge (Lab n t), ID)]
+-- edges = S.toList . walk
 --
--- TODO: it is provided in the general case in the `Mini` module.
--- Remove the version below.
-walk
-    :: (Ord n, Ord t)
-    => DAWG n t
-    -> S.Set (ID, Edge (Lab n t), ID)
-walk dawg =
-    flip E.execState S.empty $
-        flip E.evalStateT S.empty $
-            doit (D.root dawg)
-  where
-    -- The embedded state serves to store the resulting set of
-    -- transitions; the surface state serves to keep track of
-    -- already visited nodes.
-    doit i = do
-        b <- E.gets $ S.member i
-        E.when (not b) $ do
-            E.modify $ S.insert i
-            E.forM_ (D.edges i dawg) $ \(x, j) -> do
-                E.lift . E.modify $ S.insert (i, x, j)
-                doit j
+--
+-- -- | Traverse  the automaton and collect all the edges.
+-- --
+-- -- TODO: it is provided in the general case in the `Mini` module.
+-- -- Remove the version below.
+-- walk
+--     :: (Ord n, Ord t)
+--     => DAWG n t
+--     -> S.Set (ID, Edge (Lab n t), ID)
+-- walk dawg =
+--     flip E.execState S.empty $
+--         flip E.evalStateT S.empty $
+--             doit (D.root dawg)
+--   where
+--     -- The embedded state serves to store the resulting set of
+--     -- transitions; the surface state serves to keep track of
+--     -- already visited nodes.
+--     doit i = do
+--         b <- E.gets $ S.member i
+--         E.when (not b) $ do
+--             E.modify $ S.insert i
+--             E.forM_ (D.edges i dawg) $ \(x, j) -> do
+--                 E.lift . E.modify $ S.insert (i, x, j)
+--                 doit j
