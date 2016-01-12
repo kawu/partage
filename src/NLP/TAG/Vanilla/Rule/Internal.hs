@@ -13,7 +13,10 @@ module NLP.TAG.Vanilla.Rule.Internal
 
 -- * Grammar flattening
 , compile
-, compileWeights
+-- , compileWeights
+
+-- * Viewing
+, viewLab
 
 -- * Internal
 , runRM
@@ -58,33 +61,33 @@ compile ts =
     getRules (Right t) = auxRules  t
 
 
--- | Compile the given probabilistic grammar into the list of rules.  No
--- structure sharing takes place.  Weights are evenly distributed over all
--- rules representing the corresponding elementary trees.
-compileWeights
-    :: (Monad m, Ord n, Ord t)
-    => [ Either
-        (G.Tree n t, Cost)
-        (G.AuxTree n t, Cost) ]
-    -> m (M.Map (Rule n t) Cost)
-compileWeights ts =
-    flip E.execStateT M.empty $ runRM $ P.runEffect $
-        P.for rules $ \(rule, cost) ->
-            lift . lift $ E.modify $ M.insert rule cost
-  where
-    rules = mapM_ getRules ts
-    getRules (Left (t, c0))  = do
-        labTree <- lift $ labelTree True t
-        keepRules labTree c0
-        return $ T.rootLabel labTree
-    getRules (Right (t, c0)) = do
-        labTree <- lift $ labelAux True t
-        keepRules labTree c0
-        return $ T.rootLabel labTree
-    keepRules labTree c0 = do
-        let rs = collect labTree
-            c = c0 / fromIntegral (length rs)
-        mapM_ keepRule [ (r, c) | r <- rs ]
+-- -- | Compile the given probabilistic grammar into the list of rules.  No
+-- -- structure sharing takes place.  Weights are evenly distributed over all
+-- -- rules representing the corresponding elementary trees.
+-- compileWeights
+--     :: (Monad m, Ord n, Ord t)
+--     => [ Either
+--         (G.Tree n t, Cost)
+--         (G.AuxTree n t, Cost) ]
+--     -> m (M.Map (Rule n t) Cost)
+-- compileWeights ts =
+--     flip E.execStateT M.empty $ runRM $ P.runEffect $
+--         P.for rules $ \(rule, cost) ->
+--             lift . lift $ E.modify $ M.insert rule cost
+--   where
+--     rules = mapM_ getRules ts
+--     getRules (Left (t, c0))  = do
+--         labTree <- lift $ labelTree True t
+--         keepRules labTree c0
+--         return $ T.rootLabel labTree
+--     getRules (Right (t, c0)) = do
+--         labTree <- lift $ labelAux True t
+--         keepRules labTree c0
+--         return $ T.rootLabel labTree
+--     keepRules labTree c0 = do
+--         let rs = collect labTree
+--             c = c0 / fromIntegral (length rs)
+--         mapM_ keepRule [ (r, c) | r <- rs ]
 
 
 ----------------------
@@ -119,24 +122,24 @@ data Lab n t
     deriving (Show, Eq, Ord)
 
 
--- -- | Show full info about the label.
+-- | Show full info about the label.
+viewLab :: (View n, View t) => Lab n t -> String
+viewLab lab = case lab of
+    NonT{..}    -> "N(" ++ view nonTerm
+        ++ ( case labID of
+                Nothing -> ""
+                Just i  -> ", " ++ view i ) ++ ")"
+    Term t      -> "T(" ++ view t ++ ")"
+    AuxRoot{..} -> "A(" ++ view nonTerm ++ ")"
+    AuxFoot x   -> "F(" ++ view x ++ ")"
+    AuxVert{..} -> "V(" ++ view nonTerm ++ ", " ++ view symID ++ ")"
+
+
+-- -- | Show the label.
 -- viewLab :: (View n, View t) => Lab n t -> String
--- viewLab lab = case lab of
---     NonT{..}    -> "N(" ++ view nonTerm
---         ++ ( case labID of
---                 Nothing -> ""
---                 Just i  -> ", " ++ view i ) ++ ")"
---     Term t      -> "T(" ++ view t ++ ")"
---     AuxRoot{..} -> "A(" ++ view nonTerm ++ ")"
---     AuxFoot x   -> "F(" ++ view x ++ ")"
---     AuxVert{..} -> "V(" ++ view nonTerm ++ ", " ++ view symID ++ ")"
---
---
--- -- -- | Show the label.
--- -- viewLab :: (View n, View t) => Lab n t -> String
--- -- viewLab (NonT s) = "N" ++ viewSym s
--- -- viewLab (Term t) = "T(" ++ view t ++ ")"
--- -- viewLab (Foot s) = "F" ++ viewSym s
+-- viewLab (NonT s) = "N" ++ viewSym s
+-- viewLab (Term t) = "T(" ++ view t ++ ")"
+-- viewLab (Foot s) = "F" ++ viewSym s
 
 
 -- | A production rule, responsible for recognizing a specific

@@ -6,21 +6,41 @@
 {-# LANGUAGE CPP #-}
 
 
--- | Earley-style parsing based on a DFSA with an additional
--- distinction on active and passive configurations/items/edges
--- (the third term is used in "Parsing and Hyphergraphs" by Klein
--- and Manning, as well as the idea of probabilistic chart
--- parsing).
+-- | Earley-style TAG parsing based on automata, with a distinction
+-- between active and passive items.
 
 
-module NLP.TAG.Vanilla.Earley.AutoAP where
+module NLP.TAG.Vanilla.Earley.AutoAP
+(
+-- * Earley-style parsing
+  recognize
+, recognizeFrom
+, parse
+, earley
+-- ** With automata precompiled
+, recognizeAuto
+, recognizeFromAuto
+, parseAuto
+, earleyAuto
+
+-- * Parsing trace (hypergraph)
+, EarSt
+, Auto
+-- ** Extracting parsed trees
+, parsedTrees
+-- ** Stats
+, hyperNodesNum
+, hyperEdgesNum
+-- ** Printing
+, printHype
+) where
 
 
 import           Prelude hiding             (span, (.))
 import           Control.Applicative        ((<$>))
 import           Control.Monad      (guard, void, (>=>), when, forM_)
 import           Control.Monad.Trans.Class  (lift)
-import           Control.Monad.Trans.Maybe  (MaybeT (..))
+-- import           Control.Monad.Trans.Maybe  (MaybeT (..))
 import qualified Control.Monad.RWS.Strict   as RWS
 import           Control.Category ((>>>), (.))
 
@@ -43,10 +63,10 @@ import           Data.DAWG.Ord (ID)
 -- import qualified Data.DAWG.Ord.Dynamic      as D
 
 import           NLP.TAG.Vanilla.Core
-import           NLP.TAG.Vanilla.Rule
+import           NLP.TAG.Vanilla.Rule.Internal
                                 ( Lab(..), Rule(..), viewLab )
 import qualified NLP.TAG.Vanilla.Auto.Edge  as A
-import qualified NLP.TAG.Vanilla.Auto.Mini  as A
+import qualified NLP.TAG.Vanilla.Auto.Abstract  as A
 import qualified NLP.TAG.Vanilla.Auto.DAWG  as D
 import qualified NLP.TAG.Vanilla.Tree       as T
 
@@ -143,33 +163,33 @@ printPassive p = do
 -- one could be derived.
 data Trav n t
     = Scan
-        { scanFrom :: Active n t
+        { _scanFrom :: Active n t
         -- ^ The input active state
-        , scanTerm :: t
+        , _scanTerm :: t
         -- ^ The scanned terminal
         }
     | Subst
-    -- ^ Pseudo substitution
-        { passArg  :: Passive n t
+        { _passArg  :: Passive n t
         -- ^ The passive argument of the action
-        , actArg   :: Active n t
+        , _actArg   :: Active n t
         -- ^ The active argument of the action
         }
+    -- ^ Pseudo substitution
     | Foot
-    -- ^ Foot adjoin
-        { actArg   :: Active n t
+        { _actArg   :: Active n t
         -- ^ The passive argument of the action
         -- , theFoot  :: n
-        , theFoot  :: Passive n t
+        , _theFoot  :: Passive n t
         -- ^ The foot non-terminal
         }
+    -- ^ Foot adjoin
     | Adjoin
-    -- ^ Adjoin terminate with two passive arguments
-        { passAdj  :: Passive n t
+        { _passAdj  :: Passive n t
         -- ^ The adjoined item
-        , passMod  :: Passive n t
+        , _passMod  :: Passive n t
         -- ^ The modified item
         }
+    -- ^ Adjoin terminate with two passive arguments
     deriving (Show, Eq, Ord)
 
 
@@ -315,7 +335,7 @@ data EarSt n t = EarSt
     -- positions and state IDs.
 
     -- , donePassive :: S.Set (Passive n t)
-    , donePassive :: M.Map (Pos, n, Pos) 
+    , donePassive :: M.Map (Pos, n, Pos)
         (M.Map (Passive n t) (S.Set (Trav n t)))
     -- ^ Processed passive items.
 
@@ -423,7 +443,7 @@ printHype earSt =
   where
     edges  = sortIt (hyperEdges earSt)
     sortIt = sortBy (comparing $ prio.fst)
-    
+
 
 
 --------------------
@@ -688,14 +708,14 @@ heads i = do
     each $ mapMaybe mayHead $ A.edges auto i
 
 
--- | Rule body elements outgoing from the given automaton state.
-elems :: ID -> P.ListT (Earley n t) (Lab n t)
-elems i = do
-    auto <- RWS.gets automat
-    let mayBody (x, _) = case x of
-            A.Body y  -> Just y
-            A.Head _ -> Nothing
-    each $ mapMaybe mayBody $ A.edges auto i
+-- -- | Rule body elements outgoing from the given automaton state.
+-- elems :: ID -> P.ListT (Earley n t) (Lab n t)
+-- elems i = do
+--     auto <- RWS.gets automat
+--     let mayBody (x, _) = case x of
+--             A.Body y  -> Just y
+--             A.Head _ -> Nothing
+--     each $ mapMaybe mayBody $ A.edges auto i
 
 
 -- | Check if any element leaves the given state.
@@ -810,7 +830,7 @@ tryAdjoinInit p = void $ P.runListT $ do
         putStr "  :  " >> printActive q'
 #endif
     -- push the resulting state into the waiting queue
-    lift $ pushInduced q' $ Foot q p -- $ nonTerm foot
+    lift $ pushInduced q' $ Foot q p -- -- $ nonTerm foot
 
 
 --------------------------------------------------
@@ -935,25 +955,25 @@ parsedTrees earSt start n
         , trav <- S.toList travSet ]
 
     fromPassiveTrav p (Scan q t) =
-        [ T.INode
+        [ T.Branch
             (nonTerm $ getL label p)
-            (reverse $ T.FNode t : ts)
+            (reverse $ T.Leaf t : ts)
         | ts <- fromActive q ]
 
 --     fromPassiveTrav p (Foot q x) =
---         [ T.INode
+--         [ T.Branch
 --             (nonTerm $ getL label p)
---             (reverse $ T.INode x [] : ts)
+--             (reverse $ T.Branch x [] : ts)
 --         | ts <- fromActive q ]
 
-    fromPassiveTrav p (Foot q p') =
-        [ T.INode
+    fromPassiveTrav p (Foot q _p') =
+        [ T.Branch
             (nonTerm $ getL label p)
-            (reverse $ T.INode (nonTerm $ p ^. label) [] : ts)
+            (reverse $ T.Branch (nonTerm $ p ^. label) [] : ts)
         | ts <- fromActive q ]
 
     fromPassiveTrav p (Subst qp qa) =
-        [ T.INode
+        [ T.Branch
             (nonTerm $ getL label p)
             (reverse $ t : ts)
         | ts <- fromActive qa
@@ -966,9 +986,9 @@ parsedTrees earSt start n
 
     -- | Replace foot (the only non-terminal leaf) by the given
     -- initial tree.
-    replaceFoot ini (T.INode _ []) = ini
-    replaceFoot ini (T.INode x ts) = T.INode x $ map (replaceFoot ini) ts
-    replaceFoot _ t@(T.FNode _)    = t
+    replaceFoot ini (T.Branch _ []) = ini
+    replaceFoot ini (T.Branch x ts) = T.Branch x $ map (replaceFoot ini) ts
+    replaceFoot _ t@(T.Leaf _)    = t
 
 
     fromActive  :: Active n t -> [[T.Tree n t]]
@@ -981,15 +1001,15 @@ parsedTrees earSt start n
                 (S.toList travSet)
 
     fromActiveTrav _p (Scan q t) =
-        [ T.FNode t : ts
+        [ T.Leaf t : ts
         | ts <- fromActive q ]
 
     fromActiveTrav _p (Foot q p) =
-        [ T.INode (nonTerm $ p ^. label) [] : ts
+        [ T.Branch (nonTerm $ p ^. label) [] : ts
         | ts <- fromActive q ]
 
 --     fromActiveTrav _p (Foot q x) =
---         [ T.INode x [] : ts
+--         [ T.Branch x [] : ts
 --         | ts <- fromActive q ]
 
     fromActiveTrav _p (Subst qp qa) =
@@ -1056,7 +1076,7 @@ earley gram = earleyAuto $ D.shell $ D.buildAuto gram
 --------------------------------------------------
 
 
--- | Alternative to `recognize`.
+-- | See `recognize`.
 recognizeAuto
     :: (VOrd t, VOrd n)
     => Auto n t           -- ^ Grammar automaton
@@ -1066,7 +1086,7 @@ recognizeAuto auto xs =
     isRecognized xs <$> earleyAuto auto xs
 
 
--- | Alternative to `recognizeFrom`.
+-- | See `recognizeFrom`.
 recognizeFromAuto
     :: (VOrd t, VOrd n)
     => Auto n t           -- ^ Grammar automaton
@@ -1078,7 +1098,7 @@ recognizeFromAuto auto start xs = do
     return $ (not.null) (finalFrom start (length xs) earSt)
 
 
--- | Parse the given sentence and return the set of parsed trees.
+-- | See `parse`.
 parseAuto
     :: (VOrd t, VOrd n)
     => Auto n t           -- ^ Grammar automaton
@@ -1090,8 +1110,7 @@ parseAuto auto start xs = do
     return $ parsedTrees earSt start (length xs)
 
 
--- | Perform the earley-style computation given the grammar and
--- the input sentence.
+-- | See `earley`.
 earleyAuto
     :: (VOrd t, VOrd n)
     => Auto n t           -- ^ Grammar automaton
@@ -1182,9 +1201,9 @@ isRecognized xs EarSt{..} =
 --------------------------------------------------
 
 
--- | MaybeT transformer.
-maybeT :: Monad m => Maybe a -> MaybeT m a
-maybeT = MaybeT . return
+-- -- | MaybeT transformer.
+-- maybeT :: Monad m => Maybe a -> MaybeT m a
+-- maybeT = MaybeT . return
 
 
 -- | ListT from a list.

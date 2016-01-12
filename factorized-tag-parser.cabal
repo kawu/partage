@@ -2,7 +2,7 @@ name:               factorized-tag-parser
 version:            0.1
 synopsis:           Parsing factorized TAGs
 description:
-    TODO
+    Parsing factorized tree adjoining grammars.
 license:            BSD3
 license-file:       LICENSE
 cabal-version:      >= 1.10
@@ -45,7 +45,7 @@ library
       , NLP.TAG.Vanilla.Auto.Trie
       , NLP.TAG.Vanilla.Auto.DAWG
       , NLP.TAG.Vanilla.Auto.Set
---       , NLP.TAG.Vanilla.Earley.AutoAP
+      , NLP.TAG.Vanilla.Earley.AutoAP
 
 -- NOT FOR THIS VERIONS:
 --       , NLP.TAG.Vanilla.WRule
@@ -64,16 +64,10 @@ library
     ghc-options: -Wall
     -- cpp-options: -DDebug
 
+
 source-repository head
     type: git
     location: https://github.com/kawu/tag-vanilla.git
-
-
--- executable test1
---     -- build-depends:
---     hs-source-dirs: tools, src
---     main-is: test1.hs
---     ghc-options: -Wall -O2 -threaded -rtsopts
 
 
 test-suite test
@@ -83,15 +77,15 @@ test-suite test
         exitcode-stdio-1.0
     hs-source-dirs:
         tests
-      , src
     main-is:
         test.hs
+    other-modules:
+        TestSet
+      , Parser
     build-depends:
-        tasty                   >= 0.10
---       , tasty-quickcheck        >= 0.8
---       , tasty-smallcheck        >= 0.8
+        factorized-tag-parser
+      , base                    >= 4        && < 5
+      , containers              >= 0.5      && < 0.6
+      , tasty                   >= 0.10
       , tasty-hunit             >= 0.9
       , HUnit                   >= 1.2
---       , QuickCheck              >= 2.6
---       , smallcheck              >= 1.1
-      , mmorph                  >= 1.0

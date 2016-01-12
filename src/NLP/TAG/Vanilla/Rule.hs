@@ -13,7 +13,6 @@ module NLP.TAG.Vanilla.Rule
 
 -- * Grammar flattening
 , compile
-, compileWeights
 ) where
 
 

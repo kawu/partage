@@ -3,14 +3,19 @@
 
 
 -- | This module contains the core types used across the entire
--- library. 
+-- library.
 
 
 module NLP.TAG.Vanilla.Core
-( View (..)
+(
+-- * Classes
+  View (..)
+, VOrd
+
+-- * Types
 , Pos
 , SymID
-, Cost
+-- , Cost
 ) where
 
 
@@ -60,6 +65,6 @@ type Pos = Int
 type SymID = Int
 
 
--- | Cost (weight, probability) of employing an elementary
--- unit (tree, rule) in a parse tree.
-type Cost = Double
+-- -- | Cost (weight, probability) of employing an elementary
+-- -- unit (tree, rule) in a parse tree.
+-- type Cost = Double
