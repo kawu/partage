@@ -1,17 +1,17 @@
-name:               tag-vanilla
+name:               factorized-tag-parser
 version:            0.1
-synopsis:           Vanilla TAGs
+synopsis:           Parsing factorized TAGs
 description:
     TODO
 license:            BSD3
 license-file:       LICENSE
 cabal-version:      >= 1.6
-copyright:          Copyright (c) 2015 Jakub Waszczuk
+copyright:          Copyright (c) 2015-2016 Jakub Waszczuk
 author:             Jakub Waszczuk
 maintainer:         waszczuk.kuba@gmail.com
 stability:          experimental
 category:           Natural Language Processing
-homepage:           https://github.com/kawu/tag-vanilla
+homepage:           https://github.com/kawu/factorized-tag-parser
 build-type:         Simple
 
 library
@@ -29,16 +29,6 @@ library
       , data-lens-light     >= 0.1      && < 0.2
       , random              >= 1.1      && < 1.2
       , vector              >= 0.10     && < 0.12
-      --
-      -- from `ltag`, not needed any more:
-      -- , feature-structure   >= 0.2      && < 0.3
-      -- , tostring            >= 0.2      && < 1.0
-      --
-      -- for using diagrams framework
-      --
-      -- , SVGFonts                >= 1.5      && < 2.0
-      -- , diagrams-svg            >= 1.3      && < 2.0
-      -- , diagrams-lib            >= 1.3      && < 2.0
 
     exposed-modules:
         NLP.TAG.Vanilla.Core
