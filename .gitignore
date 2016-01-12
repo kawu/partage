@@ -8,3 +8,4 @@ cabal-dev
 docs
 output
 *.swp
+.stack-work

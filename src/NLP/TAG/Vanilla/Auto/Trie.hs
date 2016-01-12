@@ -1,4 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 
 -- | (Prefix) trie grammar representation.
@@ -30,7 +31,7 @@ import           Data.List (foldl')
 import qualified Data.Set as S
 import qualified Data.Map.Strict as M
 
-import           Data.DAWG.Gen.Types (ID)
+import           Data.DAWG.Ord (ID)
 
 import qualified NLP.TAG.Vanilla.Auto.Mini as A
 import           NLP.TAG.Vanilla.Auto.Edge (Edge(..))

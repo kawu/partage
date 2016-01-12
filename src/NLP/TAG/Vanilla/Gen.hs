@@ -6,11 +6,12 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 
--- | An simple, experimental tree generation module.
+-- | A simple, experimental tree generation module.
 
 
 module NLP.TAG.Vanilla.Gen
-( GenConf (..)
+( Gram
+, GenConf (..)
 , generateAll
 , generateRand
 ) where
@@ -18,12 +19,8 @@ module NLP.TAG.Vanilla.Gen
 
 
 import           Control.Applicative ((<$>), (<*>))
--- import           Control.Monad (void, when, forM_)
--- import           Control.Monad (when)
 import qualified Control.Monad.State.Strict   as E
 import           Control.Monad.Trans.Maybe (MaybeT (..))
--- import           Control.Monad.Trans.Class (lift)
--- import           Control.Monad.IO.Class (liftIO)
 
 import           Pipes
 import qualified Pipes.Prelude as Pipes
@@ -48,7 +45,8 @@ import           NLP.TAG.Vanilla.Tree.Other
 deriving instance (Ord n, Ord t) => (Ord (Tree n t))
 
 
--- | A TAG grammar.
+-- | A TAG grammar: a set of (elementary) initial and auxiliary
+-- trees.
 type Gram n t = S.Set (Tree n t)
 
 
@@ -172,6 +170,7 @@ visitedWith doneMap cond = do
 --------------------------
 
 
+-- | Generation configuration.
 data GenConf = GenConf {
       genAllSize    :: Int
     -- ^ Generate all derivable trees up to the given size
@@ -247,8 +246,8 @@ drawTree gramSet finalSet GenConf{..} = runMaybeT $ do
 type Gen m n t = E.StateT (GenST n t) (Producer (Tree n t) m) ()
 
 
--- Generate all trees derivable from the given grammar
--- up to a given size.
+-- | Generate all trees derivable from the given grammar up to the
+-- given size.
 generateAll
     :: (MonadIO m, Ord n, Ord t)
     => Gram n t -> Int -> Producer (Tree n t) m ()

@@ -26,8 +26,8 @@ import qualified Data.PSQueue               as Q
 import           Data.PSQueue (Binding(..))
 import qualified Pipes                      as P
 
-import           Data.DAWG.Gen.Types (ID)
-import qualified Data.DAWG.Ord.Dynamic      as D
+import           Data.DAWG.Ord (ID)
+import qualified Data.DAWG.Ord              as D
 
 import           NLP.TAG.Vanilla.Core
 import           NLP.TAG.Vanilla.Rule

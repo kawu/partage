@@ -1,4 +1,5 @@
-{-# LANGUAGE RecordWildCards      #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 
 -- | Automaton -- minimal implementation.
@@ -16,7 +17,7 @@ import qualified Control.Monad.State.Strict as E
 
 import qualified Data.Set                   as S
 
-import           Data.DAWG.Gen.Types (ID)
+import           Data.DAWG.Ord (ID)
 import           NLP.TAG.Vanilla.Rule (Lab(..))
 import           NLP.TAG.Vanilla.Auto.Edge (Edge(..))
 
@@ -46,12 +47,12 @@ allIDs d = S.fromList $ concat
 
 -- | Return the list of automaton transitions.
 allEdges :: Ord a => Auto a -> [(ID, a, ID)]
-allEdges = S.toList . traverse
+allEdges = S.toList . walk
 
 
 -- | Traverse  the automaton and collect all the edges.
-traverse :: Ord a => Auto a -> S.Set (ID, a, ID)
-traverse Auto{..} =
+walk :: Ord a => Auto a -> S.Set (ID, a, ID)
+walk Auto{..} =
     flip E.execState S.empty $
         flip E.evalStateT S.empty $
             mapM_ doit (S.toList roots)

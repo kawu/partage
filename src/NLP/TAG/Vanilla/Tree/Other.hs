@@ -1,15 +1,18 @@
 {-# LANGUAGE RecordWildCards #-}
 
 
--- | Alternative representation of TAG trees.
+-- | Alternative (to "NLP.TAG.Vanilla.Tree") representation of TAG
+-- trees, in which information about the foot is present in the tree
+-- itself.
 
 
 module NLP.TAG.Vanilla.Tree.Other
 (
--- * Tree
+-- * TAG Tree
   Tree
-, SomeTree
 , Node (..)
+-- ** Base representation
+, SomeTree
 
 -- * Conversion
 , encode
@@ -21,7 +24,7 @@ module NLP.TAG.Vanilla.Tree.Other
 , isInitial
 , isAuxiliary
 , hasRoot
-, proj
+, project
 ) where
 
 
@@ -40,7 +43,7 @@ import qualified NLP.TAG.Vanilla.Tree as T
 ---------------------------------------------------------------------
 
 
--- | Node type.
+-- | Node of a TAG tree.
 data Node n t
     = NonTerm n     -- ^ Standard non-terminal
     | Foot n        -- ^ Foot non-terminal
@@ -54,11 +57,15 @@ isTerm (Term _) = True
 isTerm _        = False
 
 
--- | TAG initial or auxiliary tree.
+-- | An initial or auxiliary TAG tree.  Note that the type doesn't
+-- ensure that the foot is placed in a leaf, nor that there is at
+-- most one foot node.  On the other hand, and in contrast to
+-- "NLP.TAG.Vanilla.Tree", information about the foot is available at
+-- the level of the corresponding foot node.
 type Tree n t = R.Tree (Node n t)
 
 
--- | Original tree representation.
+-- | An original tree representation (see "NLP.TAG.Vanilla.Tree").
 type SomeTree n t = Either (T.Tree n t) (T.AuxTree n t)
 
 
@@ -75,8 +82,8 @@ encode (Right T.AuxTree{..}) = markFoot auxFoot (unTree auxTree)
 
 -- | Encode the initial tree using the alternative representation.
 unTree :: T.Tree n t -> Tree n t
-unTree (T.INode x xs) = R.Node (NonTerm x) (map unTree xs)
-unTree (T.FNode x)    = R.Node (Term x) []
+unTree (T.Branch x xs) = R.Node (NonTerm x) (map unTree xs)
+unTree (T.Leaf x)    = R.Node (Term x) []
 
 
 -- | Mark non-terminal under the path as a foot.
@@ -96,7 +103,7 @@ markFoot _ _ = error "markFoot: unhandled case"
 ---------------------------------------------------------------------
 
 
--- | Decode a tree represented using the alternative representation.
+-- | Decode the tree represented with the alternative representation.
 decode :: Tree n t -> SomeTree n t
 decode t = case findFoot t of
     Just is -> Right $ T.AuxTree (mkTree t) is
@@ -106,11 +113,11 @@ decode t = case findFoot t of
 -- | Convert the parsed tree into an LTAG tree.
 mkTree :: Tree n t -> T.Tree n t
 mkTree (R.Node n xs) = case n of
-    Term x  -> T.FNode x
-    Foot x  -> T.INode
+    Term x  -> T.Leaf x
+    Foot x  -> T.Branch
         { T.labelI = x
         , T.subTrees = [] }
-    NonTerm x   -> T.INode
+    NonTerm x   -> T.Branch
         { T.labelI = x
         , T.subTrees = map mkTree xs }
 
@@ -144,15 +151,15 @@ isAuxiliary (R.Node _ xs) = any isAuxiliary xs
 
 
 -- | Is it a final tree (i.e. does it contain only terminals
--- in its leaves?)
+-- in its leaves)?
 isFinal :: Tree n t -> Bool
 isFinal (R.Node n []) = isTerm n
 isFinal (R.Node _ xs) = all isFinal xs
 
 
--- | Projection of a tree, i.e. a list of terminals.
-proj :: Tree n t -> [t]
-proj =
+-- | Projection of a tree, i.e. a list of its terminals.
+project :: Tree n t -> [t]
+project =
     F.foldMap term
   where
     term (Term x) = [x]

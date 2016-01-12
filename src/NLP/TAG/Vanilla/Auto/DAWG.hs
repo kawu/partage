@@ -1,4 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 
 -- | Automaton-based grammar representation.
@@ -12,8 +13,8 @@ import qualified Control.Monad.State.Strict as E
 
 import qualified Data.Set                   as S
 
-import           Data.DAWG.Gen.Types (ID)
-import qualified Data.DAWG.Ord.Dynamic      as D
+import           Data.DAWG.Ord (ID)
+import qualified Data.DAWG.Ord              as D
 
 import           NLP.TAG.Vanilla.Rule
     ( Lab(..), Rule(..) )
@@ -71,18 +72,18 @@ buildAuto gram = D.fromLang
 
 -- | Return the list of automaton transitions.
 edges :: (Ord n, Ord t) => DAWG n t -> [(ID, Edge (Lab n t), ID)]
-edges = S.toList . traverse
+edges = S.toList . walk
 
 
 -- | Traverse  the automaton and collect all the edges.
 --
 -- TODO: it is provided in the general case in the `Mini` module.
 -- Remove the version below.
-traverse
+walk
     :: (Ord n, Ord t)
     => DAWG n t
     -> S.Set (ID, Edge (Lab n t), ID)
-traverse dawg =
+walk dawg =
     flip E.execState S.empty $
         flip E.evalStateT S.empty $
             doit (D.root dawg)

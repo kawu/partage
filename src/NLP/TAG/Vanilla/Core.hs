@@ -2,7 +2,16 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 
-module NLP.TAG.Vanilla.Core where
+-- | This module contains the core types used across the entire
+-- library. 
+
+
+module NLP.TAG.Vanilla.Core
+( View (..)
+, Pos
+, SymID
+, Cost
+) where
 
 
 --------------------------------------------------
@@ -10,6 +19,7 @@ module NLP.TAG.Vanilla.Core where
 --------------------------------------------------
 
 
+-- | A custom, 'Show'-like typeclass.
 class Show a => View a where
     view :: a -> String
 
@@ -29,6 +39,7 @@ instance (View a, View b) => View (Either a b) where
 --------------------------------------------------
 
 
+-- | 'View' + 'Ord'
 class (View a, Ord a) => VOrd a where
 
 instance (View a, Ord a) => VOrd a where
@@ -39,14 +50,16 @@ instance (View a, Ord a) => VOrd a where
 --------------------------------------------------
 
 
--- | Position in the sentence.
+-- | A position in the input sentence.
 type Pos = Int
 
 
--- | Additional symbol identifier.
+-- | 'SymID' is used to mark internal (non-leaf, non-root)
+-- non-terminals with unique (up to subtree sharing) identifiers so
+-- that incompatible rule combinations are not possible.
 type SymID = Int
 
 
--- | Cost (weight, probability) of employing the given elementary unit (tree,
--- rule)
+-- | Cost (weight, probability) of employing an elementary
+-- unit (tree, rule) in a parse tree.
 type Cost = Double

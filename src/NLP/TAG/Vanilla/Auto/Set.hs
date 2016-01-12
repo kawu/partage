@@ -23,7 +23,7 @@ import           Data.Maybe (maybeToList)
 import qualified Data.Set                   as S
 import qualified Data.Map.Strict            as M
 
-import           Data.DAWG.Gen.Types (ID)
+import           Data.DAWG.Ord (ID)
 
 import           NLP.TAG.Vanilla.Rule
     ( Lab(..), Rule(..) )

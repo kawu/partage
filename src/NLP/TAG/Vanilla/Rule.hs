@@ -2,7 +2,19 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 
-module NLP.TAG.Vanilla.Rule where
+-- | TAG conversion into flat production rules.
+
+
+module NLP.TAG.Vanilla.Rule
+(
+-- * Rule
+  Rule (..)
+, Lab (..)
+
+-- * Grammar flattening
+, compile
+, compileWeights
+) where
 
 
 import           Control.Monad.Trans.Class (lift)
@@ -75,73 +87,81 @@ compileWeights ts =
 ----------------------
 
 
--- | Label is one of the following:
--- * A non-terminal
--- * A terminal
--- * A root of an auxiliary tree
--- * A foot node of an auxiliary tree
--- * A vertebra of the spine of the auxiliary tree
---
--- TODO: could simplify directly to the form proposed in the
--- paper.
+-- | A label is a type over which flat production rules are
+-- constructed.  In particular, it describes what information is
+-- stored in the heads of rules, as well as in the elements of the
+-- bodies of rules.
 --
 -- TODO: note that the Eq and Ord instances are not reused in the
 -- Eq/Ord instances of rules.  But this is "problem" of rules,
 -- not ours, isn't it?
---
 data Lab n t
     = NonT
         { nonTerm   :: n
         , labID     :: Maybe SymID }
+    -- ^ A non-terminal symbol, optionally marked with a `SymID` if
+    -- originates from an internal (non-root, non-leaf) node
     | Term t
+    -- ^ A terminal symbol
     | AuxRoot
         { nonTerm   :: n }
+    -- ^ A non-terminal originating from a /root/ of an auxiliary tree 
     | AuxFoot
         { nonTerm   :: n }
+    -- ^ A non-terminal originating from a /foot/ of an auxiliary tree
     | AuxVert
         { nonTerm   :: n
         , symID     :: SymID }
+    -- ^ A non-terminal originating from a /spine/ of an auxiliary
+    -- tree (unless root or foot)
     deriving (Show, Eq, Ord)
 
 
--- | Show full info about the label.
-viewLab :: (View n, View t) => Lab n t -> String
-viewLab lab = case lab of
-    NonT{..}    -> "N(" ++ view nonTerm
-        ++ ( case labID of
-                Nothing -> ""
-                Just i  -> ", " ++ view i ) ++ ")"
-    Term t      -> "T(" ++ view t ++ ")"
-    AuxRoot{..} -> "A(" ++ view nonTerm ++ ")"
-    AuxFoot x   -> "F(" ++ view x ++ ")"
-    AuxVert{..} -> "V(" ++ view nonTerm ++ ", " ++ view symID ++ ")"
-
-
--- -- | Show the label.
+-- -- | Show full info about the label.
 -- viewLab :: (View n, View t) => Lab n t -> String
--- viewLab (NonT s) = "N" ++ viewSym s
--- viewLab (Term t) = "T(" ++ view t ++ ")"
--- viewLab (Foot s) = "F" ++ viewSym s
+-- viewLab lab = case lab of
+--     NonT{..}    -> "N(" ++ view nonTerm
+--         ++ ( case labID of
+--                 Nothing -> ""
+--                 Just i  -> ", " ++ view i ) ++ ")"
+--     Term t      -> "T(" ++ view t ++ ")"
+--     AuxRoot{..} -> "A(" ++ view nonTerm ++ ")"
+--     AuxFoot x   -> "F(" ++ view x ++ ")"
+--     AuxVert{..} -> "V(" ++ view nonTerm ++ ", " ++ view symID ++ ")"
+-- 
+-- 
+-- -- -- | Show the label.
+-- -- viewLab :: (View n, View t) => Lab n t -> String
+-- -- viewLab (NonT s) = "N" ++ viewSym s
+-- -- viewLab (Term t) = "T(" ++ view t ++ ")"
+-- -- viewLab (Foot s) = "F" ++ viewSym s
 
 
--- | A rule for an elementary tree.
+-- | A production rule, responsible for recognizing a specific
+-- (unique) non-trivial (of height @> 0@) subtree of an elementary
+-- grammar tree.  Due to subtree sharing a single rule can be
+-- responsible for recognizing a subtree common to many different
+-- elementary trees.
+--
+-- Invariants:
+--
+--  * `headR` is neither `Term` nor `AuxFoot`
 data Rule n t = Rule {
-    -- | The head of the rule.  TODO: should not be allowed to be
-    -- a terminal or a foot.
+    -- | Head of the rule
       headR :: Lab n t
-    -- | The body of the rule
+    -- | Body of the rule
     , bodyR :: [Lab n t]
     } deriving (Show, Eq, Ord)
 
 
--- | Print the rule.
-printRule
-    :: ( View n, View t )
-    => Rule n t -> IO ()
-printRule Rule{..} = do
-    putStr $ viewLab headR
-    putStr " -> "
-    putStr . unwords $ map viewLab bodyR
+-- -- | Print the rule.
+-- printRule
+--     :: ( View n, View t )
+--     => Rule n t -> IO ()
+-- printRule Rule{..} = do
+--     putStr $ viewLab headR
+--     putStr " -> "
+--     putStr . unwords $ map viewLab bodyR
 
 
 --------------------------
@@ -202,7 +222,7 @@ labelTree
                     -- an entire initial tree, `False' otherwise.
     -> G.Tree n t   -- ^ The tree itself
     -> ID m (T.Tree (Lab n t))
-labelTree isTop G.INode{..} = case (subTrees, isTop) of
+labelTree isTop G.Branch{..} = case (subTrees, isTop) of
     -- Foot or substitution node:
     ([], _) -> return . flip T.Node [] $ NonT
         { nonTerm = labelI
@@ -222,7 +242,7 @@ labelTree isTop G.INode{..} = case (subTrees, isTop) of
                 , labID   = Just i }
         xs <- mapM (labelTree False) subTrees
         return $ T.Node x xs
-labelTree _ G.FNode{..} = return $ T.Node (Term labelF) []
+labelTree _ G.Leaf{..} = return $ T.Node (Term labelF) []
 
 
 -----------------------------------------
@@ -250,9 +270,9 @@ labelAux
 labelAux b G.AuxTree{..} =
     doit b auxTree auxFoot
   where
-    doit _ G.INode{..} [] = return . flip T.Node [] $
+    doit _ G.Branch{..} [] = return . flip T.Node [] $
         AuxFoot {nonTerm = labelI}
-    doit isTop G.INode{..} (k:ks) = do
+    doit isTop G.Branch{..} (k:ks) = do
         let (ls, bt, rs) = split k subTrees
         ls' <- mapM (labelTree False) ls
         bt' <- doit False bt ks
@@ -291,15 +311,16 @@ split =
 collect :: T.Tree (Lab n t) -> [Rule n t]
 collect T.Node{..} = case subForest of
     [] -> []
-    -- WARNING! It is crucial for substructure-sharing (at least in the current
-    -- implementation, that indexes (SymIDs) are generated in the ascending
-    -- order.  This stems from the fact that `Data.Partition.rep` returns the
-    -- minimum element of the given partition, thus making it impossible to
-    -- choose a custom representant of the given partition.
+    -- WARNING! It is crucial for substructure-sharing (at least in
+    -- the current implementation, that indexes (SymIDs) are
+    -- generated in the ascending order.  This stems from the fact
+    -- that `Data.Partition.rep` returns the minimum element of the
+    -- given partition, thus making it impossible to choose a custom
+    -- representant of the given partition.
     --
-    -- Note that this solution should be changed and that substructure sharing
-    -- should be implemented differently.  The current solution is too error
-    -- prone.
+    -- Note that this solution should be changed and that
+    -- substructure sharing should be implemented differently.
+    -- The current solution seems too error prone.
     _  ->  concatMap collect subForest
         ++ [ Rule rootLabel
             (map T.rootLabel subForest) ]

@@ -39,7 +39,7 @@ import qualified Data.Vector                as V
 import qualified Pipes                      as P
 -- import qualified Pipes.Prelude              as P
 
-import           Data.DAWG.Gen.Types (ID)
+import           Data.DAWG.Ord (ID)
 -- import qualified Data.DAWG.Ord.Dynamic      as D
 
 import           NLP.TAG.Vanilla.Core
