@@ -25,13 +25,16 @@ module NLP.TAG.Vanilla.Earley
 , hyperEdgesNum
 -- ** Printing
 , printHype
+
+-- * Sentence position
+, Pos
 ) where
 
 
 import           NLP.TAG.Vanilla.Earley.AutoAP
 
 {- $earley
-  All the parsing functions described below employ the 
+  All the parsing functions described below employ the
   "NLP.TAG.Vanilla.Auto.DAWG" grammar representation.
   You can also pre-compile your own automaton and use it with
   e.g. `parseAuto`.

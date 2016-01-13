@@ -5,12 +5,13 @@
 -- | TAG conversion into flat production rules.
 
 
-module NLP.TAG.Vanilla.Rule.Internal
+module NLP.TAG.Vanilla.FactGram.Internal
 (
--- * Rule
+-- * Grammar
   FactGram
 , Rule (..)
 , Lab (..)
+, SymID
 
 -- * Grammar flattening
 , flattenNoSharing
@@ -35,8 +36,23 @@ import qualified Data.Tree as T
 
 import qualified Pipes as P
 
-import           NLP.TAG.Vanilla.Core
 import qualified NLP.TAG.Vanilla.Tree as G
+
+
+--------------------------------------------------
+-- CORE TYPES
+--------------------------------------------------
+
+
+-- | 'SymID' is used to mark internal (non-leaf, non-root)
+-- non-terminals with unique (up to subtree sharing) identifiers so
+-- that incompatible rule combinations are not possible.
+type SymID = Int
+
+
+-- -- | Cost (weight, probability) of employing an elementary
+-- -- unit (tree, rule) in a parse tree.
+-- type Cost = Double
 
 
 ----------------------

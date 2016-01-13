@@ -31,10 +31,9 @@ import qualified Data.Partition             as Part
 import qualified Pipes                      as P
 import           Pipes                      (hoist, (>->))
 
-import           NLP.TAG.Vanilla.Core
-import           NLP.TAG.Vanilla.Rule.Internal
-    ( FactGram, Lab(..), Rule(..) )
-import qualified NLP.TAG.Vanilla.Rule.Internal as Rule
+import           NLP.TAG.Vanilla.FactGram.Internal
+    ( FactGram, Lab(..), Rule(..), SymID )
+import qualified NLP.TAG.Vanilla.FactGram.Internal as Rule
 import qualified NLP.TAG.Vanilla.Tree as G
 
 

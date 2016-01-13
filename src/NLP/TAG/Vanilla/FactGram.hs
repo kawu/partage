@@ -18,5 +18,5 @@ module NLP.TAG.Vanilla.FactGram
 ) where
 
 
-import           NLP.TAG.Vanilla.Rule.Internal
+import           NLP.TAG.Vanilla.FactGram.Internal
 import           NLP.TAG.Vanilla.SubtreeSharing
