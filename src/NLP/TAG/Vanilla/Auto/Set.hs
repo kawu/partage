@@ -10,13 +10,13 @@
 
 module NLP.TAG.Vanilla.Auto.Set
 (
--- AutoSet
-  AutoSet
-, buildAutoSet
-
--- * Interface
-, shell
-, mkAuto
+-- -- AutoSet
+--   AutoSet
+-- , buildAutoSet
+-- 
+-- -- * Interface
+-- , shell
+  fromGram
 ) where
 
 
@@ -36,12 +36,7 @@ import           NLP.TAG.Vanilla.Rule
     ( Lab(..), Rule(..) )
 
 
-import qualified NLP.TAG.Vanilla.Auto.Abstract as A
--- import qualified NLP.TAG.Vanilla.Auto.Shell as Sh
-import           NLP.TAG.Vanilla.Auto.Edge (Edge(..))
-
-
--- import qualified NLP.TAG.Vanilla.Auto.DAWG as A
+import qualified NLP.TAG.Vanilla.Auto as A
 
 
 --------------------------------------------------
@@ -74,15 +69,15 @@ shell AutoSet{..} = A.Auto
     }
 
 
--- | A composition of `shell` and `buildAutoSet`.
-mkAuto
+-- | Build the set of automata from the given grammar.
+fromGram
     :: (Ord n, Ord t)
-    => (S.Set (Rule n t) -> A.AutoR n t)
+    => (S.Set (Rule n t) -> A.GramAuto n t)
         -- ^ The underlying automaton construction method
     -> S.Set (Rule n t)
         -- ^ The grammar to compress
-    -> A.AutoR n t
-mkAuto mkOne = shell . buildAutoSet mkOne
+    -> A.GramAuto n t
+fromGram mkOne = shell . buildAutoSet mkOne
 
 
 --------------------------------------------------
@@ -138,11 +133,11 @@ unionsAS = foldl' unionAS emptyAS
 -- | Build automata from the given grammar.
 buildAutoSet
     :: (Ord n, Ord t)
-    => (S.Set (Rule n t) -> A.AutoR n t)
+    => (S.Set (Rule n t) -> A.GramAuto n t)
         -- ^ The underlying automaton construction method
     -> S.Set (Rule n t)
         -- ^ The grammar to compress
-    -> AutoSet (Edge (Lab n t))
+    -> AutoSet (A.Edge (Lab n t))
 buildAutoSet mkOne gram = runM $
     unionsAS <$> sequence
         [ mkAutoSet

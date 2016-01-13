@@ -25,7 +25,6 @@ module NLP.TAG.Vanilla.Earley.AutoAP
 
 -- * Parsing trace (hypergraph)
 , EarSt
-, Auto
 -- ** Extracting parsed trees
 , parsedTrees
 -- ** Stats
@@ -65,8 +64,7 @@ import           Data.DAWG.Ord (ID)
 import           NLP.TAG.Vanilla.Core
 import           NLP.TAG.Vanilla.Rule.Internal
                                 ( Lab(..), Rule(..), viewLab )
-import qualified NLP.TAG.Vanilla.Auto.Edge  as A
-import qualified NLP.TAG.Vanilla.Auto.Abstract  as A
+import qualified NLP.TAG.Vanilla.Auto as A
 import qualified NLP.TAG.Vanilla.Auto.DAWG  as D
 import qualified NLP.TAG.Vanilla.Tree       as T
 
@@ -310,17 +308,13 @@ prio (ItemA p) = prioA p
 --------------------------------------------------
 
 
--- | Local automaton type.
-type Auto n t = A.Auto (A.Edge (Lab n t))
-
-
 -- | The reader of the earley monad: vector of sets of terminals.
 type EarRd t = V.Vector (S.Set t)
 
 
 -- | The state of the earley monad.
 data EarSt n t = EarSt
-    { automat :: Auto n t
+    { automat :: A.GramAuto n t
     -- ^ The underlying automaton (abstract implementation)
 
     , withBody :: M.Map (Lab n t) (S.Set ID)
@@ -357,7 +351,7 @@ data EarSt n t = EarSt
 -- | Make an initial `EarSt` from a set of states.
 mkEarSt
     :: (Ord n, Ord t)
-    => Auto n t
+    => A.GramAuto n t
     -> S.Set (Active n t)
     -> EarSt n t
 mkEarSt dag s = EarSt
@@ -373,7 +367,7 @@ mkEarSt dag s = EarSt
 -- | Create the `withBody` component based on the automaton.
 mkWithBody
     :: (Ord n, Ord t)
-    => Auto n t
+    => A.GramAuto n t
     -> M.Map (Lab n t) (S.Set ID)
 mkWithBody dag = M.fromListWith S.union
     [ (x, S.singleton i)
@@ -1034,7 +1028,7 @@ recognize
     -> [S.Set t]            -- ^ Input sentence
     -> IO Bool
 recognize gram =
-    recognizeAuto (D.shell $ D.buildAuto gram)
+    recognizeAuto (D.fromGram gram)
 
 
 -- | Does the given grammar generate the given sentence from the
@@ -1048,7 +1042,7 @@ recognizeFrom
     -> [S.Set t]            -- ^ Input sentence
     -> IO Bool
 recognizeFrom gram =
-    recognizeFromAuto (D.shell $ D.buildAuto gram)
+    recognizeFromAuto (D.fromGram gram)
 
 
 -- | Parse the given sentence and return the set of parsed trees.
@@ -1058,7 +1052,7 @@ parse
     -> n                    -- ^ The start symbol
     -> [S.Set t]            -- ^ Input sentence
     -> IO (S.Set (T.Tree n t))
-parse gram = parseAuto $ D.shell $ D.buildAuto gram
+parse gram = parseAuto $ D.fromGram gram
 
 
 -- | Perform the earley-style computation given the grammar and
@@ -1068,7 +1062,7 @@ earley
     => S.Set (Rule n t)     -- ^ The grammar (set of rules)
     -> [S.Set t]            -- ^ Input sentence
     -> IO (EarSt n t)
-earley gram = earleyAuto $ D.shell $ D.buildAuto gram
+earley gram = earleyAuto $ D.fromGram gram
 
 
 --------------------------------------------------
@@ -1079,7 +1073,7 @@ earley gram = earleyAuto $ D.shell $ D.buildAuto gram
 -- | See `recognize`.
 recognizeAuto
     :: (VOrd t, VOrd n)
-    => Auto n t           -- ^ Grammar automaton
+    => A.GramAuto n t           -- ^ Grammar automaton
     -> [S.Set t]            -- ^ Input sentence
     -> IO Bool
 recognizeAuto auto xs =
@@ -1089,7 +1083,7 @@ recognizeAuto auto xs =
 -- | See `recognizeFrom`.
 recognizeFromAuto
     :: (VOrd t, VOrd n)
-    => Auto n t           -- ^ Grammar automaton
+    => A.GramAuto n t       -- ^ Grammar automaton
     -> n                    -- ^ The start symbol
     -> [S.Set t]            -- ^ Input sentence
     -> IO Bool
@@ -1101,7 +1095,7 @@ recognizeFromAuto auto start xs = do
 -- | See `parse`.
 parseAuto
     :: (VOrd t, VOrd n)
-    => Auto n t           -- ^ Grammar automaton
+    => A.GramAuto n t           -- ^ Grammar automaton
     -> n                    -- ^ The start symbol
     -> [S.Set t]            -- ^ Input sentence
     -> IO (S.Set (T.Tree n t))
@@ -1113,7 +1107,7 @@ parseAuto auto start xs = do
 -- | See `earley`.
 earleyAuto
     :: (VOrd t, VOrd n)
-    => Auto n t           -- ^ Grammar automaton
+    => A.GramAuto n t           -- ^ Grammar automaton
     -> [S.Set t]            -- ^ Input sentence
     -> IO (EarSt n t)
 earleyAuto dawg xs =

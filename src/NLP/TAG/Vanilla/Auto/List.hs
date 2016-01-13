@@ -2,14 +2,19 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 
--- | List grammar representation.
+-- | List-based grammar representation: each rule is represented as a
+-- separate, trivial automaton.
 
 
 module NLP.TAG.Vanilla.Auto.List
-( ListSet
-, buildList
-, shell
-, mkAuto
+(
+-- -- * ListSet
+--   ListSet
+-- , buildList
+-- 
+-- -- * Interface
+-- , shell
+  fromGram
 ) where
 
 
@@ -22,8 +27,7 @@ import qualified Data.Map.Strict as M
 
 import           Data.DAWG.Ord (ID)
 
-import qualified NLP.TAG.Vanilla.Auto.Abstract as A
-import           NLP.TAG.Vanilla.Auto.Edge (Edge(..))
+import qualified NLP.TAG.Vanilla.Auto as A
 import           NLP.TAG.Vanilla.Rule (Lab(..), Rule(..))
 
 
@@ -31,7 +35,8 @@ import           NLP.TAG.Vanilla.Rule (Lab(..), Rule(..))
 type List a = Maybe (a, ID)
 
 
--- | List implementation of an automaton.
+-- | List-based grammar representation: each rule is represented as a
+-- separate, trivial automaton.
 data ListSet a = ListSet
     { rootSet   :: S.Set ID
     , listMap   :: M.Map ID (List a)
@@ -81,9 +86,9 @@ edges ListSet{..} i
 
 
 -- | Build trie from the given grammar.
-buildList :: (Ord n, Ord t) => S.Set (Rule n t) -> [[Edge (Lab n t)]]
+buildList :: (Ord n, Ord t) => S.Set (Rule n t) -> [[A.Edge (Lab n t)]]
 buildList gram =
-    [ map Body bodyR ++ [Head headR]
+    [ map A.Body bodyR ++ [A.Head headR]
     | Rule{..} <- S.toList gram ]
 
 
@@ -93,7 +98,7 @@ buildList gram =
 
 
 -- | Abstract over the concrete implementation.
-shell :: (Ord n, Ord t) => [[Edge (Lab n t)]] -> A.AutoR n t
+shell :: (Ord n, Ord t) => [[A.Edge (Lab n t)]] -> A.GramAuto n t
 shell d0 = A.Auto
     { roots  = rootSet d
     , follow = follow d
@@ -101,6 +106,6 @@ shell d0 = A.Auto
     where d = convert d0
 
 
--- | A composition of `shell` and `buildList`.
-mkAuto :: (Ord n, Ord t) => S.Set (Rule n t) -> A.AutoR n t
-mkAuto = shell . buildList
+-- | Build the list-based representation of the given grammar.
+fromGram :: (Ord n, Ord t) => S.Set (Rule n t) -> A.GramAuto n t
+fromGram = shell . buildList

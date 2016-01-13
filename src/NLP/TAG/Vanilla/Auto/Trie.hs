@@ -2,23 +2,24 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 
--- | Prefix tree grammar representation.
+-- | Prefix tree grammar representation: the set of rules is stored
+-- in a form of a prefix tree.
 
 
 module NLP.TAG.Vanilla.Auto.Trie
 (
--- * Trie
-  Trie
-, empty
-, insert
-, fromLang
-
--- * From grammar
-, buildTrie
-
--- * Interface
-, shell
-, mkAuto
+-- -- * Trie
+--   Trie
+-- , empty
+-- , insert
+-- , fromLang
+-- 
+-- -- * From grammar
+-- , buildTrie
+-- 
+-- -- * Interface
+-- , shell
+  fromGram
 ) where
 
 
@@ -33,8 +34,7 @@ import qualified Data.Map.Strict as M
 
 import           Data.DAWG.Ord (ID)
 
-import qualified NLP.TAG.Vanilla.Auto.Abstract as A
-import           NLP.TAG.Vanilla.Auto.Edge (Edge(..))
+import qualified NLP.TAG.Vanilla.Auto as A
 import           NLP.TAG.Vanilla.Rule (Lab(..), Rule(..))
 
 
@@ -71,9 +71,9 @@ fromLang = foldl' (flip insert) empty
 
 
 -- | Build trie from the given grammar.
-buildTrie :: (Ord n, Ord t) => S.Set (Rule n t) -> Trie (Edge (Lab n t))
+buildTrie :: (Ord n, Ord t) => S.Set (Rule n t) -> Trie (A.Edge (Lab n t))
 buildTrie gram = fromLang
-    [ map Body bodyR ++ [Head headR]
+    [ map A.Body bodyR ++ [A.Head headR]
     | Rule{..} <- S.toList gram ]
 
 
@@ -83,7 +83,7 @@ buildTrie gram = fromLang
 
 
 -- | Abstract over the concrete implementation.
-shell :: (Ord n, Ord t) => Trie (Edge (Lab n t)) -> A.AutoR n t
+shell :: (Ord n, Ord t) => Trie (A.Edge (Lab n t)) -> A.GramAuto n t
 shell d0 = A.Auto
     { roots  = S.singleton (rootID d)
     , follow = follow d
@@ -91,9 +91,9 @@ shell d0 = A.Auto
     where d = convert d0
 
 
--- | A composition of `shell` and `buildTrie`.
-mkAuto :: (Ord n, Ord t) => S.Set (Rule n t) -> A.AutoR n t
-mkAuto = shell . buildTrie
+-- | Build the trie-based representation of the given grammar.
+fromGram :: (Ord n, Ord t) => S.Set (Rule n t) -> A.GramAuto n t
+fromGram = shell . buildTrie
 
 
 -- | Node type.

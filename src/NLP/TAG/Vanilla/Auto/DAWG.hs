@@ -3,18 +3,19 @@
 
 
 -- | A version where the grammar is actually compressed to a form of
--- a /directed acyclic word graph/.
+-- a single /directed acyclic word graph/, i.e. a
+-- /minimal finite state automaton/.
 
 
 module NLP.TAG.Vanilla.Auto.DAWG
 (
--- * DAWG
-  DAWG
-, buildAuto
-
--- * Interface
-, shell
-, mkAuto
+-- -- * DAWG
+--   DAWG
+-- , buildAuto
+-- 
+-- -- * Interface
+-- , shell
+  fromGram
 ) where
 
 
@@ -30,9 +31,7 @@ import           NLP.TAG.Vanilla.Rule
     ( Lab(..), Rule(..) )
 
 
-import qualified NLP.TAG.Vanilla.Auto.Abstract as A
--- import qualified NLP.TAG.Vanilla.Auto.Shell as Sh
-import           NLP.TAG.Vanilla.Auto.Edge (Edge(..))
+import qualified NLP.TAG.Vanilla.Auto as A
 
 
 --------------------------------------------------
@@ -44,17 +43,18 @@ import           NLP.TAG.Vanilla.Auto.Edge (Edge(..))
 -- newtype Auto a = Auto { unAuto :: D.DAWG a () }
 
 
--- | Abstract over the concrete implementation of automaton.
-shell :: (Ord n, Ord t) => DAWG n t -> A.AutoR n t
+-- | Abstract over the concrete representation of the grammar
+-- automaton.
+shell :: (Ord n, Ord t) => DAWG n t -> A.GramAuto n t
 shell d = A.Auto
     { roots  = S.singleton (D.root d)
     , follow = \i x ->  D.follow i x d
     , edges  = flip D.edges d }
 
 
--- | A composition of `shell` and `buildAuto`.
-mkAuto :: (Ord n, Ord t) => S.Set (Rule n t) -> A.AutoR n t
-mkAuto = shell . buildAuto
+-- | Build the DAWG-based representation of the given grammar.
+fromGram :: (Ord n, Ord t) => S.Set (Rule n t) -> A.GramAuto n t
+fromGram = shell . buildAuto
 
 
 --------------------------------------------------
@@ -63,21 +63,16 @@ mkAuto = shell . buildAuto
 
 
 -- | The automaton-based representation of a factorized TAG
--- grammar.  Transitions contain non-terminals belonging to body
--- non-terminals while values contain rule heads non-terminals.
--- type DAWG n t = D.DAWG (Lab n t) (Lab n t)
-
--- | The automaton-based representation of a factorized TAG
 -- grammar.  Left transitions contain non-terminals belonging to
 -- body non-terminals while Right transitions contain rule heads
 -- non-terminals.
-type DAWG n t = D.DAWG (Edge (Lab n t)) ()
+type DAWG n t = D.DAWG (A.Edge (Lab n t)) ()
 
 
 -- | Build automaton from the given grammar.
 buildAuto :: (Ord n, Ord t) => S.Set (Rule n t) -> DAWG n t
 buildAuto gram = D.fromLang
-    [ map Body bodyR ++ [Head headR]
+    [ map A.Body bodyR ++ [A.Head headR]
     | Rule{..} <- S.toList gram ]
 
 

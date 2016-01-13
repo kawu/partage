@@ -5,15 +5,16 @@
 -- | Abstract implementation of an automaton (or a set of automata,
 -- in general).  `Auto` provides a minimal interface needed to
 -- use automata in parsing.  It thus allows to use different
--- concrete implementations (see e.g. "NLP.TAG.Vanilla.Auto.FSA"
+-- concrete implementations (see e.g. "NLP.TAG.Vanilla.Auto.DAWG"
 -- or "NLP.TAG.Vanilla.Auto.Trie").
 
 
-module NLP.TAG.Vanilla.Auto.Abstract
+module NLP.TAG.Vanilla.Auto
 (
 -- * Automata
   Auto (..)
-, AutoR
+, Edge (..)
+, GramAuto
 
 -- * Utilities
 , allIDs
@@ -27,7 +28,14 @@ import qualified Data.Set                   as S
 
 import           Data.DAWG.Ord (ID)
 import           NLP.TAG.Vanilla.Rule (Lab(..))
-import           NLP.TAG.Vanilla.Auto.Edge (Edge(..))
+
+
+-- | A datatype used to distinguish head non-terminals from body
+-- non-terminals in automata-based grammar representation.
+data Edge a
+    = Head a
+    | Body a
+    deriving (Show, Eq, Ord)
 
 
 -- | Minimal automaton implementation.
@@ -44,7 +52,7 @@ data Auto a = Auto
 
 
 -- | Automaton type specialized to represent grammar rules.
-type AutoR n t = Auto (Edge (Lab n t))
+type GramAuto n t = Auto (Edge (Lab n t))
 
 
 -- | Extract the set of underlying IDs.

@@ -39,13 +39,12 @@ library
       , NLP.TAG.Vanilla.Rule
       , NLP.TAG.Vanilla.Gen
       , NLP.TAG.Vanilla.SubtreeSharing
-      , NLP.TAG.Vanilla.Auto.Edge
-      , NLP.TAG.Vanilla.Auto.Abstract
+      , NLP.TAG.Vanilla.Auto
       , NLP.TAG.Vanilla.Auto.List
       , NLP.TAG.Vanilla.Auto.Trie
       , NLP.TAG.Vanilla.Auto.DAWG
       , NLP.TAG.Vanilla.Auto.Set
-      , NLP.TAG.Vanilla.Earley.AutoAP
+      , NLP.TAG.Vanilla.Earley
 
 -- NOT FOR THIS VERIONS:
 --       , NLP.TAG.Vanilla.WRule
@@ -60,6 +59,7 @@ library
 
     other-modules:
         NLP.TAG.Vanilla.Rule.Internal
+      , NLP.TAG.Vanilla.Earley.AutoAP
 
     ghc-options: -Wall
     -- cpp-options: -DDebug
