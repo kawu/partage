@@ -62,6 +62,7 @@ import           Data.DAWG.Ord (ID)
 -- import qualified Data.DAWG.Ord.Dynamic      as D
 
 import           NLP.TAG.Vanilla.Core
+import           NLP.TAG.Vanilla.SOrd
 import           NLP.TAG.Vanilla.FactGram (FactGram)
 import           NLP.TAG.Vanilla.Rule.Internal
                                 ( Lab(..), Rule(..), viewLab )
@@ -87,7 +88,7 @@ $( makeLenses [''Span] )
 
 
 -- | Active chart item : state reference + span.
-data Active n t = Active {
+data Active = Active {
       _state :: ID
     , _spanA :: Span
     } deriving (Show, Eq, Ord)
@@ -128,7 +129,7 @@ printSpan span = do
 
 
 -- | Print an active item.
-printActive :: (View n, View t) => Active n t -> IO ()
+printActive :: Active -> IO ()
 printActive p = do
     putStr "("
     putStr . show $ getL state p
@@ -138,7 +139,7 @@ printActive p = do
 
 
 -- | Print a passive item.
-printPassive :: (View n, View t) => Passive n t -> IO ()
+printPassive :: (Show n, Show t) => Passive n t -> IO ()
 printPassive p = do
     putStr "("
     putStr . viewLab $ getL label p
@@ -162,7 +163,7 @@ printPassive p = do
 -- one could be derived.
 data Trav n t
     = Scan
-        { _scanFrom :: Active n t
+        { _scanFrom :: Active
         -- ^ The input active state
         , _scanTerm :: t
         -- ^ The scanned terminal
@@ -170,12 +171,12 @@ data Trav n t
     | Subst
         { _passArg  :: Passive n t
         -- ^ The passive argument of the action
-        , _actArg   :: Active n t
+        , _actArg   :: Active
         -- ^ The active argument of the action
         }
     -- ^ Pseudo substitution
     | Foot
-        { _actArg   :: Active n t
+        { _actArg   :: Active
         -- ^ The passive argument of the action
         -- , theFoot  :: n
         , _theFoot  :: Passive n t
@@ -193,7 +194,7 @@ data Trav n t
 
 
 -- | Print a traversal.
-printTrav :: (View n, View t) => Item n t -> Trav n t -> IO ()
+printTrav :: (Show n, Show t) => Item n t -> Trav n t -> IO ()
 printTrav q' (Scan p x) = do
     putStr "# " >> printActive p
     putStr "+ " >> print x
@@ -229,7 +230,7 @@ type Prio = (Int, Int)
 
 -- | Priority of an active item.  Crucial for the algorithm --
 -- states have to be removed from the queue in a specific order.
-prioA :: Active n t -> Prio
+prioA :: Active -> Prio
 prioA p =
     let i = getL (beg . spanA) p
         j = getL (end . spanA) p
@@ -287,12 +288,12 @@ joinPrio x y = ExtPrio
 -- | Passive or active item.
 data Item n t
     = ItemP (Passive n t)
-    | ItemA (Active n t)
+    | ItemA Active
     deriving (Show, Eq, Ord)
 
 
 -- | Print an active item.
-printItem :: (View n, View t) => Item n t -> IO ()
+printItem :: (Show n, Show t) => Item n t -> IO ()
 printItem (ItemP p) = printPassive p
 printItem (ItemA p) = printActive p
 
@@ -325,7 +326,7 @@ data Hype n t = Hype
 
     -- , doneActive  :: M.Map (ID, Pos) (S.Set (Active n t))
     , doneActive  :: M.Map Pos (M.Map ID
-        (M.Map (Active n t) (S.Set (Trav n t))))
+        (M.Map Active (S.Set (Trav n t))))
     -- ^ Processed active items partitioned w.r.t ending
     -- positions and state IDs.
 
@@ -353,7 +354,7 @@ data Hype n t = Hype
 mkHype
     :: (Ord n, Ord t)
     => A.GramAuto n t
-    -> S.Set (Active n t)
+    -> S.Set Active
     -> Hype n t
 mkHype dag s = Hype
     { automat = dag
@@ -431,7 +432,7 @@ hyperEdges earSt =
 
 
 -- | Print the hypergraph edges.
-printHype :: (View n, View t) => Hype n t -> IO ()
+printHype :: (Show n, Show t) => Hype n t -> IO ()
 printHype earSt =
     forM_ edges $ \(p, trav) ->
         printTrav p trav
@@ -448,14 +449,14 @@ printHype earSt =
 
 -- | List all active done items together with the corresponding
 -- traversals.
-listActive :: Hype n t -> [(Active n t, S.Set (Trav n t))]
+listActive :: Hype n t -> [(Active, S.Set (Trav n t))]
 listActive = (M.elems >=> M.elems >=> M.toList) . doneActive
 
 
 -- | Return the corresponding set of traversals for an active item.
 activeTrav
     :: (Ord n, Ord t)
-    => Active n t -> Hype n t
+    => Active -> Hype n t
     -> Maybe (S.Set (Trav n t))
 activeTrav p
     = (   M.lookup (p ^. spanA ^. end)
@@ -465,7 +466,7 @@ activeTrav p
 
 
 -- | Check if the active item is not already processed.
-_isProcessedA :: (Ord n, Ord t) => Active n t -> Hype n t -> Bool
+_isProcessedA :: (Ord n, Ord t) => Active -> Hype n t -> Bool
 _isProcessedA p =
     check . activeTrav p
   where
@@ -474,14 +475,14 @@ _isProcessedA p =
 
 
 -- | Check if the active item is not already processed.
-isProcessedA :: (Ord n, Ord t) => Active n t -> Earley n t Bool
+isProcessedA :: (Ord n, Ord t) => Active -> Earley n t Bool
 isProcessedA p = _isProcessedA p <$> RWS.get
 
 
 -- | Mark the active item as processed (`done').
 saveActive
     :: (Ord t, Ord n)
-    => Active n t
+    => Active
     -> S.Set (Trav n t)
     -> Earley n t ()
 saveActive p ts =
@@ -561,7 +562,7 @@ savePassive p ts =
 
 -- | Add the active item to the waiting queue.  Check first if it
 -- is not already in the set of processed (`done') states.
-pushActive :: (Ord t, Ord n) => Active n t -> Trav n t -> Earley n t ()
+pushActive :: (Ord t, Ord n) => Active -> Trav n t -> Earley n t ()
 pushActive p t = isProcessedA p >>= \b -> if b
     then saveActive p $ S.singleton t
     else modify' $ \s -> s {waiting = newWait (waiting s)}
@@ -595,7 +596,7 @@ pushPassive p t = isProcessedP p >>= \b -> if b
 
 
 -- | Add to the waiting queue all items induced from the given item.
-pushInduced :: (Ord t, Ord n) => Active n t -> Trav n t -> Earley n t ()
+pushInduced :: (Ord t, Ord n) => Active -> Trav n t -> Earley n t ()
 pushInduced p t = do
     hasElems (getL state p) >>= \b -> when b
         (pushActive p t)
@@ -625,7 +626,7 @@ popItem = RWS.state $ \st -> case Q.minView (waiting st) of
 -- * end on the given position.
 expectEnd
     :: (Ord n, Ord t) => Lab n t -> Pos
-    -> P.ListT (Earley n t) (Active n t)
+    -> P.ListT (Earley n t) Active
 expectEnd sym i = do
     Hype{..} <- lift RWS.get
     -- determine items which end on the given position
@@ -732,7 +733,7 @@ hasElems i = do
 
 
 -- | Try to perform SCAN on the given active state.
-tryScan :: (VOrd t, VOrd n) => Active n t -> Earley n t ()
+tryScan :: (SOrd t, SOrd n) => Active -> Earley n t ()
 tryScan p = void $ P.runListT $ do
     -- read the word immediately following the ending position of
     -- the state
@@ -762,7 +763,7 @@ tryScan p = void $ P.runListT $ do
 
 -- | Try to use the passive item `p` to complement
 -- (=> substitution) other rules.
-trySubst :: (VOrd t, VOrd n) => Passive n t -> Earley n t ()
+trySubst :: (SOrd t, SOrd n) => Passive n t -> Earley n t ()
 trySubst p = void $ P.runListT $ do
     let pLab = getL label p
         pSpan = getL spanP p
@@ -797,7 +798,7 @@ trySubst p = void $ P.runListT $ do
 -- | `tryAdjoinInit p q':
 -- * `p' is a completed state (regular or auxiliary)
 -- * `q' not completed and expects a *real* foot
-tryAdjoinInit :: (VOrd n, VOrd t) => Passive n t -> Earley n t ()
+tryAdjoinInit :: (SOrd n, SOrd t) => Passive n t -> Earley n t ()
 tryAdjoinInit p = void $ P.runListT $ do
     let pLab = p ^. label
         pSpan = p ^. spanP
@@ -836,7 +837,7 @@ tryAdjoinInit p = void $ P.runListT $ do
 -- | `tryAdjoinCont p q':
 -- * `p' is a completed, auxiliary state
 -- * `q' not completed and expects a *dummy* foot
-tryAdjoinCont :: (VOrd n, VOrd t) => Passive n t -> Earley n t ()
+tryAdjoinCont :: (SOrd n, SOrd t) => Passive n t -> Earley n t ()
 tryAdjoinCont p = void $ P.runListT $ do
     let pLab = p ^. label
         pSpan = p ^. spanP
@@ -874,7 +875,7 @@ tryAdjoinCont p = void $ P.runListT $ do
 
 -- | Adjoin a fully-parsed auxiliary state `p` to a partially parsed
 -- tree represented by a fully parsed rule/state `q`.
-tryAdjoinTerm :: (VOrd t, VOrd n) => Passive n t -> Earley n t ()
+tryAdjoinTerm :: (SOrd t, SOrd n) => Passive n t -> Earley n t ()
 tryAdjoinTerm q = void $ P.runListT $ do
     let qLab = q ^. label
         qSpan = q ^. spanP
@@ -906,7 +907,7 @@ tryAdjoinTerm q = void $ P.runListT $ do
 -- | Step of the algorithm loop.  `p' is the state popped up from
 -- the queue.
 step
-    :: (VOrd t, VOrd n)
+    :: (SOrd t, SOrd n)
     => Binding (Item n t) (ExtPrio n t)
     -> Earley n t ()
 step (ItemP p :-> e) = do
@@ -930,7 +931,7 @@ step (ItemA p :-> e) = do
 -- | Extract the set of parsed trees obtained on the given input
 -- sentence.  Should be run on the result of the earley algorithm.
 parsedTrees
-    :: forall n t. (Ord n, Ord t, Show n, Show t)
+    :: forall n t. (Ord n, Ord t)
     => Hype n t    -- ^ Final state of the earley parser
     -> n            -- ^ The start symbol
     -> Int          -- ^ Length of the input sentence
@@ -986,7 +987,7 @@ parsedTrees earSt start n
     replaceFoot _ t@(T.Leaf _)    = t
 
 
-    fromActive  :: Active n t -> [[T.Tree n t]]
+    fromActive  :: Active -> [[T.Tree n t]]
     fromActive p = case activeTrav p earSt of
         Nothing -> error "fromActive: unknown active item"
         Just travSet -> if S.null travSet
@@ -1024,7 +1025,11 @@ parsedTrees earSt start n
 -- | Does the given grammar generate the given sentence?
 -- Uses the `earley` algorithm under the hood.
 recognize
-    :: (VOrd t, VOrd n)
+#ifdef Debug
+    :: (SOrd t, SOrd n)
+#else
+    :: (Ord t, Ord n)
+#endif
     => FactGram n t         -- ^ The grammar (set of rules)
     -> [S.Set t]            -- ^ Input sentence
     -> IO Bool
@@ -1037,7 +1042,11 @@ recognize gram =
 -- symbol in its root)?  Uses the `earley` algorithm under the
 -- hood.
 recognizeFrom
-    :: (VOrd t, VOrd n)
+#ifdef Debug
+    :: (SOrd t, SOrd n)
+#else
+    :: (Ord t, Ord n)
+#endif
     => FactGram n t         -- ^ The grammar (set of rules)
     -> n                    -- ^ The start symbol
     -> [S.Set t]            -- ^ Input sentence
@@ -1048,7 +1057,11 @@ recognizeFrom gram =
 
 -- | Parse the given sentence and return the set of parsed trees.
 parse
-    :: (VOrd t, VOrd n)
+#ifdef Debug
+    :: (SOrd t, SOrd n)
+#else
+    :: (Ord t, Ord n)
+#endif
     => FactGram n t         -- ^ The grammar (set of rules)
     -> n                    -- ^ The start symbol
     -> [S.Set t]            -- ^ Input sentence
@@ -1059,7 +1072,11 @@ parse gram = parseAuto $ D.fromGram gram
 -- | Perform the earley-style computation given the grammar and
 -- the input sentence.
 earley
-    :: (VOrd t, VOrd n)
+#ifdef Debug
+    :: (SOrd t, SOrd n)
+#else
+    :: (Ord t, Ord n)
+#endif
     => FactGram n t         -- ^ The grammar (set of rules)
     -> [S.Set t]            -- ^ Input sentence
     -> IO (Hype n t)
@@ -1073,7 +1090,11 @@ earley gram = earleyAuto $ D.fromGram gram
 
 -- | See `recognize`.
 recognizeAuto
-    :: (VOrd t, VOrd n)
+#ifdef Debug
+    :: (SOrd t, SOrd n)
+#else
+    :: (Ord t, Ord n)
+#endif
     => A.GramAuto n t           -- ^ Grammar automaton
     -> [S.Set t]            -- ^ Input sentence
     -> IO Bool
@@ -1083,7 +1104,11 @@ recognizeAuto auto xs =
 
 -- | See `recognizeFrom`.
 recognizeFromAuto
-    :: (VOrd t, VOrd n)
+#ifdef Debug
+    :: (SOrd t, SOrd n)
+#else
+    :: (Ord t, Ord n)
+#endif
     => A.GramAuto n t       -- ^ Grammar automaton
     -> n                    -- ^ The start symbol
     -> [S.Set t]            -- ^ Input sentence
@@ -1095,7 +1120,11 @@ recognizeFromAuto auto start xs = do
 
 -- | See `parse`.
 parseAuto
-    :: (VOrd t, VOrd n)
+#ifdef Debug
+    :: (SOrd t, SOrd n)
+#else
+    :: (Ord t, Ord n)
+#endif
     => A.GramAuto n t           -- ^ Grammar automaton
     -> n                    -- ^ The start symbol
     -> [S.Set t]            -- ^ Input sentence
@@ -1107,7 +1136,11 @@ parseAuto auto start xs = do
 
 -- | See `earley`.
 earleyAuto
-    :: (VOrd t, VOrd n)
+#ifdef Debug
+    :: (SOrd t, SOrd n)
+#else
+    :: (Ord t, Ord n)
+#endif
     => A.GramAuto n t           -- ^ Grammar automaton
     -> [S.Set t]            -- ^ Input sentence
     -> IO (Hype n t)
@@ -1173,7 +1206,7 @@ finalFrom start n Hype{..} =
 -- TODO: The function returns `True` also when a subtree
 -- of an elementary tree is recognized, it seems.
 isRecognized
-    :: (VOrd t, VOrd n)
+    :: (SOrd t, SOrd n)
     => [S.Set t]            -- ^ Input sentence
     -> Hype n t            -- ^ Earley parsing result
     -> Bool

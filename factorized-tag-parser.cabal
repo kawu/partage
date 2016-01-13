@@ -57,7 +57,8 @@ library
 --       , NLP.TAG.Vanilla.Earley.New
 
     other-modules:
-        NLP.TAG.Vanilla.Rule.Internal
+        NLP.TAG.Vanilla.SOrd
+      , NLP.TAG.Vanilla.Rule.Internal
       , NLP.TAG.Vanilla.Earley.AutoAP
       , NLP.TAG.Vanilla.SubtreeSharing
 

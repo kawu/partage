@@ -16,7 +16,7 @@ module NLP.TAG.Vanilla.Rule.Internal
 , flattenNoSharing
 -- , compileWeights
 
--- * Viewing
+-- * Showing
 , viewLab
 
 -- * Internal
@@ -133,16 +133,16 @@ data Lab n t
 
 
 -- | Show full info about the label.
-viewLab :: (View n, View t) => Lab n t -> String
+viewLab :: (Show n, Show t) => Lab n t -> String
 viewLab lab = case lab of
-    NonT{..}    -> "N(" ++ view nonTerm
+    NonT{..}    -> "N(" ++ show nonTerm
         ++ ( case labID of
                 Nothing -> ""
-                Just i  -> ", " ++ view i ) ++ ")"
-    Term t      -> "T(" ++ view t ++ ")"
-    AuxRoot{..} -> "A(" ++ view nonTerm ++ ")"
-    AuxFoot x   -> "F(" ++ view x ++ ")"
-    AuxVert{..} -> "V(" ++ view nonTerm ++ ", " ++ view symID ++ ")"
+                Just i  -> ", " ++ show i ) ++ ")"
+    Term t      -> "T(" ++ show t ++ ")"
+    AuxRoot{..} -> "A(" ++ show nonTerm ++ ")"
+    AuxFoot x   -> "F(" ++ show x ++ ")"
+    AuxVert{..} -> "V(" ++ show nonTerm ++ ", " ++ show symID ++ ")"
 
 
 -- -- | Show the label.
