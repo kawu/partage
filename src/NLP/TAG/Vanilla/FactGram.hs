@@ -5,15 +5,18 @@
 -- | TAG conversion into flat production rules.
 
 
-module NLP.TAG.Vanilla.Rule
+module NLP.TAG.Vanilla.FactGram
 (
--- * Rule
-  Rule (..)
+-- * Factorized grammar
+  FactGram
+, Rule (..)
 , Lab (..)
 
 -- * Grammar flattening
-, compile
+, flattenNoSharing
+, flattenWithSharing
 ) where
 
 
 import           NLP.TAG.Vanilla.Rule.Internal
+import           NLP.TAG.Vanilla.SubtreeSharing

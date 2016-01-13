@@ -28,7 +28,7 @@ import qualified Data.Map.Strict as M
 import           Data.DAWG.Ord (ID)
 
 import qualified NLP.TAG.Vanilla.Auto as A
-import           NLP.TAG.Vanilla.Rule (Lab(..), Rule(..))
+import           NLP.TAG.Vanilla.FactGram (FactGram, Lab(..), Rule(..))
 
 
 -- | A single list.
@@ -86,7 +86,7 @@ edges ListSet{..} i
 
 
 -- | Build trie from the given grammar.
-buildList :: (Ord n, Ord t) => S.Set (Rule n t) -> [[A.Edge (Lab n t)]]
+buildList :: (Ord n, Ord t) => FactGram n t -> [[A.Edge (Lab n t)]]
 buildList gram =
     [ map A.Body bodyR ++ [A.Head headR]
     | Rule{..} <- S.toList gram ]
@@ -107,5 +107,5 @@ shell d0 = A.Auto
 
 
 -- | Build the list-based representation of the given grammar.
-fromGram :: (Ord n, Ord t) => S.Set (Rule n t) -> A.GramAuto n t
+fromGram :: (Ord n, Ord t) => FactGram n t -> A.GramAuto n t
 fromGram = shell . buildList

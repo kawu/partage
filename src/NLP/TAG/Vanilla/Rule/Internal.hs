@@ -8,11 +8,12 @@
 module NLP.TAG.Vanilla.Rule.Internal
 (
 -- * Rule
-  Rule (..)
+  FactGram
+, Rule (..)
 , Lab (..)
 
 -- * Grammar flattening
-, compile
+, flattenNoSharing
 -- , compileWeights
 
 -- * Viewing
@@ -39,19 +40,28 @@ import qualified NLP.TAG.Vanilla.Tree as G
 
 
 ----------------------
+-- Factorized grammar
+----------------------
+
+
+-- | Factorized grammar: a set of flat production rules.
+type FactGram n t = S.Set (Rule n t)
+
+
+----------------------
 -- Grammar compilation
 ----------------------
 
 
 -- | Compile the given grammar into the list of rules.
 -- No structure sharing takes place here.
-compile
+flattenNoSharing
     :: (Monad m, Ord n, Ord t)
     => [ Either
         (G.Tree n t)
         (G.AuxTree n t) ]
-    -> m (S.Set (Rule n t))
-compile ts =
+    -> m (FactGram n t)
+flattenNoSharing ts =
     flip E.execStateT S.empty $ runRM $ P.runEffect $
         P.for rules $ \rule ->
             lift . lift $ E.modify $ S.insert rule

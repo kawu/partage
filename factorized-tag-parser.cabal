@@ -36,9 +36,8 @@ library
         NLP.TAG.Vanilla.Core
       , NLP.TAG.Vanilla.Tree
       , NLP.TAG.Vanilla.Tree.Other
-      , NLP.TAG.Vanilla.Rule
+      , NLP.TAG.Vanilla.FactGram
       , NLP.TAG.Vanilla.Gen
-      , NLP.TAG.Vanilla.SubtreeSharing
       , NLP.TAG.Vanilla.Auto
       , NLP.TAG.Vanilla.Auto.List
       , NLP.TAG.Vanilla.Auto.Trie
@@ -60,6 +59,7 @@ library
     other-modules:
         NLP.TAG.Vanilla.Rule.Internal
       , NLP.TAG.Vanilla.Earley.AutoAP
+      , NLP.TAG.Vanilla.SubtreeSharing
 
     ghc-options: -Wall
     -- cpp-options: -DDebug

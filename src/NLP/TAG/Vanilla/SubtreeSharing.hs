@@ -2,7 +2,7 @@
 
 
 -- | TAG conversion into flat production rules.
--- Due to subtree sharing provided by `compile`, a single
+-- Due to subtree sharing provided by `flattenWithSharing`, a single
 -- rule can be responsible for recognizing a subtree common to many
 -- different elementary trees.
 --
@@ -11,7 +11,7 @@
 module NLP.TAG.Vanilla.SubtreeSharing
 (
 -- * Grammar flattening
-  compile
+  flattenWithSharing
 ) where
 
 
@@ -32,7 +32,8 @@ import qualified Pipes                      as P
 import           Pipes                      (hoist, (>->))
 
 import           NLP.TAG.Vanilla.Core
-import           NLP.TAG.Vanilla.Rule.Internal (Lab(..), Rule(..))
+import           NLP.TAG.Vanilla.Rule.Internal
+    ( FactGram, Lab(..), Rule(..) )
 import qualified NLP.TAG.Vanilla.Rule.Internal as Rule
 import qualified NLP.TAG.Vanilla.Tree as G
 
@@ -44,13 +45,13 @@ import qualified NLP.TAG.Vanilla.Tree as G
 
 -- | Compile the given grammar into the list of rules.
 -- Common subtrees are shared.
-compile
+flattenWithSharing
     :: (Functor m, Monad m, Ord n, Ord t)
     => [ Either
         (G.Tree n t)
         (G.AuxTree n t) ]
-    -> m (S.Set (Rule n t))
-compile ts =
+    -> m (FactGram n t)
+flattenWithSharing ts =
     fmap snd $ runDupT $ Rule.runRM $ P.runEffect $
         P.for shared (const $ return ())
   where

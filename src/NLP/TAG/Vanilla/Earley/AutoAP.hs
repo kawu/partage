@@ -24,7 +24,7 @@ module NLP.TAG.Vanilla.Earley.AutoAP
 , earleyAuto
 
 -- * Parsing trace (hypergraph)
-, EarSt
+, Hype
 -- ** Extracting parsed trees
 , parsedTrees
 -- ** Stats
@@ -62,6 +62,7 @@ import           Data.DAWG.Ord (ID)
 -- import qualified Data.DAWG.Ord.Dynamic      as D
 
 import           NLP.TAG.Vanilla.Core
+import           NLP.TAG.Vanilla.FactGram (FactGram)
 import           NLP.TAG.Vanilla.Rule.Internal
                                 ( Lab(..), Rule(..), viewLab )
 import qualified NLP.TAG.Vanilla.Auto as A
@@ -312,8 +313,8 @@ prio (ItemA p) = prioA p
 type EarRd t = V.Vector (S.Set t)
 
 
--- | The state of the earley monad.
-data EarSt n t = EarSt
+-- | A hypergraph dynamically constructed during parsing.
+data Hype n t = Hype
     { automat :: A.GramAuto n t
     -- ^ The underlying automaton (abstract implementation)
 
@@ -348,13 +349,13 @@ data EarSt n t = EarSt
     }
 
 
--- | Make an initial `EarSt` from a set of states.
-mkEarSt
+-- | Make an initial `Hype` from a set of states.
+mkHype
     :: (Ord n, Ord t)
     => A.GramAuto n t
     -> S.Set (Active n t)
-    -> EarSt n t
-mkEarSt dag s = EarSt
+    -> Hype n t
+mkHype dag s = Hype
     { automat = dag
     , withBody = mkWithBody dag
     , doneActive  = M.empty
@@ -375,8 +376,8 @@ mkWithBody dag = M.fromListWith S.union
 
 
 -- | Earley parser monad.  Contains the input sentence (reader)
--- and the state of the computation `EarSt'.
-type Earley n t = RWS.RWST (EarRd t) () (EarSt n t) IO
+-- and the state of the computation `Hype'.
+type Earley n t = RWS.RWST (EarRd t) () (Hype n t) IO
 
 
 -- | Read word from the given position of the input.
@@ -396,26 +397,26 @@ readInput i = do
 
 
 -- | Number of nodes in the parsing hypergraph.
-hyperNodesNum :: EarSt n t -> Int
+hyperNodesNum :: Hype n t -> Int
 hyperNodesNum e
     = length (listPassive e)
     + length (listActive e)
 
 
 -- | Number of edges in the parsing hypergraph.
-hyperEdgesNum :: forall n t. EarSt n t -> Int
+hyperEdgesNum :: forall n t. Hype n t -> Int
 hyperEdgesNum earSt
     = sumOver listPassive
     + sumOver listActive
   where
-    sumOver :: (EarSt n t -> [(a, S.Set (Trav n t))]) -> Int
+    sumOver :: (Hype n t -> [(a, S.Set (Trav n t))]) -> Int
     sumOver listIt = sum
         [ S.size travSet
         | (_, travSet) <- listIt earSt ]
 
 
 -- | Extract hypergraph (hyper)edges.
-hyperEdges :: EarSt n t -> [(Item n t, Trav n t)]
+hyperEdges :: Hype n t -> [(Item n t, Trav n t)]
 hyperEdges earSt =
     passiveEdges ++ activeEdges
   where
@@ -430,7 +431,7 @@ hyperEdges earSt =
 
 
 -- | Print the hypergraph edges.
-printHype :: (View n, View t) => EarSt n t -> IO ()
+printHype :: (View n, View t) => Hype n t -> IO ()
 printHype earSt =
     forM_ edges $ \(p, trav) ->
         printTrav p trav
@@ -447,14 +448,14 @@ printHype earSt =
 
 -- | List all active done items together with the corresponding
 -- traversals.
-listActive :: EarSt n t -> [(Active n t, S.Set (Trav n t))]
+listActive :: Hype n t -> [(Active n t, S.Set (Trav n t))]
 listActive = (M.elems >=> M.elems >=> M.toList) . doneActive
 
 
 -- | Return the corresponding set of traversals for an active item.
 activeTrav
     :: (Ord n, Ord t)
-    => Active n t -> EarSt n t
+    => Active n t -> Hype n t
     -> Maybe (S.Set (Trav n t))
 activeTrav p
     = (   M.lookup (p ^. spanA ^. end)
@@ -464,7 +465,7 @@ activeTrav p
 
 
 -- | Check if the active item is not already processed.
-_isProcessedA :: (Ord n, Ord t) => Active n t -> EarSt n t -> Bool
+_isProcessedA :: (Ord n, Ord t) => Active n t -> Hype n t -> Bool
 _isProcessedA p =
     check . activeTrav p
   where
@@ -503,14 +504,14 @@ saveActive p ts =
 
 -- | List all passive done items together with the corresponding
 -- traversals.
-listPassive :: EarSt n t -> [(Passive n t, S.Set (Trav n t))]
+listPassive :: Hype n t -> [(Passive n t, S.Set (Trav n t))]
 listPassive = (M.elems >=> M.toList) . donePassive
 
 
 -- | Return the corresponding set of traversals for a passive item.
 passiveTrav
     :: (Ord n, Ord t)
-    => Passive n t -> EarSt n t
+    => Passive n t -> Hype n t
     -> Maybe (S.Set (Trav n t))
 passiveTrav p
     = ( M.lookup
@@ -521,7 +522,7 @@ passiveTrav p
 
 
 -- | Check if the state is not already processed.
-_isProcessedP :: (Ord n, Ord t) => Passive n t -> EarSt n t -> Bool
+_isProcessedP :: (Ord n, Ord t) => Passive n t -> Hype n t -> Bool
 _isProcessedP x =
     check . passiveTrav x
   where
@@ -626,7 +627,7 @@ expectEnd
     :: (Ord n, Ord t) => Lab n t -> Pos
     -> P.ListT (Earley n t) (Active n t)
 expectEnd sym i = do
-    EarSt{..} <- lift RWS.get
+    Hype{..} <- lift RWS.get
     -- determine items which end on the given position
     doneEnd <- some $ M.lookup i doneActive
     -- determine automaton states from which the given label
@@ -652,7 +653,7 @@ rootSpan
     :: Ord n => n -> (Pos, Pos)
     -> P.ListT (Earley n t) (Passive n t)
 rootSpan x (i, j) = do
-    EarSt{..} <- lift RWS.get
+    Hype{..} <- lift RWS.get
     -- listValues (i, x, j) donePassive
     each $ case M.lookup (i, x, j) donePassive of
         Nothing -> []
@@ -930,7 +931,7 @@ step (ItemA p :-> e) = do
 -- sentence.  Should be run on the result of the earley algorithm.
 parsedTrees
     :: forall n t. (Ord n, Ord t, Show n, Show t)
-    => EarSt n t    -- ^ Final state of the earley parser
+    => Hype n t    -- ^ Final state of the earley parser
     -> n            -- ^ The start symbol
     -> Int          -- ^ Length of the input sentence
     -> S.Set (T.Tree n t)
@@ -1024,7 +1025,7 @@ parsedTrees earSt start n
 -- Uses the `earley` algorithm under the hood.
 recognize
     :: (VOrd t, VOrd n)
-    => S.Set (Rule n t)     -- ^ The grammar (set of rules)
+    => FactGram n t         -- ^ The grammar (set of rules)
     -> [S.Set t]            -- ^ Input sentence
     -> IO Bool
 recognize gram =
@@ -1037,7 +1038,7 @@ recognize gram =
 -- hood.
 recognizeFrom
     :: (VOrd t, VOrd n)
-    => S.Set (Rule n t)     -- ^ The grammar (set of rules)
+    => FactGram n t         -- ^ The grammar (set of rules)
     -> n                    -- ^ The start symbol
     -> [S.Set t]            -- ^ Input sentence
     -> IO Bool
@@ -1048,7 +1049,7 @@ recognizeFrom gram =
 -- | Parse the given sentence and return the set of parsed trees.
 parse
     :: (VOrd t, VOrd n)
-    => S.Set (Rule n t)     -- ^ The grammar (set of rules)
+    => FactGram n t         -- ^ The grammar (set of rules)
     -> n                    -- ^ The start symbol
     -> [S.Set t]            -- ^ Input sentence
     -> IO (S.Set (T.Tree n t))
@@ -1059,9 +1060,9 @@ parse gram = parseAuto $ D.fromGram gram
 -- the input sentence.
 earley
     :: (VOrd t, VOrd n)
-    => S.Set (Rule n t)     -- ^ The grammar (set of rules)
+    => FactGram n t         -- ^ The grammar (set of rules)
     -> [S.Set t]            -- ^ Input sentence
-    -> IO (EarSt n t)
+    -> IO (Hype n t)
 earley gram = earleyAuto $ D.fromGram gram
 
 
@@ -1109,14 +1110,14 @@ earleyAuto
     :: (VOrd t, VOrd n)
     => A.GramAuto n t           -- ^ Grammar automaton
     -> [S.Set t]            -- ^ Input sentence
-    -> IO (EarSt n t)
+    -> IO (Hype n t)
 earleyAuto dawg xs =
     fst <$> RWS.execRWST loop (V.fromList xs) st0
   where
     -- we put in the initial state all the states with the dot on
     -- the left of the body of the rule (-> left = []) on all
     -- positions of the input sentence.
-    st0 = mkEarSt dawg $ S.fromList
+    st0 = mkHype dawg $ S.fromList
         [ Active root Span
             { _beg   = i
             , _end   = i
@@ -1140,9 +1141,9 @@ finalFrom
     :: (Ord n, Eq t)
     => n            -- ^ The start symbol
     -> Int          -- ^ The length of the input sentence
-    -> EarSt n t    -- ^ Result of the earley computation
+    -> Hype n t    -- ^ Result of the earley computation
     -> [Passive n t]
-finalFrom start n EarSt{..} =
+finalFrom start n Hype{..} =
     case M.lookup (0, start, n) donePassive of
         Nothing -> []
         Just m ->
@@ -1155,9 +1156,9 @@ finalFrom start n EarSt{..} =
 -- final
 --     :: (Ord n, Eq t)
 --     -> Int          -- ^ The length of the input sentence
---     -> EarSt n t    -- ^ Result of the earley computation
+--     -> Hype n t    -- ^ Result of the earley computation
 --     -> [Passive n t]
--- final start n EarSt{..} =
+-- final start n Hype{..} =
 --     case M.lookup (0, start, n) donePassive of
 --         Nothing -> []
 --         Just m ->
@@ -1174,9 +1175,9 @@ finalFrom start n EarSt{..} =
 isRecognized
     :: (VOrd t, VOrd n)
     => [S.Set t]            -- ^ Input sentence
-    -> EarSt n t            -- ^ Earley parsing result
+    -> Hype n t            -- ^ Earley parsing result
     -> Bool
-isRecognized xs EarSt{..} =
+isRecognized xs Hype{..} =
     (not . null)
     (complete
         (agregate donePassive))

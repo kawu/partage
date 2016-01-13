@@ -27,8 +27,8 @@ import qualified Data.Set                   as S
 -- import           Data.DAWG.Ord (ID)
 import qualified Data.DAWG.Ord              as D
 
-import           NLP.TAG.Vanilla.Rule
-    ( Lab(..), Rule(..) )
+import           NLP.TAG.Vanilla.FactGram
+    ( FactGram, Lab(..), Rule(..) )
 
 
 import qualified NLP.TAG.Vanilla.Auto as A
@@ -53,7 +53,7 @@ shell d = A.Auto
 
 
 -- | Build the DAWG-based representation of the given grammar.
-fromGram :: (Ord n, Ord t) => S.Set (Rule n t) -> A.GramAuto n t
+fromGram :: (Ord n, Ord t) => FactGram n t -> A.GramAuto n t
 fromGram = shell . buildAuto
 
 
@@ -70,7 +70,7 @@ type DAWG n t = D.DAWG (A.Edge (Lab n t)) ()
 
 
 -- | Build automaton from the given grammar.
-buildAuto :: (Ord n, Ord t) => S.Set (Rule n t) -> DAWG n t
+buildAuto :: (Ord n, Ord t) => FactGram n t -> DAWG n t
 buildAuto gram = D.fromLang
     [ map A.Body bodyR ++ [A.Head headR]
     | Rule{..} <- S.toList gram ]

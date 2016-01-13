@@ -33,10 +33,9 @@ import           Test.Tasty.HUnit (testCase)
 
 -- import           NLP.TAG.Vanilla.Core (Cost)
 import           NLP.TAG.Vanilla.Tree (Tree (..), AuxTree (..))
-import           NLP.TAG.Vanilla.Rule (Rule)
-import qualified NLP.TAG.Vanilla.Rule  as R
+import           NLP.TAG.Vanilla.FactGram (Rule, flattenWithSharing)
 -- import qualified NLP.TAG.Vanilla.WRule as W
-import           NLP.TAG.Vanilla.SubtreeSharing (compile)
+-- import           NLP.TAG.Vanilla.SubtreeSharing (compile)
 
 
 ---------------------------------------------------------------------
@@ -146,7 +145,7 @@ mouse = Branch "NP"
 
 -- | Compile the first grammar.
 mkGram1 :: IO Gram
-mkGram1 = compile $
+mkGram1 = flattenWithSharing $
     map Left [tom, sleeps, caught, a, mouse] ++
     map Right [almost, quickly]
 
@@ -230,7 +229,7 @@ beta2 = AuxTree (Branch "X"
 
 
 mkGram2 :: IO Gram
-mkGram2 = compile $
+mkGram2 = flattenWithSharing $
     map Left [alpha] ++
     map Right [beta1, beta2]
 
@@ -262,7 +261,7 @@ gram2Tests =
 
 
 mkGram3 :: IO Gram
-mkGram3 = compile $
+mkGram3 = flattenWithSharing $
     map Left [sent] ++
     map Right [xtree]
   where

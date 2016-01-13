@@ -35,7 +35,7 @@ import qualified Data.Map.Strict as M
 import           Data.DAWG.Ord (ID)
 
 import qualified NLP.TAG.Vanilla.Auto as A
-import           NLP.TAG.Vanilla.Rule (Lab(..), Rule(..))
+import           NLP.TAG.Vanilla.FactGram (FactGram, Lab(..), Rule(..))
 
 
 --------------------------------------------------
@@ -71,7 +71,7 @@ fromLang = foldl' (flip insert) empty
 
 
 -- | Build trie from the given grammar.
-buildTrie :: (Ord n, Ord t) => S.Set (Rule n t) -> Trie (A.Edge (Lab n t))
+buildTrie :: (Ord n, Ord t) => FactGram n t -> Trie (A.Edge (Lab n t))
 buildTrie gram = fromLang
     [ map A.Body bodyR ++ [A.Head headR]
     | Rule{..} <- S.toList gram ]
@@ -92,7 +92,7 @@ shell d0 = A.Auto
 
 
 -- | Build the trie-based representation of the given grammar.
-fromGram :: (Ord n, Ord t) => S.Set (Rule n t) -> A.GramAuto n t
+fromGram :: (Ord n, Ord t) => FactGram n t -> A.GramAuto n t
 fromGram = shell . buildTrie
 
 

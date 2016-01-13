@@ -17,7 +17,7 @@ module NLP.TAG.Vanilla.Earley
 , earleyAuto
 
 -- * Parsing trace (hypergraph)
-, EarSt
+, Hype
 -- ** Extracting parsed trees
 , parsedTrees
 -- ** Stats

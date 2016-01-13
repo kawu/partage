@@ -32,8 +32,8 @@ import qualified Data.Map.Strict            as M
 
 import           Data.DAWG.Ord (ID)
 
-import           NLP.TAG.Vanilla.Rule
-    ( Lab(..), Rule(..) )
+import           NLP.TAG.Vanilla.FactGram
+    ( FactGram, Lab(..), Rule(..) )
 
 
 import qualified NLP.TAG.Vanilla.Auto as A
@@ -72,9 +72,9 @@ shell AutoSet{..} = A.Auto
 -- | Build the set of automata from the given grammar.
 fromGram
     :: (Ord n, Ord t)
-    => (S.Set (Rule n t) -> A.GramAuto n t)
+    => (FactGram n t -> A.GramAuto n t)
         -- ^ The underlying automaton construction method
-    -> S.Set (Rule n t)
+    -> FactGram n t
         -- ^ The grammar to compress
     -> A.GramAuto n t
 fromGram mkOne = shell . buildAutoSet mkOne
@@ -133,9 +133,9 @@ unionsAS = foldl' unionAS emptyAS
 -- | Build automata from the given grammar.
 buildAutoSet
     :: (Ord n, Ord t)
-    => (S.Set (Rule n t) -> A.GramAuto n t)
+    => (FactGram n t -> A.GramAuto n t)
         -- ^ The underlying automaton construction method
-    -> S.Set (Rule n t)
+    -> FactGram n t
         -- ^ The grammar to compress
     -> AutoSet (A.Edge (Lab n t))
 buildAutoSet mkOne gram = runM $

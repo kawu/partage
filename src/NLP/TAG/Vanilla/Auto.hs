@@ -4,9 +4,14 @@
 
 -- | Abstract implementation of an automaton (or a set of automata,
 -- in general).  `Auto` provides a minimal interface needed to
--- use automata in parsing.  It thus allows to use different
--- concrete implementations (see e.g. "NLP.TAG.Vanilla.Auto.DAWG"
--- or "NLP.TAG.Vanilla.Auto.Trie").
+-- use automata in parsing and thus allows to use one of the
+-- concrete implementations provided by the library:
+--
+--  * "NLP.TAG.Vanilla.Auto.DAWG": directed acyclic word graph
+--  * "NLP.TAG.Vanilla.Auto.Trie": prefix tree
+--  * "NLP.TAG.Vanilla.Auto.List": set of lists
+--  * "NLP.TAG.Vanilla.Auto.Set": set of automata, one automaton per
+--      `Head` non-terminal
 
 
 module NLP.TAG.Vanilla.Auto
@@ -27,7 +32,7 @@ import qualified Control.Monad.State.Strict as E
 import qualified Data.Set                   as S
 
 import           Data.DAWG.Ord (ID)
-import           NLP.TAG.Vanilla.Rule (Lab(..))
+import           NLP.TAG.Vanilla.FactGram (Lab(..))
 
 
 -- | A datatype used to distinguish head non-terminals from body
@@ -43,11 +48,11 @@ data Edge a
 -- list implementation of an automaton.
 data Auto a = Auto
     { roots     :: S.Set ID
-    -- ^ Root node
+    -- ^ Set of automata roots
     , follow    :: ID -> a -> Maybe ID
-    -- ^ Follow the given symbol from the given node
+    -- ^ Follow a transition with the given symbol from the given node
     , edges     :: ID -> [(a, ID)]
-    -- ^ List of outgoing edges
+    -- ^ List of outgoing edges (transitions)
     }
 
 

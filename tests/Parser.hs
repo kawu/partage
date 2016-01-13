@@ -13,10 +13,7 @@ import           Control.Monad (forM_)
 import           Test.Tasty (TestTree)
 import qualified Data.Set as S
 
-import qualified NLP.TAG.Vanilla.Rule as R
-import qualified NLP.TAG.Vanilla.Auto.DAWG  as A
 import qualified NLP.TAG.Vanilla.Earley as E
-import qualified NLP.TAG.Vanilla.Tree as E
 
 import qualified TestSet as T
 
