@@ -6,14 +6,23 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 
--- | A simple, experimental tree generation module.
+-- | A simple, experimental tree generation module, with the aim
+-- to generate /all/, or /randomly/, language trees satisfying
+-- certain simple constraints.
+--
+-- One of the possible usecases where such a functionality can be
+-- useful is to automatically generate test sets over which
+-- efficiency of a parser can be measured.
 
 
 module NLP.TAG.Vanilla.Gen
 ( Gram
-, GenConf (..)
+
+-- * Generation
 , generateAll
+-- ** Randomized generation
 , generateRand
+, GenConf (..)
 ) where
 
 
@@ -170,7 +179,10 @@ visitedWith doneMap cond = do
 --------------------------
 
 
--- | Generation configuration.
+-- | Randomized generation configuration.
+-- First all derivable trees up to the size `genAllSize` are
+-- generated, and on this basis other derived trees (with adjunction
+-- probability controlled by `adjProb`) are constructed.
 data GenConf = GenConf {
       genAllSize    :: Int
     -- ^ Generate all derivable trees up to the given size
@@ -179,7 +191,8 @@ data GenConf = GenConf {
     } deriving (Show, Eq, Ord)
 
 
--- | Randomized version of tree generation.
+-- | Randomly generate derived trees from the grammar, according to
+-- the given configuration.
 generateRand
     :: (MonadIO m, Ord n, Ord t)
     => Gram n t
