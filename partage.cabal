@@ -1,5 +1,5 @@
 name:               partage
-version:            0.1
+version:            0.1.0.0
 synopsis:           Parsing factorized 
 description:
     Parsing factorized tree adjoining grammars.
