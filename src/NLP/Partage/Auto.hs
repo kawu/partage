@@ -7,14 +7,14 @@
 -- use automata in parsing and thus allows to use one of the
 -- concrete implementations provided by the library:
 --
---  * "NLP.TAG.Vanilla.Auto.DAWG": directed acyclic word graph
---  * "NLP.TAG.Vanilla.Auto.Trie": prefix tree
---  * "NLP.TAG.Vanilla.Auto.List": set of lists
---  * "NLP.TAG.Vanilla.Auto.Set": set of automata, one automaton per
+--  * "NLP.Partage.Auto.DAWG": directed acyclic word graph
+--  * "NLP.Partage.Auto.Trie": prefix tree
+--  * "NLP.Partage.Auto.List": set of lists
+--  * "NLP.Partage.Auto.Set": set of automata, one automaton per
 --      `Head` non-terminal
 
 
-module NLP.TAG.Vanilla.Auto
+module NLP.Partage.Auto
 (
 -- * Automata
   Auto (..)
@@ -32,7 +32,7 @@ import qualified Control.Monad.State.Strict as E
 import qualified Data.Set                   as S
 
 import           Data.DAWG.Ord (ID)
-import           NLP.TAG.Vanilla.FactGram (Lab(..))
+import           NLP.Partage.FactGram (Lab(..))
 
 
 -- | A datatype used to distinguish head non-terminals from body

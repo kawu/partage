@@ -2,7 +2,7 @@
 -- between active and passive items.
 
 
-module NLP.TAG.Vanilla.Earley
+module NLP.Partage.Earley
 (
 -- * Earley-style parsing
 -- $earley
@@ -31,11 +31,11 @@ module NLP.TAG.Vanilla.Earley
 ) where
 
 
-import           NLP.TAG.Vanilla.Earley.AutoAP
+import           NLP.Partage.Earley.AutoAP
 
 {- $earley
   All the parsing functions described below employ the
-  "NLP.TAG.Vanilla.Auto.DAWG" grammar representation.
+  "NLP.Partage.Auto.DAWG" grammar representation.
   You can also pre-compile your own automaton and use it with
   e.g. `parseAuto`.
 -}

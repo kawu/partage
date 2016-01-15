@@ -6,17 +6,17 @@
 -- in a form of a prefix tree.
 
 
-module NLP.TAG.Vanilla.Auto.Trie
+module NLP.Partage.Auto.Trie
 (
 -- -- * Trie
 --   Trie
 -- , empty
 -- , insert
 -- , fromLang
--- 
+--
 -- -- * From grammar
 -- , buildTrie
--- 
+--
 -- -- * Interface
 -- , shell
   fromGram
@@ -34,8 +34,8 @@ import qualified Data.Map.Strict as M
 
 import           Data.DAWG.Ord (ID)
 
-import qualified NLP.TAG.Vanilla.Auto as A
-import           NLP.TAG.Vanilla.FactGram (FactGram, Lab(..), Rule(..))
+import qualified NLP.Partage.Auto as A
+import           NLP.Partage.FactGram (FactGram, Lab(..), Rule(..))
 
 
 --------------------------------------------------

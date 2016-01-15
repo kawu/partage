@@ -5,7 +5,7 @@
 -- | TAG conversion into flat production rules.
 
 
-module NLP.TAG.Vanilla.FactGram.Internal
+module NLP.Partage.FactGram.Internal
 (
 -- * Grammar
   FactGram
@@ -36,7 +36,7 @@ import qualified Data.Tree as T
 
 import qualified Pipes as P
 
-import qualified NLP.TAG.Vanilla.Tree as G
+import qualified NLP.Partage.Tree as G
 
 
 --------------------------------------------------

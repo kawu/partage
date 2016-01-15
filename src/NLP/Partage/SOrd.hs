@@ -6,7 +6,7 @@
 -- | Internal typeclass representing `Show` + `Ord`.
 
 
-module NLP.TAG.Vanilla.SOrd
+module NLP.Partage.SOrd
 ( SOrd
 ) where
 

@@ -1,12 +1,12 @@
 {-# LANGUAGE RecordWildCards #-}
 
 
--- | Alternative (to "NLP.TAG.Vanilla.Tree") representation of TAG
+-- | Alternative (to "NLP.Partage.Tree") representation of TAG
 -- trees, in which information about the foot is present in the tree
 -- itself.
 
 
-module NLP.TAG.Vanilla.Tree.Other
+module NLP.Partage.Tree.Other
 (
 -- * TAG Tree
   Tree
@@ -35,7 +35,7 @@ import qualified Data.Foldable as F
 
 import qualified Data.Tree as R
 
-import qualified NLP.TAG.Vanilla.Tree as T
+import qualified NLP.Partage.Tree as T
 
 
 ---------------------------------------------------------------------
@@ -60,12 +60,12 @@ isTerm _        = False
 -- | An initial or auxiliary TAG tree.  Note that the type doesn't
 -- ensure that the foot is placed in a leaf, nor that there is at
 -- most one foot node.  On the other hand, and in contrast to
--- "NLP.TAG.Vanilla.Tree", information about the foot is available at
+-- "NLP.Partage.Tree", information about the foot is available at
 -- the level of the corresponding foot node.
 type Tree n t = R.Tree (Node n t)
 
 
--- | An original tree representation (see "NLP.TAG.Vanilla.Tree").
+-- | An original tree representation (see "NLP.Partage.Tree").
 type SomeTree n t = Either (T.Tree n t) (T.AuxTree n t)
 
 

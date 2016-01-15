@@ -7,12 +7,12 @@
 -- /minimal finite state automaton/.
 
 
-module NLP.TAG.Vanilla.Auto.DAWG
+module NLP.Partage.Auto.DAWG
 (
 -- -- * DAWG
 --   DAWG
 -- , buildAuto
--- 
+--
 -- -- * Interface
 -- , shell
   fromGram
@@ -27,11 +27,11 @@ import qualified Data.Set                   as S
 -- import           Data.DAWG.Ord (ID)
 import qualified Data.DAWG.Ord              as D
 
-import           NLP.TAG.Vanilla.FactGram
+import           NLP.Partage.FactGram
     ( FactGram, Lab(..), Rule(..) )
 
 
-import qualified NLP.TAG.Vanilla.Auto as A
+import qualified NLP.Partage.Auto as A
 
 
 --------------------------------------------------

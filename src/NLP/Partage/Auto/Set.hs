@@ -8,12 +8,12 @@
 -- separate automaton is built.
 
 
-module NLP.TAG.Vanilla.Auto.Set
+module NLP.Partage.Auto.Set
 (
 -- -- AutoSet
 --   AutoSet
 -- , buildAutoSet
--- 
+--
 -- -- * Interface
 -- , shell
   fromGram
@@ -32,11 +32,11 @@ import qualified Data.Map.Strict            as M
 
 import           Data.DAWG.Ord (ID)
 
-import           NLP.TAG.Vanilla.FactGram
+import           NLP.Partage.FactGram
     ( FactGram, Lab(..), Rule(..) )
 
 
-import qualified NLP.TAG.Vanilla.Auto as A
+import qualified NLP.Partage.Auto as A
 
 
 --------------------------------------------------

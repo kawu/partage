@@ -8,7 +8,7 @@
 --
 
 
-module NLP.TAG.Vanilla.SubtreeSharing
+module NLP.Partage.SubtreeSharing
 (
 -- * Grammar flattening
   flattenWithSharing
@@ -31,10 +31,10 @@ import qualified Data.Partition             as Part
 import qualified Pipes                      as P
 import           Pipes                      (hoist, (>->))
 
-import           NLP.TAG.Vanilla.FactGram.Internal
+import           NLP.Partage.FactGram.Internal
     ( FactGram, Lab(..), Rule(..), SymID )
-import qualified NLP.TAG.Vanilla.FactGram.Internal as Rule
-import qualified NLP.TAG.Vanilla.Tree as G
+import qualified NLP.Partage.FactGram.Internal as Rule
+import qualified NLP.Partage.Tree as G
 
 
 --------------------------------------------------

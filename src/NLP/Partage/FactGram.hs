@@ -5,7 +5,7 @@
 -- | TAG conversion into flat production rules.
 
 
-module NLP.TAG.Vanilla.FactGram
+module NLP.Partage.FactGram
 (
 -- * Factorized grammar
   FactGram
@@ -18,5 +18,5 @@ module NLP.TAG.Vanilla.FactGram
 ) where
 
 
-import           NLP.TAG.Vanilla.FactGram.Internal
-import           NLP.TAG.Vanilla.SubtreeSharing
+import           NLP.Partage.FactGram.Internal
+import           NLP.Partage.SubtreeSharing

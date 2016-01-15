@@ -6,7 +6,7 @@
 -- tree.
 
 
-module NLP.TAG.Vanilla.Tree
+module NLP.Partage.Tree
 (
 -- * Initial tree
   Tree (..)
@@ -45,14 +45,14 @@ import           Control.Monad (foldM)
 -- nodes
 data Tree a b
     -- | Branching node with a non-terminal symbol
-    = Branch 
+    = Branch
         { labelI    :: a
         -- ^ The non-terminal kept in the branching node
         , subTrees  :: [Tree a b]
         -- ^ The list of subtrees
         }
     -- | Leaf node with a terminal symbol
-    | Leaf 
+    | Leaf
         { labelF    :: b
         -- ^ The terminal symbol
         }
@@ -86,8 +86,8 @@ project = toWord
 --         INode{..}   -> ("INode " ++ f labelI)
 --             : map ("  " ++) (concatMap go subTrees)
 --         FNode{..}   -> ["FNode " ++ g labelF]
--- 
--- 
+--
+--
 -- -- | Like `showTree`, but using the default `Show` instances
 -- -- to present label values.
 -- showTree' :: (Show a, Show b) => Tree a b -> String
@@ -168,8 +168,8 @@ data AuxTree a b = AuxTree
 -- ---------------------------------------------------------------------
 -- -- Derivation
 -- ---------------------------------------------------------------------
--- 
--- 
+--
+--
 -- -- | A derived tree is constructed by applying a sequence of
 -- -- transforming (substitution or adjoining) rules on particular
 -- -- positions of a tree.  The `Deriv` sequence represents a
@@ -177,12 +177,12 @@ data AuxTree a b = AuxTree
 -- -- tree, which to some extent abstracts over the particular order
 -- -- of derivations (when it doesn't matter).
 -- type Deriv a b = [(Path, Trans a b)]
--- 
--- 
+--
+--
 -- -- | Transformation of a tree.
 -- type Trans a b = Either (Tree a b) (AuxTree a b)
--- 
--- 
+--
+--
 -- -- | Derive a tree.
 -- derive :: Deriv a b -> Tree a b -> Maybe (Tree a b)
 -- derive =

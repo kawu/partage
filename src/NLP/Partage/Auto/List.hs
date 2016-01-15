@@ -6,12 +6,12 @@
 -- separate, trivial automaton.
 
 
-module NLP.TAG.Vanilla.Auto.List
+module NLP.Partage.Auto.List
 (
 -- -- * ListSet
 --   ListSet
 -- , buildList
--- 
+--
 -- -- * Interface
 -- , shell
   fromGram
@@ -27,8 +27,8 @@ import qualified Data.Map.Strict as M
 
 import           Data.DAWG.Ord (ID)
 
-import qualified NLP.TAG.Vanilla.Auto as A
-import           NLP.TAG.Vanilla.FactGram (FactGram, Lab(..), Rule(..))
+import qualified NLP.Partage.Auto as A
+import           NLP.Partage.FactGram (FactGram, Lab(..), Rule(..))
 
 
 -- | A single list.

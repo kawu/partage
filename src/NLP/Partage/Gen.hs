@@ -15,7 +15,7 @@
 -- efficiency of a parser can be measured.
 
 
-module NLP.TAG.Vanilla.Gen
+module NLP.Partage.Gen
 ( Gram
 
 -- * Generation
@@ -43,7 +43,7 @@ import qualified Data.PSQueue as Q
 import           Data.PSQueue (Binding(..))
 import qualified Data.Tree as R
 
-import           NLP.TAG.Vanilla.Tree.Other
+import           NLP.Partage.Tree.Other
 
 
 --------------------------

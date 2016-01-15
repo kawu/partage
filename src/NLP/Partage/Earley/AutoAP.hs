@@ -10,7 +10,7 @@
 -- between active and passive items.
 
 
-module NLP.TAG.Vanilla.Earley.AutoAP
+module NLP.Partage.Earley.AutoAP
 (
 -- * Earley-style parsing
   recognize
@@ -64,13 +64,13 @@ import qualified Pipes                      as P
 import           Data.DAWG.Ord (ID)
 -- import qualified Data.DAWG.Ord.Dynamic      as D
 
-import           NLP.TAG.Vanilla.SOrd
-import           NLP.TAG.Vanilla.FactGram (FactGram)
-import           NLP.TAG.Vanilla.FactGram.Internal
+import           NLP.Partage.SOrd
+import           NLP.Partage.FactGram (FactGram)
+import           NLP.Partage.FactGram.Internal
                                 ( Lab(..), Rule(..), viewLab )
-import qualified NLP.TAG.Vanilla.Auto as A
-import qualified NLP.TAG.Vanilla.Auto.DAWG  as D
-import qualified NLP.TAG.Vanilla.Tree       as T
+import qualified NLP.Partage.Auto as A
+import qualified NLP.Partage.Auto.DAWG  as D
+import qualified NLP.Partage.Tree       as T
 
 
 --------------------------------------------------

@@ -1,6 +1,6 @@
-name:               factorized-tag-parser
+name:               partage
 version:            0.1
-synopsis:           Parsing factorized TAGs
+synopsis:           Parsing factorized 
 description:
     Parsing factorized tree adjoining grammars.
 license:            BSD3
@@ -33,34 +33,34 @@ library
       , vector              >= 0.10     && < 0.12
 
     exposed-modules:
---         NLP.TAG.Vanilla.Core
-        NLP.TAG.Vanilla.Tree
-      , NLP.TAG.Vanilla.Tree.Other
-      , NLP.TAG.Vanilla.FactGram
-      , NLP.TAG.Vanilla.Gen
-      , NLP.TAG.Vanilla.Auto
-      , NLP.TAG.Vanilla.Auto.List
-      , NLP.TAG.Vanilla.Auto.Trie
-      , NLP.TAG.Vanilla.Auto.DAWG
-      , NLP.TAG.Vanilla.Auto.Set
-      , NLP.TAG.Vanilla.Earley
+--         NLP.Partage.Core
+        NLP.Partage.Tree
+      , NLP.Partage.Tree.Other
+      , NLP.Partage.FactGram
+      , NLP.Partage.Gen
+      , NLP.Partage.Auto
+      , NLP.Partage.Auto.List
+      , NLP.Partage.Auto.Trie
+      , NLP.Partage.Auto.DAWG
+      , NLP.Partage.Auto.Set
+      , NLP.Partage.Earley
 
 -- NOT FOR THIS VERIONS:
---       , NLP.TAG.Vanilla.WRule
---       , NLP.TAG.Vanilla.Earley.Auto
---       , NLP.TAG.Vanilla.Earley.Basic
---       , NLP.TAG.Vanilla.Earley.Pred
---       , NLP.TAG.Vanilla.Earley.TreeGen
---       , NLP.TAG.Vanilla.Earley.Prob.SymInf
---       , NLP.TAG.Vanilla.Earley.Prob.Dijkstra
---       , NLP.TAG.Vanilla.Earley.Prob.AStar
---       , NLP.TAG.Vanilla.Earley.New
+--       , NLP.Partage.WRule
+--       , NLP.Partage.Earley.Auto
+--       , NLP.Partage.Earley.Basic
+--       , NLP.Partage.Earley.Pred
+--       , NLP.Partage.Earley.TreeGen
+--       , NLP.Partage.Earley.Prob.SymInf
+--       , NLP.Partage.Earley.Prob.Dijkstra
+--       , NLP.Partage.Earley.Prob.AStar
+--       , NLP.Partage.Earley.New
 
     other-modules:
-        NLP.TAG.Vanilla.SOrd
-      , NLP.TAG.Vanilla.FactGram.Internal
-      , NLP.TAG.Vanilla.Earley.AutoAP
-      , NLP.TAG.Vanilla.SubtreeSharing
+        NLP.Partage.SOrd
+      , NLP.Partage.FactGram.Internal
+      , NLP.Partage.Earley.AutoAP
+      , NLP.Partage.SubtreeSharing
 
     ghc-options: -Wall
     -- cpp-options: -DDebug
