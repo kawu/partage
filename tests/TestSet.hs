@@ -31,11 +31,8 @@ import           Test.Tasty (TestTree, testGroup, withResource)
 import           Test.HUnit (Assertion, (@?=))
 import           Test.Tasty.HUnit (testCase)
 
--- import           NLP.TAG.Vanilla.Core (Cost)
-import           NLP.TAG.Vanilla.Tree (Tree (..), AuxTree (..))
-import           NLP.TAG.Vanilla.FactGram (Rule, flattenWithSharing)
--- import qualified NLP.TAG.Vanilla.WRule as W
--- import           NLP.TAG.Vanilla.SubtreeSharing (compile)
+import           NLP.Partage.Tree (Tree (..), AuxTree (..))
+import           NLP.Partage.FactGram (Rule, flattenWithSharing)
 
 
 ---------------------------------------------------------------------

@@ -84,7 +84,7 @@ test-suite test
         TestSet
       , Parser
     build-depends:
-        factorized-tag-parser
+        partage
       , base                    >= 4        && < 5
       , containers              >= 0.5      && < 0.6
       , tasty                   >= 0.10

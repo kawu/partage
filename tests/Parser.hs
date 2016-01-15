@@ -13,7 +13,7 @@ import           Control.Monad (forM_)
 import           Test.Tasty (TestTree)
 import qualified Data.Set as S
 
-import qualified NLP.TAG.Vanilla.Earley as E
+import qualified NLP.Partage.Earley as E
 
 import qualified TestSet as T
 
