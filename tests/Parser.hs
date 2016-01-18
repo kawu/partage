@@ -11,7 +11,6 @@ module Parser where
 import           Control.Applicative ((<$>))
 import           Control.Monad (forM_)
 import           Test.Tasty (TestTree)
-import qualified Data.Set as S
 
 import qualified NLP.Partage.Earley as E
 
@@ -25,7 +24,7 @@ tests = T.testTree "Parser"
   where
     recFrom gram start
         = E.recognizeFrom gram start
-        . map S.singleton
+        . E.fromList
     parseFrom gram start
         = E.parse gram start
-        . map S.singleton
+        . E.fromList

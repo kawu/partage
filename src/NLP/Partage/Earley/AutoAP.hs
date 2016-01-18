@@ -13,7 +13,12 @@
 module NLP.Partage.Earley.AutoAP
 (
 -- * Earley-style parsing
-  recognize
+-- ** Input
+  Input (..)
+, fromList
+, fromSets
+-- ** From a factorized grammar
+, recognize
 , recognizeFrom
 , parse
 , earley
@@ -67,10 +72,44 @@ import           Data.DAWG.Ord (ID)
 import           NLP.Partage.SOrd
 import           NLP.Partage.FactGram (FactGram)
 import           NLP.Partage.FactGram.Internal
-                                ( Lab(..), Rule(..), viewLab )
+                                ( Lab(..), viewLab )
 import qualified NLP.Partage.Auto as A
 import qualified NLP.Partage.Auto.DAWG  as D
 import qualified NLP.Partage.Tree       as T
+
+
+--------------------------------------------------
+-- Input
+--------------------------------------------------
+
+
+-- | Input of the parser.
+data Input t = Input {
+      inputSent :: V.Vector (S.Set t)
+    -- ^ The input sentence
+    , lexGramI  :: t -> S.Set t
+    -- ^ Lexicon grammar interface: each terminal @t@ in the
+    -- `inputSent` can potentially represent several different
+    -- terminals (anchors) at the level of the grammar.
+    -- If equivalent to `id`, no lexicon-grammar interface is used.
+    -- Otherwise, type @t@ represents both anchors and real terminals
+    -- (words from input sentences).
+    }
+
+
+-- | Construct `Input` from a list of terminals.
+fromList :: [t] -> Input t
+fromList = fromSets . map S.singleton
+
+
+-- | Construct `Input` from a list of sets of terminals, each set
+-- representing all possible interpretations of a given word.
+fromSets :: [S.Set t] -> Input t
+fromSets xs = Input (V.fromList xs) (\t -> S.singleton t)
+
+
+-- -- | Set the lexicon-grammar interface to
+-- setLexGramI :: Input t ->
 
 
 --------------------------------------------------
@@ -316,14 +355,10 @@ prio (ItemA p) = prioA p
 --------------------------------------------------
 
 
--- | The reader of the earley monad: vector of sets of terminals.
-type EarRd t = V.Vector (S.Set t)
-
-
 -- | A hypergraph dynamically constructed during parsing.
 data Hype n t = Hype
     { automat :: A.GramAuto n t
-    -- ^ The underlying automaton (abstract implementation)
+    -- ^ The underlying automaton
 
     , withBody :: M.Map (Lab n t) (S.Set ID)
     -- ^ A data structure which, for each label, determines the
@@ -363,7 +398,7 @@ mkHype
     -> S.Set Active
     -> Hype n t
 mkHype dag s = Hype
-    { automat = dag
+    { automat  = dag
     , withBody = mkWithBody dag
     , doneActive  = M.empty
     , donePassive = M.empty
@@ -384,14 +419,14 @@ mkWithBody dag = M.fromListWith S.union
 
 -- | Earley parser monad.  Contains the input sentence (reader)
 -- and the state of the computation `Hype'.
-type Earley n t = RWS.RWST (EarRd t) () (Hype n t) IO
+type Earley n t = RWS.RWST (Input t) () (Hype n t) IO
 
 
 -- | Read word from the given position of the input.
 readInput :: Pos -> P.ListT (Earley n t) t
 readInput i = do
     -- ask for the input
-    sent <- RWS.ask
+    sent <- RWS.asks inputSent
     -- just a safe way to retrieve the i-th element
     -- each $ take 1 $ drop i xs
     xs <- some $ sent V.!? i
@@ -1037,7 +1072,7 @@ recognize
     :: (Ord t, Ord n)
 #endif
     => FactGram n t         -- ^ The grammar (set of rules)
-    -> [S.Set t]            -- ^ Input sentence
+    -> Input t            -- ^ Input sentence
     -> IO Bool
 recognize gram =
     recognizeAuto (D.fromGram gram)
@@ -1055,7 +1090,7 @@ recognizeFrom
 #endif
     => FactGram n t         -- ^ The grammar (set of rules)
     -> n                    -- ^ The start symbol
-    -> [S.Set t]            -- ^ Input sentence
+    -> Input t            -- ^ Input sentence
     -> IO Bool
 recognizeFrom gram =
     recognizeFromAuto (D.fromGram gram)
@@ -1070,7 +1105,7 @@ parse
 #endif
     => FactGram n t         -- ^ The grammar (set of rules)
     -> n                    -- ^ The start symbol
-    -> [S.Set t]            -- ^ Input sentence
+    -> Input t            -- ^ Input sentence
     -> IO (S.Set (T.Tree n t))
 parse gram = parseAuto $ D.fromGram gram
 
@@ -1084,7 +1119,7 @@ earley
     :: (Ord t, Ord n)
 #endif
     => FactGram n t         -- ^ The grammar (set of rules)
-    -> [S.Set t]            -- ^ Input sentence
+    -> Input t            -- ^ Input sentence
     -> IO (Hype n t)
 earley gram = earleyAuto $ D.fromGram gram
 
@@ -1102,7 +1137,7 @@ recognizeAuto
     :: (Ord t, Ord n)
 #endif
     => A.GramAuto n t           -- ^ Grammar automaton
-    -> [S.Set t]            -- ^ Input sentence
+    -> Input t            -- ^ Input sentence
     -> IO Bool
 recognizeAuto auto xs =
     isRecognized xs <$> earleyAuto auto xs
@@ -1117,11 +1152,12 @@ recognizeFromAuto
 #endif
     => A.GramAuto n t       -- ^ Grammar automaton
     -> n                    -- ^ The start symbol
-    -> [S.Set t]            -- ^ Input sentence
+    -> Input t            -- ^ Input sentence
     -> IO Bool
-recognizeFromAuto auto start xs = do
-    earSt <- earleyAuto auto xs
-    return $ (not.null) (finalFrom start (length xs) earSt)
+recognizeFromAuto auto start input = do
+    hype <- earleyAuto auto input
+    let n = V.length (inputSent input)
+    return $ (not.null) (finalFrom start n hype)
 
 
 -- | See `parse`.
@@ -1133,11 +1169,12 @@ parseAuto
 #endif
     => A.GramAuto n t           -- ^ Grammar automaton
     -> n                    -- ^ The start symbol
-    -> [S.Set t]            -- ^ Input sentence
+    -> Input t            -- ^ Input sentence
     -> IO (S.Set (T.Tree n t))
-parseAuto auto start xs = do
-    earSt <- earleyAuto auto xs
-    return $ parsedTrees earSt start (length xs)
+parseAuto auto start input = do
+    earSt <- earleyAuto auto input
+    let n = V.length (inputSent input)
+    return $ parsedTrees earSt start n
 
 
 -- | See `earley`.
@@ -1148,11 +1185,13 @@ earleyAuto
     :: (Ord t, Ord n)
 #endif
     => A.GramAuto n t           -- ^ Grammar automaton
-    -> [S.Set t]            -- ^ Input sentence
+    -> Input t                -- ^ Input sentence
     -> IO (Hype n t)
-earleyAuto dawg xs =
-    fst <$> RWS.execRWST loop (V.fromList xs) st0
+earleyAuto dawg input =
+    fst <$> RWS.execRWST loop input st0
   where
+    -- input length
+    n = V.length (inputSent input)
     -- we put in the initial state all the states with the dot on
     -- the left of the body of the rule (-> left = []) on all
     -- positions of the input sentence.
@@ -1161,7 +1200,7 @@ earleyAuto dawg xs =
             { _beg   = i
             , _end   = i
             , _gap   = Nothing }
-        | i <- [0 .. length xs - 1]
+        | i <- [0 .. n - 1]
         , root <- S.toList (A.roots dawg) ]
     -- the computation is performed as long as the waiting queue
     -- is non-empty.
@@ -1213,15 +1252,15 @@ finalFrom start n Hype{..} =
 -- of an elementary tree is recognized, it seems.
 isRecognized
     :: (SOrd t, SOrd n)
-    => [S.Set t]            -- ^ Input sentence
+    => Input t           -- ^ Input sentence
     -> Hype n t            -- ^ Earley parsing result
     -> Bool
-isRecognized xs Hype{..} =
+isRecognized input Hype{..} =
     (not . null)
     (complete
         (agregate donePassive))
   where
-    n = length xs
+    n = V.length (inputSent input)
     complete done =
         [ True | item <- S.toList done
         , item ^. spanP ^. beg == 0
