@@ -84,17 +84,24 @@ import qualified NLP.Partage.Tree       as T
 
 
 -- | Input of the parser.
-data Input t = Input {
+newtype Input t = Input {
       inputSent :: V.Vector (S.Set t)
     -- ^ The input sentence
-    , lexGramI  :: t -> S.Set t
-    -- ^ Lexicon grammar interface: each terminal @t@ in the
-    -- `inputSent` can potentially represent several different
-    -- terminals (anchors) at the level of the grammar.
-    -- If equivalent to `id`, no lexicon-grammar interface is used.
-    -- Otherwise, type @t@ represents both anchors and real terminals
-    -- (words from input sentences).
     }
+
+
+-- -- | Input of the parser.
+-- data Input t = Input {
+--       inputSent :: V.Vector (S.Set t)
+--     -- ^ The input sentence
+--     , lexGramI  :: t -> S.Set t
+--     -- ^ Lexicon grammar interface: each terminal @t@ in the
+--     -- `inputSent` can potentially represent several different
+--     -- terminals (anchors) at the level of the grammar.
+--     -- If equivalent to `id`, no lexicon-grammar interface is used.
+--     -- Otherwise, type @t@ represents both anchors and real terminals
+--     -- (words from input sentences).
+--     }
 
 
 -- | Construct `Input` from a list of terminals.
@@ -105,7 +112,8 @@ fromList = fromSets . map S.singleton
 -- | Construct `Input` from a list of sets of terminals, each set
 -- representing all possible interpretations of a given word.
 fromSets :: [S.Set t] -> Input t
-fromSets xs = Input (V.fromList xs) (\t -> S.singleton t)
+-- fromSets xs = Input (V.fromList xs) (\t -> S.singleton t)
+fromSets xs = Input (V.fromList xs)
 
 
 -- -- | Set the lexicon-grammar interface to

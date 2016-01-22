@@ -1,6 +1,6 @@
 name:               partage
 version:            0.1.0.0
-synopsis:           Parsing factorized 
+synopsis:           Parsing factorized TAGs
 description:
     Parsing factorized tree adjoining grammars.
 license:            BSD3
