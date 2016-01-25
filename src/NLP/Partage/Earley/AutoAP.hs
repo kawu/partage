@@ -27,6 +27,9 @@ module NLP.Partage.Earley.AutoAP
 , recognizeFromAuto
 , parseAuto
 , earleyAuto
+-- ** Automaton
+, Auto
+, mkAuto
 
 -- * Parsing trace (hypergraph)
 , Hype
@@ -372,14 +375,15 @@ prio (ItemA p) = prioA p
 
 -- | A hypergraph dynamically constructed during parsing.
 data Hype n t = Hype
-    { automat :: A.GramAuto n t
-    -- ^ The underlying automaton
-
-    -- , withBody :: M.Map (Lab n t) (S.Set ID)
-    , withBody :: H.CuckooHashTable (Lab n t) (S.Set ID)
-    -- ^ A data structure which, for each label, determines the
-    -- set of automaton states from which this label goes out
-    -- as a body transition.
+    { automat   :: Auto n t
+--     { automat :: A.GramAuto n t
+--     -- ^ The underlying automaton
+-- 
+--     -- , withBody :: M.Map (Lab n t) (S.Set ID)
+--     , withBody :: H.CuckooHashTable (Lab n t) (S.Set ID)
+--     -- ^ A data structure which, for each label, determines the
+--     -- set of automaton states from which this label goes out
+--     -- as a body transition.
 
     -- , doneActive  :: M.Map (ID, Pos) (S.Set (Active n t))
     , doneActive  :: M.Map Pos (M.Map ID
@@ -410,29 +414,17 @@ data Hype n t = Hype
 -- | Make an initial `Hype` from a set of states.
 mkHype
     :: (HOrd n, HOrd t)
-    => A.GramAuto n t
+    => Auto n t
     -> S.Set Active
-    -> IO (Hype n t)
-mkHype dag s = do
-    theBody <- H.fromList . M.toList $ mkWithBody dag
-    return $ Hype
-        { automat  = dag
-        , withBody = theBody -- mkWithBody dag
-        , doneActive  = M.empty
-        , donePassive = M.empty
-        , waiting = Q.fromList
-            [ ItemA p :-> extPrio (prioA p)
-            | p <- S.toList s ] }
-
-
--- | Create the `withBody` component based on the automaton.
-mkWithBody
-    :: (Ord n, Ord t)
-    => A.GramAuto n t
-    -> M.Map (Lab n t) (S.Set ID)
-mkWithBody dag = M.fromListWith S.union
-    [ (x, S.singleton i)
-    | (i, A.Body x, _j) <- A.allEdges dag ]
+    -> Hype n t
+mkHype auto s = Hype
+    { automat  = auto
+    -- , withBody = theBody -- mkWithBody dag
+    , doneActive  = M.empty
+    , donePassive = M.empty
+    , waiting = Q.fromList
+        [ ItemA p :-> extPrio (prioA p)
+        | p <- S.toList s ] }
 
 
 -- | Earley parser monad.  Contains the input sentence (reader)
@@ -718,7 +710,8 @@ expectEnd sym i = do
     -- determine automaton states from which the given label
     -- leaves as a body transition
     stateSet <- do
-        maybeSet <- lift . lift $ H.lookup withBody sym
+        maybeSet <- lift . lift $
+            H.lookup (withBody automat) sym
         some maybeSet
     -- pick one of the states
     stateID <- each . S.toList $
@@ -760,7 +753,7 @@ rootSpan x (i, j) = do
 followTerm :: (Ord n, Ord t) => ID -> t -> P.ListT (Earley n t) ID
 followTerm i c = do
     -- get the underlying automaton
-    auto <- RWS.gets automat
+    auto <- RWS.gets $ gramAuto . automat
     -- follow the label
     some $ A.follow auto i (A.Body $ Term c)
 
@@ -772,7 +765,7 @@ followTerm i c = do
 follow :: (Ord n, Ord t) => ID -> Lab n t -> P.ListT (Earley n t) ID
 follow i x = do
     -- get the underlying automaton
-    auto <- RWS.gets automat
+    auto <- RWS.gets $ gramAuto . automat
     -- follow the label
     some $ A.follow auto i (A.Body x)
 
@@ -780,7 +773,7 @@ follow i x = do
 -- | Rule heads outgoing from the given automaton state.
 heads :: ID -> P.ListT (Earley n t) (Lab n t)
 heads i = do
-    auto <- RWS.gets automat
+    auto <- RWS.gets $ gramAuto . automat
     let mayHead (x, _) = case x of
             A.Body _  -> Nothing
             A.Head y -> Just y
@@ -800,7 +793,7 @@ heads i = do
 -- | Check if any element leaves the given state.
 hasElems :: ID -> Earley n t Bool
 hasElems i = do
-    auto <- RWS.gets automat
+    auto <- RWS.gets $ gramAuto . automat
     let mayBody (x, _) = case x of
             A.Body y  -> Just y
             A.Head _ -> Nothing
@@ -1141,8 +1134,9 @@ recognize
     => FactGram n t         -- ^ The grammar (set of rules)
     -> Input t            -- ^ Input sentence
     -> IO Bool
-recognize gram =
-    recognizeAuto (D.fromGram gram)
+recognize gram input = do
+    auto <- mkAuto (D.fromGram gram)
+    recognizeAuto auto input
 
 
 -- | Does the given grammar generate the given sentence from the
@@ -1159,8 +1153,9 @@ recognizeFrom
     -> n                    -- ^ The start symbol
     -> Input t            -- ^ Input sentence
     -> IO Bool
-recognizeFrom gram =
-    recognizeFromAuto (D.fromGram gram)
+recognizeFrom gram start input = do
+    auto <- mkAuto (D.fromGram gram)
+    recognizeFromAuto auto start input
 
 
 -- | Parse the given sentence and return the set of parsed trees.
@@ -1174,7 +1169,9 @@ parse
     -> n                    -- ^ The start symbol
     -> Input t            -- ^ Input sentence
     -> IO (S.Set (T.Tree n t))
-parse gram = parseAuto $ D.fromGram gram
+parse gram start input = do
+    auto <- mkAuto (D.fromGram gram)
+    parseAuto auto start input
 
 
 -- | Perform the earley-style computation given the grammar and
@@ -1188,7 +1185,45 @@ earley
     => FactGram n t         -- ^ The grammar (set of rules)
     -> Input t            -- ^ Input sentence
     -> IO (Hype n t)
-earley gram = earleyAuto $ D.fromGram gram
+earley gram input = do
+    auto <- mkAuto (D.fromGram gram)
+    earleyAuto auto input
+
+
+--------------------------------------------------
+-- Local automaton type
+--------------------------------------------------
+
+
+-- | Local automaton type based on `A.GramAuto`.
+data Auto n t = Auto
+    { gramAuto  :: A.GramAuto n t
+    -- ^ The underlying automaton
+    -- , withBody :: M.Map (Lab n t) (S.Set ID)
+    , withBody :: H.CuckooHashTable (Lab n t) (S.Set ID)
+    -- ^ A data structure which, for each label, determines the
+    -- set of automaton states from which this label goes out
+    -- as a body transition.
+    }
+
+
+-- | Construct `Auto` based on the underlying `A.GramAuto`.
+mkAuto :: (HOrd n, HOrd t) => A.GramAuto n t -> IO (Auto n t)
+mkAuto dag = do
+    theBody <- H.fromList . M.toList $ mkWithBody dag
+    return $ Auto
+        { gramAuto = dag
+        , withBody = theBody }
+
+
+-- | Create the `withBody` component based on the automaton.
+mkWithBody
+    :: (Ord n, Ord t)
+    => A.GramAuto n t
+    -> M.Map (Lab n t) (S.Set ID)
+mkWithBody dag = M.fromListWith S.union
+    [ (x, S.singleton i)
+    | (i, A.Body x, _j) <- A.allEdges dag ]
 
 
 --------------------------------------------------
@@ -1203,7 +1238,7 @@ recognizeAuto
 #else
     :: (HOrd t, HOrd n)
 #endif
-    => A.GramAuto n t           -- ^ Grammar automaton
+    => Auto n t           -- ^ Grammar automaton
     -> Input t            -- ^ Input sentence
     -> IO Bool
 recognizeAuto auto xs =
@@ -1217,7 +1252,7 @@ recognizeFromAuto
 #else
     :: (HOrd t, HOrd n)
 #endif
-    => A.GramAuto n t       -- ^ Grammar automaton
+    => Auto n t       -- ^ Grammar automaton
     -> n                    -- ^ The start symbol
     -> Input t            -- ^ Input sentence
     -> IO Bool
@@ -1234,7 +1269,7 @@ parseAuto
 #else
     :: (HOrd t, HOrd n)
 #endif
-    => A.GramAuto n t           -- ^ Grammar automaton
+    => Auto n t           -- ^ Grammar automaton
     -> n                    -- ^ The start symbol
     -> Input t            -- ^ Input sentence
     -> IO (S.Set (T.Tree n t))
@@ -1251,22 +1286,22 @@ earleyAuto
 #else
     :: (HOrd t, HOrd n)
 #endif
-    => A.GramAuto n t           -- ^ Grammar automaton
-    -> Input t                -- ^ Input sentence
+    => Auto n t         -- ^ Grammar automaton
+    -> Input t          -- ^ Input sentence
     -> IO (Hype n t)
-earleyAuto dawg input = do
+earleyAuto auto input = do
+    fst <$> RWS.execRWST loop input st0
+  where
     -- we put in the initial state all the states with the dot on
     -- the left of the body of the rule (-> left = []) on all
     -- positions of the input sentence.
-    st0 <- mkHype dawg $ S.fromList
+    st0 = mkHype auto $ S.fromList
         [ Active root Span
             { _beg   = i
             , _end   = i
             , _gap   = Nothing }
         | i <- [0 .. n - 1]
-        , root <- S.toList (A.roots dawg) ]
-    fst <$> RWS.execRWST loop input st0
-  where
+        , root <- S.toList . A.roots $ gramAuto auto ]
     -- input length
     n = V.length (inputSent input)
     -- the computation is performed as long as the waiting queue

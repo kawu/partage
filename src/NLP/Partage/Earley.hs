@@ -19,6 +19,9 @@ module NLP.Partage.Earley
 , recognizeFromAuto
 , parseAuto
 , earleyAuto
+-- ** Automaton
+, Auto
+, mkAuto
 
 -- * Parsing trace (hypergraph)
 , Hype
