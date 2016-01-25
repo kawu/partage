@@ -62,6 +62,8 @@ import qualified Data.PSQueue               as Q
 import           Data.PSQueue (Binding(..))
 import           Data.Lens.Light
 import qualified Data.Vector                as V
+-- import qualified Data.Hashable              as H
+import qualified Data.HashTable.IO          as H
 
 import qualified Pipes                      as P
 -- import qualified Pipes.Prelude              as P
@@ -76,6 +78,11 @@ import           NLP.Partage.FactGram.Internal
 import qualified NLP.Partage.Auto as A
 import qualified NLP.Partage.Auto.DAWG  as D
 import qualified NLP.Partage.Tree       as T
+
+-- For debugging purposes
+#ifdef Debug
+import qualified Data.Time              as Time
+#endif
 
 
 --------------------------------------------------
@@ -368,7 +375,8 @@ data Hype n t = Hype
     { automat :: A.GramAuto n t
     -- ^ The underlying automaton
 
-    , withBody :: M.Map (Lab n t) (S.Set ID)
+    -- , withBody :: M.Map (Lab n t) (S.Set ID)
+    , withBody :: H.CuckooHashTable (Lab n t) (S.Set ID)
     -- ^ A data structure which, for each label, determines the
     -- set of automaton states from which this label goes out
     -- as a body transition.
@@ -401,18 +409,20 @@ data Hype n t = Hype
 
 -- | Make an initial `Hype` from a set of states.
 mkHype
-    :: (Ord n, Ord t)
+    :: (HOrd n, HOrd t)
     => A.GramAuto n t
     -> S.Set Active
-    -> Hype n t
-mkHype dag s = Hype
-    { automat  = dag
-    , withBody = mkWithBody dag
-    , doneActive  = M.empty
-    , donePassive = M.empty
-    , waiting = Q.fromList
-        [ ItemA p :-> extPrio (prioA p)
-        | p <- S.toList s ] }
+    -> IO (Hype n t)
+mkHype dag s = do
+    theBody <- H.fromList . M.toList $ mkWithBody dag
+    return $ Hype
+        { automat  = dag
+        , withBody = theBody -- mkWithBody dag
+        , doneActive  = M.empty
+        , donePassive = M.empty
+        , waiting = Q.fromList
+            [ ItemA p :-> extPrio (prioA p)
+            | p <- S.toList s ] }
 
 
 -- | Create the `withBody` component based on the automaton.
@@ -670,11 +680,36 @@ popItem = RWS.state $ \st -> case Q.minView (waiting st) of
 ---------------------------------
 
 
+-- -- | Return all active processed items which:
+-- -- * expect a given label,
+-- -- * end on the given position.
+-- expectEnd
+--     :: (Ord n, Ord t) => Lab n t -> Pos
+--     -> P.ListT (Earley n t) Active
+-- expectEnd sym i = do
+--     Hype{..} <- lift RWS.get
+--     -- determine items which end on the given position
+--     doneEnd <- some $ M.lookup i doneActive
+--     -- determine automaton states from which the given label
+--     -- leaves as a body transition
+--     stateSet <- some $ M.lookup sym withBody
+--     -- pick one of the states
+--     stateID <- each $ S.toList stateSet
+--     --
+--     -- ALTERNATIVE: state <- each . S.toList $
+--     --      stateSet `S.intersection` M.keySet doneEnd
+--     --
+--     -- determine items which refer to the chosen states
+--     doneEndLab <- some $ M.lookup stateID doneEnd
+--     -- return them all!
+--     each $ M.keys doneEndLab
+
+
 -- | Return all active processed items which:
 -- * expect a given label,
 -- * end on the given position.
 expectEnd
-    :: (Ord n, Ord t) => Lab n t -> Pos
+    :: (HOrd n, HOrd t) => Lab n t -> Pos
     -> P.ListT (Earley n t) Active
 expectEnd sym i = do
     Hype{..} <- lift RWS.get
@@ -682,13 +717,12 @@ expectEnd sym i = do
     doneEnd <- some $ M.lookup i doneActive
     -- determine automaton states from which the given label
     -- leaves as a body transition
-    stateSet <- some $ M.lookup sym withBody
+    stateSet <- do
+        maybeSet <- lift . lift $ H.lookup withBody sym
+        some maybeSet
     -- pick one of the states
-    stateID <- each $ S.toList stateSet
-    --
-    -- ALTERNATIVE: state <- each . S.toList $
-    --      stateSet `S.intersection` M.keySet doneEnd
-    --
+    stateID <- each . S.toList $
+         stateSet `S.intersection` M.keysSet doneEnd
     -- determine items which refer to the chosen states
     doneEndLab <- some $ M.lookup stateID doneEnd
     -- return them all!
@@ -784,6 +818,9 @@ hasElems i = do
 -- | Try to perform SCAN on the given active state.
 tryScan :: (SOrd t, SOrd n) => Active -> Earley n t ()
 tryScan p = void $ P.runListT $ do
+#ifdef Debug
+    begTime <- lift . lift $ Time.getCurrentTime
+#endif
     -- read the word immediately following the ending position of
     -- the state
     c <- readInput $ getL (spanA >>> end) p
@@ -795,14 +832,16 @@ tryScan p = void $ P.runListT $ do
     let q = setL state j
           . modL' (spanA >>> end) (+1)
           $ p
+    -- push the resulting state into the waiting queue
+    lift $ pushInduced q $ Scan p c
 #ifdef Debug
     -- print logging information
     lift . lift $ do
+        endTime <- Time.getCurrentTime
         putStr "[S]  " >> printActive p
         putStr "  :  " >> printActive q
+        putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
 #endif
-    -- push the resulting state into the waiting queue
-    lift $ pushInduced q $ Scan p c
 
 
 --------------------------------------------------
@@ -814,6 +853,9 @@ tryScan p = void $ P.runListT $ do
 -- (=> substitution) other rules.
 trySubst :: (SOrd t, SOrd n) => Passive n t -> Earley n t ()
 trySubst p = void $ P.runListT $ do
+#ifdef Debug
+    begTime <- lift . lift $ Time.getCurrentTime
+#endif
     let pLab = getL label p
         pSpan = getL spanP p
     -- make sure that `p' represents regular rules
@@ -828,15 +870,17 @@ trySubst p = void $ P.runListT $ do
     let q' = setL state j
            . setL (end.spanA) (getL end pSpan)
            $ q
+    -- push the resulting state into the waiting queue
+    lift $ pushInduced q' $ Subst p q
 #ifdef Debug
     -- print logging information
     lift . lift $ do
+        endTime <- Time.getCurrentTime
         putStr "[U]  " >> printPassive p
         putStr "  +  " >> printActive q
         putStr "  :  " >> printActive q'
+        putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
 #endif
-    -- push the resulting state into the waiting queue
-    lift $ pushInduced q' $ Subst p q
 
 
 --------------------------------------------------
@@ -849,6 +893,9 @@ trySubst p = void $ P.runListT $ do
 -- * `q' not completed and expects a *real* foot
 tryAdjoinInit :: (SOrd n, SOrd t) => Passive n t -> Earley n t ()
 tryAdjoinInit p = void $ P.runListT $ do
+#ifdef Debug
+    begTime <- lift . lift $ Time.getCurrentTime
+#endif
     let pLab = p ^. label
         pSpan = p ^. spanP
     -- make sure that the corresponding rule is either regular or
@@ -867,15 +914,17 @@ tryAdjoinInit p = void $ P.runListT $ do
                 ( pSpan ^. beg
                 , pSpan ^. end ))
            $ q
+    -- push the resulting state into the waiting queue
+    lift $ pushInduced q' $ Foot q p -- -- $ nonTerm foot
 #ifdef Debug
     -- print logging information
     lift . lift $ do
+        endTime <- Time.getCurrentTime
         putStr "[A]  " >> printPassive p
         putStr "  +  " >> printActive q
         putStr "  :  " >> printActive q'
+        putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
 #endif
-    -- push the resulting state into the waiting queue
-    lift $ pushInduced q' $ Foot q p -- -- $ nonTerm foot
 
 
 --------------------------------------------------
@@ -888,6 +937,9 @@ tryAdjoinInit p = void $ P.runListT $ do
 -- * `q' not completed and expects a *dummy* foot
 tryAdjoinCont :: (SOrd n, SOrd t) => Passive n t -> Earley n t ()
 tryAdjoinCont p = void $ P.runListT $ do
+#ifdef Debug
+    begTime <- lift . lift $ Time.getCurrentTime
+#endif
     let pLab = p ^. label
         pSpan = p ^. spanP
     -- make sure the label is not top-level (internal spine
@@ -906,15 +958,17 @@ tryAdjoinCont p = void $ P.runListT $ do
            . setL (spanA >>> end) (pSpan ^. end)
            . setL (spanA >>> gap) (pSpan ^. gap)
            $ q
+    -- push the resulting state into the waiting queue
+    lift $ pushInduced q' $ Subst p q
 #ifdef Debug
     -- logging info
     lift . lift $ do
+        endTime <- Time.getCurrentTime
         putStr "[B]  " >> printPassive p
         putStr "  +  " >> printActive q
         putStr "  :  " >> printActive q'
+        putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
 #endif
-    -- push the resulting state into the waiting queue
-    lift $ pushInduced q' $ Subst p q
 
 
 --------------------------------------------------
@@ -926,6 +980,9 @@ tryAdjoinCont p = void $ P.runListT $ do
 -- tree represented by a fully parsed rule/state `q`.
 tryAdjoinTerm :: (SOrd t, SOrd n) => Passive n t -> Earley n t ()
 tryAdjoinTerm q = void $ P.runListT $ do
+#ifdef Debug
+    begTime <- lift . lift $ Time.getCurrentTime
+#endif
     let qLab = q ^. label
         qSpan = q ^. spanP
     -- make sure the label is top-level
@@ -939,13 +996,15 @@ tryAdjoinTerm q = void $ P.runListT $ do
     let p' = setL (spanP >>> beg) (qSpan ^. beg)
            . setL (spanP >>> end) (qSpan ^. end)
            $ p
+    lift $ pushPassive p' $ Adjoin q p
 #ifdef Debug
     lift . lift $ do
+        endTime <- Time.getCurrentTime
         putStr "[C]  " >> printPassive q
         putStr "  +  " >> printPassive p
         putStr "  :  " >> printPassive p'
+        putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
 #endif
-    lift $ pushPassive p' $ Adjoin q p
 
 
 --------------------------------------------------
@@ -1077,7 +1136,7 @@ recognize
 #ifdef Debug
     :: (SOrd t, SOrd n)
 #else
-    :: (Ord t, Ord n)
+    :: (HOrd t, HOrd n)
 #endif
     => FactGram n t         -- ^ The grammar (set of rules)
     -> Input t            -- ^ Input sentence
@@ -1094,7 +1153,7 @@ recognizeFrom
 #ifdef Debug
     :: (SOrd t, SOrd n)
 #else
-    :: (Ord t, Ord n)
+    :: (HOrd t, HOrd n)
 #endif
     => FactGram n t         -- ^ The grammar (set of rules)
     -> n                    -- ^ The start symbol
@@ -1109,7 +1168,7 @@ parse
 #ifdef Debug
     :: (SOrd t, SOrd n)
 #else
-    :: (Ord t, Ord n)
+    :: (HOrd t, HOrd n)
 #endif
     => FactGram n t         -- ^ The grammar (set of rules)
     -> n                    -- ^ The start symbol
@@ -1124,7 +1183,7 @@ earley
 #ifdef Debug
     :: (SOrd t, SOrd n)
 #else
-    :: (Ord t, Ord n)
+    :: (HOrd t, HOrd n)
 #endif
     => FactGram n t         -- ^ The grammar (set of rules)
     -> Input t            -- ^ Input sentence
@@ -1142,7 +1201,7 @@ recognizeAuto
 #ifdef Debug
     :: (SOrd t, SOrd n)
 #else
-    :: (Ord t, Ord n)
+    :: (HOrd t, HOrd n)
 #endif
     => A.GramAuto n t           -- ^ Grammar automaton
     -> Input t            -- ^ Input sentence
@@ -1156,7 +1215,7 @@ recognizeFromAuto
 #ifdef Debug
     :: (SOrd t, SOrd n)
 #else
-    :: (Ord t, Ord n)
+    :: (HOrd t, HOrd n)
 #endif
     => A.GramAuto n t       -- ^ Grammar automaton
     -> n                    -- ^ The start symbol
@@ -1173,7 +1232,7 @@ parseAuto
 #ifdef Debug
     :: (SOrd t, SOrd n)
 #else
-    :: (Ord t, Ord n)
+    :: (HOrd t, HOrd n)
 #endif
     => A.GramAuto n t           -- ^ Grammar automaton
     -> n                    -- ^ The start symbol
@@ -1190,26 +1249,26 @@ earleyAuto
 #ifdef Debug
     :: (SOrd t, SOrd n)
 #else
-    :: (Ord t, Ord n)
+    :: (HOrd t, HOrd n)
 #endif
     => A.GramAuto n t           -- ^ Grammar automaton
     -> Input t                -- ^ Input sentence
     -> IO (Hype n t)
-earleyAuto dawg input =
-    fst <$> RWS.execRWST loop input st0
-  where
-    -- input length
-    n = V.length (inputSent input)
+earleyAuto dawg input = do
     -- we put in the initial state all the states with the dot on
     -- the left of the body of the rule (-> left = []) on all
     -- positions of the input sentence.
-    st0 = mkHype dawg $ S.fromList
+    st0 <- mkHype dawg $ S.fromList
         [ Active root Span
             { _beg   = i
             , _end   = i
             , _gap   = Nothing }
         | i <- [0 .. n - 1]
         , root <- S.toList (A.roots dawg) ]
+    fst <$> RWS.execRWST loop input st0
+  where
+    -- input length
+    n = V.length (inputSent input)
     -- the computation is performed as long as the waiting queue
     -- is non-empty.
     loop = popItem >>= \mp -> case mp of

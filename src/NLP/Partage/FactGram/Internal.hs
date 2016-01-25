@@ -33,6 +33,8 @@ import qualified Control.Monad.State.Strict   as E
 import qualified Data.Set as S
 -- import qualified Data.Map.Strict as M
 import qualified Data.Tree as T
+import qualified Data.Hashable as H
+import           Data.Hashable (hashWithSalt)
 
 import qualified Pipes as P
 
@@ -146,6 +148,26 @@ data Lab n t
     -- ^ A non-terminal originating from a /spine/ of an auxiliary
     -- tree (unless root or foot)
     deriving (Show, Eq, Ord)
+
+
+instance (H.Hashable n, H.Hashable t) => H.Hashable (Lab n t) where
+    hashWithSalt salt (NonT x y) =
+        salt     `hashWithSalt`
+        (0::Int) `hashWithSalt`
+        x        `hashWithSalt` y
+    hashWithSalt salt (Term x) =
+        salt     `hashWithSalt`
+        (1::Int) `hashWithSalt` x
+    hashWithSalt salt (AuxRoot x) =
+        salt     `hashWithSalt`
+        (2::Int) `hashWithSalt` x
+    hashWithSalt salt (AuxFoot x) =
+        salt     `hashWithSalt`
+        (3::Int) `hashWithSalt` x
+    hashWithSalt salt (AuxVert x y) =
+        salt     `hashWithSalt`
+        (4::Int) `hashWithSalt`
+        x        `hashWithSalt` y
 
 
 -- | Show full info about the label.
