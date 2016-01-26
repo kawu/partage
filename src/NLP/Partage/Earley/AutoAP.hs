@@ -65,7 +65,7 @@ import qualified Data.PSQueue               as Q
 import           Data.PSQueue (Binding(..))
 import           Data.Lens.Light
 import qualified Data.Vector                as V
--- import qualified Data.Hashable              as H
+import           Data.Hashable (Hashable)
 import qualified Data.HashTable.IO          as H
 
 import qualified Pipes                      as P
@@ -1129,7 +1129,7 @@ recognize
 #ifdef Debug
     :: (SOrd t, SOrd n)
 #else
-    :: (HOrd t, HOrd n)
+    :: (Hashable t, Ord t, Hashable n, Ord n)
 #endif
     => FactGram n t         -- ^ The grammar (set of rules)
     -> Input t            -- ^ Input sentence
@@ -1147,7 +1147,7 @@ recognizeFrom
 #ifdef Debug
     :: (SOrd t, SOrd n)
 #else
-    :: (HOrd t, HOrd n)
+    :: (Hashable t, Ord t, Hashable n, Ord n)
 #endif
     => FactGram n t         -- ^ The grammar (set of rules)
     -> n                    -- ^ The start symbol
@@ -1163,7 +1163,7 @@ parse
 #ifdef Debug
     :: (SOrd t, SOrd n)
 #else
-    :: (HOrd t, HOrd n)
+    :: (Hashable t, Ord t, Hashable n, Ord n)
 #endif
     => FactGram n t         -- ^ The grammar (set of rules)
     -> n                    -- ^ The start symbol
@@ -1180,7 +1180,7 @@ earley
 #ifdef Debug
     :: (SOrd t, SOrd n)
 #else
-    :: (HOrd t, HOrd n)
+    :: (Hashable t, Ord t, Hashable n, Ord n)
 #endif
     => FactGram n t         -- ^ The grammar (set of rules)
     -> Input t            -- ^ Input sentence
@@ -1208,7 +1208,9 @@ data Auto n t = Auto
 
 
 -- | Construct `Auto` based on the underlying `A.GramAuto`.
-mkAuto :: (HOrd n, HOrd t) => A.GramAuto n t -> IO (Auto n t)
+mkAuto
+    :: (Hashable t, Ord t, Hashable n, Ord n)
+    => A.GramAuto n t -> IO (Auto n t)
 mkAuto dag = do
     theBody <- H.fromList . M.toList $ mkWithBody dag
     return $ Auto
@@ -1236,7 +1238,7 @@ recognizeAuto
 #ifdef Debug
     :: (SOrd t, SOrd n)
 #else
-    :: (HOrd t, HOrd n)
+    :: (Hashable t, Ord t, Hashable n, Ord n)
 #endif
     => Auto n t           -- ^ Grammar automaton
     -> Input t            -- ^ Input sentence
@@ -1250,7 +1252,7 @@ recognizeFromAuto
 #ifdef Debug
     :: (SOrd t, SOrd n)
 #else
-    :: (HOrd t, HOrd n)
+    :: (Hashable t, Ord t, Hashable n, Ord n)
 #endif
     => Auto n t       -- ^ Grammar automaton
     -> n                    -- ^ The start symbol
@@ -1267,7 +1269,7 @@ parseAuto
 #ifdef Debug
     :: (SOrd t, SOrd n)
 #else
-    :: (HOrd t, HOrd n)
+    :: (Hashable t, Ord t, Hashable n, Ord n)
 #endif
     => Auto n t           -- ^ Grammar automaton
     -> n                    -- ^ The start symbol
@@ -1284,7 +1286,7 @@ earleyAuto
 #ifdef Debug
     :: (SOrd t, SOrd n)
 #else
-    :: (HOrd t, HOrd n)
+    :: (Hashable t, Ord t, Hashable n, Ord n)
 #endif
     => Auto n t         -- ^ Grammar automaton
     -> Input t          -- ^ Input sentence
