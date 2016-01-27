@@ -42,7 +42,8 @@ import qualified Data.MemoCombinators as Memo
 
 
 import           NLP.Partage.FactGram.Internal (Lab(..))
-import qualified NLP.Partage.Tree.Other as G
+-- import qualified NLP.Partage.Tree as G
+import qualified NLP.Partage.Tree.Other as O
 
 
 ----------------------
@@ -136,10 +137,12 @@ dagFromWeightedForest
     -> DAG a Weight
 dagFromWeightedForest forestWeights =
     let (forest, weights) = unzip forestWeights
-        (rootList, nodeMapI) = runDagM (mapM fromTree forest)
+        (rootList, dagSt) = runDagM (mapM (fromTree True) forest)
         dag0 = DAG
             { rootSet = S.fromList rootList
-            , nodeMap = revMap nodeMapI }
+            , nodeMap = M.union
+                (revMap (rootMap dagSt))
+                (revMap (normMap dagSt)) }
      in weighDAG dag0 $
             M.fromListWith min (zip rootList weights)
 
@@ -309,57 +312,75 @@ rootDistFun parMap =
 -- Common subtrees are shared in the resulting `DAG`.
 dagFromForest :: (Ord a) => [R.Tree a] -> DAG a ()
 dagFromForest ts =
-    let (rootList, nodeMapI) = runDagM (mapM fromTree ts)
+    let (rootList, dagSt) = runDagM (mapM (fromTree True) ts)
      in DAG
         { rootSet = S.fromList rootList
-        , nodeMap = revMap nodeMapI }
+        , nodeMap = M.union
+            (revMap (rootMap dagSt))
+            (revMap (normMap dagSt)) }
 
 
 -- | Type of the monad used to create DAGs from trees.
-type DagM a b = E.State (M.Map (Node a b) ID)
+type DagM a b = E.State (DagSt a b)
+
+
+-- | State underlying `DagM`. 
+-- Invariant: sets of IDs in `rootMap` and `normMap`
+-- are disjoint.
+data DagSt a b = DagSt
+    { rootMap :: M.Map (Node a b) ID
+    -- ^ Map for top-level nodes
+    , normMap :: M.Map (Node a b) ID
+    -- ^ Map for other nodes.
+    }
 
 
 -- | Run the DagM monad.
-runDagM :: DagM a b c -> (c, M.Map (Node a b) ID)
-runDagM = flip E.runState M.empty
+runDagM :: DagM a b c -> (c, DagSt a b)
+runDagM = flip E.runState (DagSt M.empty M.empty)
 
 
 -- | Create a DAG node from a tree.
-fromTree :: (Ord a) => R.Tree a -> DagM a () ID
-fromTree t = do
-    childrenIDs <- mapM fromTree (R.subForest t)
-    addNode $ Node
+fromTree :: (Ord a) => Bool -> R.Tree a -> DagM a () ID
+fromTree topLevel t = do
+    childrenIDs <- mapM (fromTree False) (R.subForest t)
+    addNode topLevel $ Node
         { nodeLabel = R.rootLabel t
         , nodeEdges = zip childrenIDs $ repeat () }
 
 
 -- | Add a node (unless already exists) to the underlying
 -- DAG and return its ID.
-addNode :: (Ord a, Ord b) => Node a b -> DagM a b ID
-addNode x = do
-    mayID <- getNode x
+addNode :: (Ord a, Ord b) => Bool -> Node a b -> DagM a b ID
+addNode topLevel x = do
+    mayID <- getNode topLevel x
     case mayID of
         Nothing -> do
             i <- newID
-            putNode i x
+            putNode topLevel i x
             return i
         Just i ->
             return i
 
 
 -- | Get the node from the underlying map.
-getNode :: (Ord a, Ord b) => Node a b -> DagM a b (Maybe ID)
-getNode = E.gets . M.lookup
+getNode :: (Ord a, Ord b) => Bool -> Node a b -> DagM a b (Maybe ID)
+getNode topLevel n =
+    let selectMap = if topLevel then rootMap else normMap
+     in E.gets (M.lookup n . selectMap)
 
 
--- | Get the node from the underlying map.
-putNode :: (Ord a, Ord b) => ID -> Node a b -> DagM a b ()
-putNode i x = E.modify' $ M.insert x i
+-- | Put the node in the underlying map.
+putNode :: (Ord a, Ord b) => Bool -> ID -> Node a b -> DagM a b ()
+putNode True i x = E.modify' $ \s -> s
+    {rootMap = M.insert x i (rootMap s)}
+putNode False i x = E.modify' $ \s -> s
+    {normMap = M.insert x i (normMap s)}
 
 
 -- | Retrieve new, unused node identifier.
 newID :: DagM a b ID
-newID = E.gets M.size
+newID = E.gets $ \DagSt{..} -> M.size rootMap + M.size normMap
 
 
 ----------------------
@@ -367,7 +388,7 @@ newID = E.gets M.size
 ----------------------
 
 
--- \ Local rule type.  Body elements are enriched with weights.
+-- | Local rule type.  Body elements are enriched with weights.
 data Rule n t w = Rule {
     -- | Head of the rule
       headR :: Lab n t
@@ -376,11 +397,15 @@ data Rule n t w = Rule {
     } deriving (Show, Eq, Ord)
 
 
+-- | Flatten the given weighted grammar.
 flattenWithWeights
     :: (Ord n, Ord t)
-    => [(G.Tree n t, Weight)]     -- ^ Weighted grammar
+    => [(O.SomeTree n t, Weight)]   -- ^ Weighted grammar
     -> S.Set (Rule n t Weight)
-flattenWithWeights = dagRules . dagFromWeightedForest
+flattenWithWeights
+    = dagRules
+    . dagFromWeightedForest
+    . map (first O.encode)
 
 
 -- | Extract rules from the grammar DAG.
@@ -389,7 +414,7 @@ flattenWithWeights = dagRules . dagFromWeightedForest
 -- spine non-terminals!
 dagRules
     :: (Ord n, Ord t, Ord w)
-    => DAG (G.Node n t) w
+    => DAG (O.Node n t) w
     -> S.Set (Rule n t w)
 dagRules dag = S.fromList
     [ nodeRule i n
@@ -402,9 +427,9 @@ dagRules dag = S.fromList
     mkLab i n = case nodeLabel n of
         -- we will distinguish `NonT` from `AuxRoot` and `AuxVert`
         -- in a post-processing phase
-        G.NonTerm x -> NonT x (mkSym i)
-        G.Foot x    -> AuxFoot x
-        G.Term x    -> Term x
+        O.NonTerm x -> NonT x (mkSym i)
+        O.Foot x    -> AuxFoot x
+        O.Term x    -> Term x
     mkElem i = case M.lookup i (nodeMap dag) of
         Nothing -> error "dagRules.mkElem: unknown ID"
         Just n  -> mkLab i n
@@ -416,9 +441,9 @@ dagRules dag = S.fromList
 
 -- -- | Convert the DAG node to a rule.
 -- nodeRule
---     :: DAG (G.Node n t) w
+--     :: DAG (O.Node n t) w
 --     -> ID
---     -> Node (G.Node n t) w
+--     -> Node (O.Node n t) w
 --     -> Rule n t w
 -- nodeRule dag i n = undefined
 
