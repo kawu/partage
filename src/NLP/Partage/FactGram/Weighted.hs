@@ -10,8 +10,18 @@
 
 module NLP.Partage.FactGram.Weighted
 (
--- -- * Grammar flattening
---   flattenWithWeights
+-- * DAG
+-- ** Types
+  DAG
+, ID
+, Weight
+-- ** Utils
+, rootSet
+, edges
+
+-- * Conversion
+, dagFromForest
+, dagFromWeightedForest
 ) where
 
 
@@ -39,7 +49,7 @@ import qualified Data.Tree as R
 type ID = Int
 
 
--- | Cost assigned to a given edge in the DAG.
+-- | Weight assigned to a given edge in the DAG.
 type Weight = Double
 
 
@@ -77,10 +87,17 @@ children :: ID -> DAG a b -> [ID]
 children i = map fst . edges i
 
 
+-- | Check whether the given node is a leaf.
+isLeaf :: ID -> DAG a b -> Bool
+isLeaf i = null . edges i
+
+
 -- | The set of descendant IDs for the given ID.
 -- The argument ID is not included in the resulting set.
 descendants :: ID -> DAG a b -> S.Set ID
-descendants = undefined
+descendants i dag = S.unions
+    [ S.insert j (descendants j dag)
+    | j <- children i dag ]
 
 
 -- | The set of all IDs in the DAG.
@@ -128,11 +145,15 @@ weighDAG
     -> DAG a Weight     -- ^ Weighted DAG
 weighDAG dag rootWeightMap =
     flip E.execState dagw0 $
-        mapM_ (relax parMap) allIDs
+        mapM_ tryRelax allIDs
   where
     parMap  = parentMap dag
-    distFun = rootDistFun dag parMap
+    distFun = rootDistFun parMap
     dagw0   = weighDAG0 dag rootWeightMap
+    -- relax the node only if not a leaf
+    tryRelax i = if isLeaf i dag
+                    then return ()
+                    else relax parMap i
     -- list of IDs to relax, ordered according to the corresponding
     -- distances to roots provided by `distFun`
     allIDs  = L.sortBy (comparing distFun) $ S.toList
@@ -152,8 +173,6 @@ type RelaxM a = E.State (DAG a Weight)
 -- ingoing edges to the outgoing edges
 relax :: ParentMap -> ID -> RelaxM a ()
 relax parMap i = do
-    -- TODO: don't relax if leaf node!
-
     -- Find the minimal weight amongst the ingoing edges
     w0 <- minim 0 . concat <$> sequence
         [ edgeWeight j i
@@ -186,8 +205,6 @@ edgeWeight i j = runError "edgeWeight: invalid ID" $ do
 modEdgeWeight :: (Weight -> Weight) -> ID -> ID -> RelaxM a ()
 modEdgeWeight f i j = runError "edgeWeight: invalid ID" $ do
     Node{..} <- may =<< E.gets (M.lookup i . nodeMap)
-    let insert i n dag = dag
-            {nodeMap = M.insert i n (nodeMap dag)}
     E.modify' . insert i $ Node
         { nodeLabel = nodeLabel
         , nodeEdges =
@@ -195,6 +212,9 @@ modEdgeWeight f i j = runError "edgeWeight: invalid ID" $ do
                 then (k, f w)
                 else (k, w)
             | (k, w) <- nodeEdges ] }
+  where
+    insert k n dag = dag
+        {nodeMap = M.insert k n (nodeMap dag)}
 
 
 ---------------------------
@@ -202,7 +222,7 @@ modEdgeWeight f i j = runError "edgeWeight: invalid ID" $ do
 ---------------------------
 
 
--- | Assign root weights to edges outgoing from individual roots.
+-- | Spread root weights over edges outgoing from individual roots.
 --
 -- We assume that if a weight for a given root is not provided, then
 -- it's equal to @0@.
@@ -210,7 +230,22 @@ weighDAG0
     :: DAG a ()         -- ^ The DAG
     -> M.Map ID Weight  -- ^ Weights assigned to DAG roots
     -> DAG a Weight     -- ^ Weighted DAG
-weighDAG0 dag rootWeightMap = undefined
+weighDAG0 dag rootWeightMap = DAG
+    { rootSet = rootSet dag
+    , nodeMap = M.fromList
+        [ (i, updateNode i n)
+        | (i, n) <- M.toList (nodeMap dag) ] }
+  where
+    updateNode i n = n
+        { nodeEdges =
+            [ (j, w)
+            | (j, _) <- nodeEdges n ] }
+      where
+        w = case M.lookup i rootWeightMap of
+                 Nothing    -> 0
+                 Just w0    -> w0 /
+                    let size = fromIntegral . length
+                     in size (nodeEdges n)
 
 
 -- | A map from nodes to their parent IDs.
@@ -243,10 +278,9 @@ type DistFun = ID -> Int
 -- | Compute the minimal distance from each node to a root in the
 -- DAG.
 rootDistFun
-    :: DAG a b      -- ^ The DAG
-    -> ParentMap    -- ^ Parent map of the DAG
+    :: ParentMap    -- ^ Parent map of the DAG
     -> DistFun
-rootDistFun dag parMap =
+rootDistFun parMap =
     dist
   where
     dist = Memo.integral dist'
