@@ -22,21 +22,27 @@ module NLP.Partage.FactGram.Weighted
 -- * Conversion
 , dagFromForest
 , dagFromWeightedForest
+-- ** Flattening
+, Rule (..)
+, flattenWithWeights
 ) where
 
 
 import           Control.Applicative ((<$>))
+import           Control.Arrow (first)
 import qualified Control.Monad.State.Strict as E
 import           Control.Monad.Trans.Maybe (MaybeT (..))
 
 import qualified Data.List as L
 import           Data.Ord (comparing)
 import qualified Data.Set as S
+import qualified Data.Tree as R
 import qualified Data.Map.Strict as M
 import qualified Data.MemoCombinators as Memo
 
-import qualified Data.Tree as R
--- import qualified NLP.Partage.Tree.Other as G
+
+import           NLP.Partage.FactGram.Internal (Lab(..))
+import qualified NLP.Partage.Tree.Other as G
 
 
 ----------------------
@@ -85,6 +91,11 @@ edges i DAG{..} =
 -- | The list of children IDs for the given node ID.
 children :: ID -> DAG a b -> [ID]
 children i = map fst . edges i
+
+
+-- | Check whether the given node is a root.
+isRoot :: ID -> DAG a b -> Bool
+isRoot i dag = S.member i (rootSet dag)
 
 
 -- | Check whether the given node is a leaf.
@@ -349,6 +360,67 @@ putNode i x = E.modify' $ M.insert x i
 -- | Retrieve new, unused node identifier.
 newID :: DagM a b ID
 newID = E.gets M.size
+
+
+----------------------
+-- Grammar Flattening
+----------------------
+
+
+-- \ Local rule type.  Body elements are enriched with weights.
+data Rule n t w = Rule {
+    -- | Head of the rule
+      headR :: Lab n t
+    -- | Body of the rule with the corresponding weights
+    , bodyR :: [(Lab n t, w)]
+    } deriving (Show, Eq, Ord)
+
+
+flattenWithWeights
+    :: (Ord n, Ord t)
+    => [(G.Tree n t, Weight)]     -- ^ Weighted grammar
+    -> S.Set (Rule n t Weight)
+flattenWithWeights = dagRules . dagFromWeightedForest
+
+
+-- | Extract rules from the grammar DAG.
+--
+-- TODO: It's not the end, some `NonT`s should be converted to
+-- spine non-terminals!
+dagRules
+    :: (Ord n, Ord t, Ord w)
+    => DAG (G.Node n t) w
+    -> S.Set (Rule n t w)
+dagRules dag = S.fromList
+    [ nodeRule i n
+    | (i, n) <- M.toList (nodeMap dag)
+    , not (isLeaf i dag) ]
+  where
+    nodeRule i n = Rule
+        (mkLab i n)
+        (map (first mkElem) (edges i dag))
+    mkLab i n = case nodeLabel n of
+        -- we will distinguish `NonT` from `AuxRoot` and `AuxVert`
+        -- in a post-processing phase
+        G.NonTerm x -> NonT x (mkSym i)
+        G.Foot x    -> AuxFoot x
+        G.Term x    -> Term x
+    mkElem i = case M.lookup i (nodeMap dag) of
+        Nothing -> error "dagRules.mkElem: unknown ID"
+        Just n  -> mkLab i n
+    mkSym i
+        | isLeaf i dag = Nothing
+        | isRoot i dag = Nothing
+        | otherwise    = Just i
+
+
+-- -- | Convert the DAG node to a rule.
+-- nodeRule
+--     :: DAG (G.Node n t) w
+--     -> ID
+--     -> Node (G.Node n t) w
+--     -> Rule n t w
+-- nodeRule dag i n = undefined
 
 
 ---------------------------
