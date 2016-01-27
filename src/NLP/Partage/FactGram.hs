@@ -19,4 +19,4 @@ module NLP.Partage.FactGram
 
 
 import           NLP.Partage.FactGram.Internal
-import           NLP.Partage.SubtreeSharing
+import           NLP.Partage.FactGram.SubtreeSharing

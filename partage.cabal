@@ -33,6 +33,7 @@ library
       , vector              >= 0.10     && < 0.12
       , hashable            >= 1.2      && < 1.3
       , hashtables          >= 1.2      && < 1.3
+      , data-memocombinators    >= 0.5  && < 0.6
 
       -- only when debugging:
       -- , time                >= 1.5      && < 1.7
@@ -49,6 +50,7 @@ library
       , NLP.Partage.Auto.DAWG
       , NLP.Partage.Auto.Set
       , NLP.Partage.Earley
+      , NLP.Partage.FactGram.Weighted
 
 -- NOT FOR THIS VERIONS:
 --       , NLP.Partage.WRule
@@ -64,8 +66,8 @@ library
     other-modules:
         NLP.Partage.SOrd
       , NLP.Partage.FactGram.Internal
+      , NLP.Partage.FactGram.SubtreeSharing
       , NLP.Partage.Earley.AutoAP
-      , NLP.Partage.SubtreeSharing
 
     ghc-options: -Wall
     -- cpp-options: -DDebug

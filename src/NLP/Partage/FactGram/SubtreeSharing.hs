@@ -8,7 +8,7 @@
 --
 
 
-module NLP.Partage.SubtreeSharing
+module NLP.Partage.FactGram.SubtreeSharing
 (
 -- * Grammar flattening
   flattenWithSharing
