@@ -168,8 +168,9 @@ weighDAG dag rootWeightMap =
         mapM_ tryRelax allIDs
   where
     parMap  = parentMap dag
+    sizeFun = subSizeFun dag
     distFun = rootDistFun parMap
-    dagw0   = weighDAG0 dag rootWeightMap
+    dagw0   = weighDAG0 dag sizeFun rootWeightMap
     -- relax the node only if not a leaf
     tryRelax i = if isLeaf i dag
                     then return ()
@@ -260,9 +261,10 @@ modEdgeWeight f i j = runError "edgeWeight: invalid ID" $ do
 -- it's equal to @0@.
 weighDAG0
     :: DAG a ()         -- ^ The DAG
+    -> SizeFun          -- ^ `SizeFun` of the DAG
     -> M.Map ID Weight  -- ^ Weights assigned to DAG roots
     -> DAG a Weight     -- ^ Weighted DAG
-weighDAG0 dag rootWeightMap = DAG
+weighDAG0 dag sizeFun rootWeightMap = DAG
     { rootSet = rootSet dag
     , nodeMap = M.fromList
         [ (i, updateNode i n)
@@ -270,14 +272,19 @@ weighDAG0 dag rootWeightMap = DAG
   where
     updateNode i n = n
         { nodeEdges =
-            [ (j, w)
-            | (j, _) <- nodeEdges n ] }
+            [ (j, w0 * size / sizeSum)
+            | (j, size) <- zip (children i dag) sizeList ] }
       where
-        w = case M.lookup i rootWeightMap of
-                 Nothing    -> 0
-                 Just w0    -> w0 /
-                    let size = fromIntegral . length
-                     in size (nodeEdges n)
+        sizeList = map
+            (fromIntegral . (+1) . sizeFun)
+            (children i dag)
+        sizeSum  = sum sizeList
+        w0 = case M.lookup i rootWeightMap of
+                  Nothing -> 0
+                  Just w  -> w
+--                  Just w0    -> w0 /
+--                     let size = fromIntegral . length
+--                      in size (nodeEdges n)
 
 
 -- | A map from nodes to their parent IDs.
@@ -319,6 +326,27 @@ rootDistFun parMap =
     dist' i =
         (minim 0 . map dist)
             (S.toList $ parents i parMap)
+
+
+-- | A map which, for a given node, gives the number of edges in the
+-- corresponding /subtree/ (@0@ by default).  Note that the
+-- corresponding sub-DAG is treated as a subtree, and not a sub-DAG,
+-- thus some edges in the sub-DAG can be included multiple times in
+-- the result.
+type SizeFun = ID -> Int
+
+
+-- | Compute `SizeFun`.
+subSizeFun
+    :: DAG a b    -- ^ The DAG
+    -> SizeFun
+subSizeFun dag =
+    size
+  where
+    size = Memo.integral size'
+    size' i =
+        (sum . map ((+1).size))
+            (children i dag)
 
 
 ----------------------
