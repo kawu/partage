@@ -204,10 +204,10 @@ relax parMap i = do
         | j <- S.toList $ parents i parMap ]
 
     -- Compute the number of the outgoing edges
+    dag <- E.get
     let edgeNum = (fromIntegral . length) (edges i dag)
     -- Add the minimal weight to the outgoing edges
     -- (divided by their number)
-    dag <- E.get
     flip modEdgesWeight i $ \w ->
         w + (w0 / edgeNum)
 --     sequence_
