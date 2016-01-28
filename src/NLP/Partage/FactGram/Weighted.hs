@@ -28,6 +28,7 @@ module NLP.Partage.FactGram.Weighted
 ) where
 
 
+import           Prelude hiding (lookup)
 import           Control.Applicative ((<$>))
 import           Control.Arrow (first, second)
 import qualified Control.Monad.State.Strict as E
@@ -74,10 +75,15 @@ data DAG a b = DAG
     }
 
 
+-- | Lookup the ID in the DAG.
+lookup :: ID -> DAG a b -> Maybe (Node a b)
+lookup i dag = M.lookup i (nodeMap dag)
+
+
 -- | Insert the node to the DAG.
 insert :: ID -> Node a b -> DAG a b -> DAG a b
-insert k n dag = dag
-    {nodeMap = M.insert k n (nodeMap dag)}
+insert i n dag = dag
+    {nodeMap = M.insert i n (nodeMap dag)}
 
 
 -- | A single node of the `DAG`.
@@ -174,7 +180,7 @@ weighDAG dag rootWeightMap =
     -- relax the node only if not a leaf
     tryRelax i = if isLeaf i dag
                     then return ()
-                    else relax parMap i
+                    else relax parMap sizeFun i
     -- list of IDs to relax, ordered according to the corresponding
     -- distances to roots provided by `distFun`
     allIDs  = L.sortBy (comparing distFun) $ S.toList
@@ -192,8 +198,8 @@ type RelaxM a = E.State (DAG a Weight)
 
 -- | Relax the given node, i.e. try to move weights from the
 -- ingoing edges to the outgoing edges
-relax :: ParentMap -> ID -> RelaxM a ()
-relax parMap i = do
+relax :: ParentMap -> SizeFun -> ID -> RelaxM a ()
+relax parMap sizeFun i = do
     -- Find the minimal weight amongst the ingoing edges
     w0 <- minim 0 . concat <$> sequence
         [ edgeWeight j i
@@ -204,13 +210,22 @@ relax parMap i = do
         [ modEdgeWeight (\w -> w - w0) j i
         | j <- S.toList $ parents i parMap ]
 
-    -- Compute the number of the outgoing edges
+    -- Spread the weight over the outgoing edges, according to the
+    -- sizes of the corresponding subtrees (see also `weighDAG0`)
     dag <- E.get
-    let edgeNum = (fromIntegral . length) (edges i dag)
-    -- Add the minimal weight to the outgoing edges
-    -- (divided by their number)
-    flip modEdgesWeight i $ \w ->
-        w + (w0 / edgeNum)
+    let sizeList = map (fromIntegral . sizeFun) (children i dag)
+        sizeSum  = sum sizeList
+        weights  = [w0 * size / sizeSum | size <- sizeList]
+    setWeights weights i
+
+--     -- Compute the number of the outgoing edges
+--     dag <- E.get
+--     let edgeNum = (fromIntegral . length) (edges i dag)
+--     -- Add the minimal weight to the outgoing edges
+--     -- (divided by their number)
+--     flip modEdgesWeight i $ \w ->
+--         w + (w0 / edgeNum)
+
 --     sequence_
 --         [ modEdgeWeight (\w -> w + (w0 / edgeNum)) i j
 --         -- below we don't care about the order of children;
@@ -227,19 +242,30 @@ edgeWeight i j = runError "edgeWeight: invalid ID" $ do
     return $ snd <$> L.filter (\e -> fst e == j) nodeEdges
 
 
--- | Modify the weight of all the edges outgoing from the given ID.
-modEdgesWeight :: (Weight -> Weight) -> ID -> RelaxM a ()
-modEdgesWeight f i = runError "edgeWeight: invalid ID" $ do
-    Node{..} <- may =<< E.gets (M.lookup i . nodeMap)
-    E.modify' . insert i $ Node
-        { nodeLabel = nodeLabel
-        , nodeEdges = map (second f) nodeEdges }
-        -- , nodeEdges = [(k, f w) | (k, w) <- nodeEdges] }
+-- -- | Modify the weight of all the edges outgoing from the given ID.
+-- modEdgesWeight :: (Weight -> Weight) -> ID -> RelaxM a ()
+-- modEdgesWeight f i = runError "modEdgesWeight: invalid ID" $ do
+--     Node{..} <- may =<< E.gets (M.lookup i . nodeMap)
+--     E.modify' . insert i $ Node
+--         { nodeLabel = nodeLabel
+--         , nodeEdges = map (second f) nodeEdges }
+--         -- , nodeEdges = [(k, f w) | (k, w) <- nodeEdges] }
+
+
+-- Set the weights of the edges outgoing from the given ID.
+setWeights :: [Weight] -> ID -> RelaxM a ()
+setWeights ws i = runError "multWeights: invalid ID" $ do
+    dag <- E.get
+    n <- may (lookup i dag)
+    E.modify' . insert i $ n
+        { nodeEdges =
+            [ (j, w)
+            | (j, w) <- zip (children i dag) ws ] }
 
 
 -- | Modify the weight of the edges connecting the two IDs.
 modEdgeWeight :: (Weight -> Weight) -> ID -> ID -> RelaxM a ()
-modEdgeWeight f i j = runError "edgeWeight: invalid ID" $ do
+modEdgeWeight f i j = runError "modEdgeWeight: invalid ID" $ do
     Node{..} <- may =<< E.gets (M.lookup i . nodeMap)
     E.modify' . insert i $ Node
         { nodeLabel = nodeLabel
@@ -276,7 +302,11 @@ weighDAG0 dag sizeFun rootWeightMap = DAG
             | (j, size) <- zip (children i dag) sizeList ] }
       where
         sizeList = map
-            (fromIntegral . (+1) . sizeFun)
+            -- -- The version with (+1) would make sense if
+            -- -- `sizeFun` would really compute the size of
+            -- -- the subtree, and not the number of leaves.
+            -- (fromIntegral . (+1) . sizeFun)
+            (fromIntegral . sizeFun)
             (children i dag)
         sizeSum  = sum sizeList
         w0 = case M.lookup i rootWeightMap of
@@ -324,14 +354,14 @@ rootDistFun parMap =
   where
     dist = Memo.integral dist'
     dist' i =
-        (minim 0 . map dist)
+        (minim 0 . map ((+1).dist))
             (S.toList $ parents i parMap)
 
 
--- | A map which, for a given node, gives the number of edges in the
--- corresponding /subtree/ (@0@ by default).  Note that the
+-- | A map which, for a given node, gives the number of /leaves/ in
+-- the corresponding /subtree/ (@0@ by default).  Note that the
 -- corresponding sub-DAG is treated as a subtree, and not a sub-DAG,
--- thus some edges in the sub-DAG can be included multiple times in
+-- thus some leaves in the sub-DAG can be included multiple times in
 -- the result.
 type SizeFun = ID -> Int
 
@@ -344,9 +374,25 @@ subSizeFun dag =
     size
   where
     size = Memo.integral size'
-    size' i =
-        (sum . map ((+1).size))
-            (children i dag)
+    size' i
+        | isLeaf i dag = 1
+        | otherwise =
+            (sum . map size)
+                (children i dag)
+
+
+-- -- | Compute `SizeFun` (version which computes the number of all
+-- -- edges).
+-- subSizeFun
+--     :: DAG a b    -- ^ The DAG
+--     -> SizeFun
+-- subSizeFun dag =
+--     size
+--   where
+--     size = Memo.integral size'
+--     size' i =
+--         (sum . map ((+1).size))
+--             (children i dag)
 
 
 ----------------------
