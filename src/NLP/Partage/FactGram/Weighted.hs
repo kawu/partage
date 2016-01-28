@@ -199,8 +199,10 @@ relax parMap i = do
 
     -- Add the minimal weight to the outgoing edges
     dag <- E.get
+    -- But first, compute the number of the edges concerned
+    let childNum = (fromIntegral . length) (children i dag)
     sequence_
-        [ modEdgeWeight (\w -> w + w0) i j
+        [ modEdgeWeight (\w -> w + (w0 / childNum)) i j
         -- below we don't care about the order of children;
         -- note that we have to remove duplicates, otherwise
         -- weights could be modified for a specific pair
