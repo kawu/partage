@@ -29,7 +29,7 @@ module NLP.Partage.FactGram.Weighted
 
 
 import           Control.Applicative ((<$>))
-import           Control.Arrow (first)
+import           Control.Arrow (first, second)
 import qualified Control.Monad.State.Strict as E
 import           Control.Monad.Trans.Maybe (MaybeT (..))
 
@@ -72,6 +72,12 @@ data DAG a b = DAG
     , nodeMap   :: M.Map ID (Node a b)
     -- ^ The set of nodes in the DAG
     }
+
+
+-- | Insert the node to the DAG.
+insert :: ID -> Node a b -> DAG a b -> DAG a b
+insert k n dag = dag
+    {nodeMap = M.insert k n (nodeMap dag)}
 
 
 -- | A single node of the `DAG`.
@@ -197,17 +203,20 @@ relax parMap i = do
         [ modEdgeWeight (\w -> w - w0) j i
         | j <- S.toList $ parents i parMap ]
 
+    -- Compute the number of the outgoing edges
+    let edgeNum = (fromIntegral . length) (edges i dag)
     -- Add the minimal weight to the outgoing edges
+    -- (divided by their number)
     dag <- E.get
-    -- But first, compute the number of the edges concerned
-    let childNum = (fromIntegral . length) (children i dag)
-    sequence_
-        [ modEdgeWeight (\w -> w + (w0 / childNum)) i j
-        -- below we don't care about the order of children;
-        -- note that we have to remove duplicates, otherwise
-        -- weights could be modified for a specific pair
-        -- multiple times
-        | j <- setNub (children i dag) ]
+    flip modEdgesWeight i $ \w ->
+        w + (w0 / edgeNum)
+--     sequence_
+--         [ modEdgeWeight (\w -> w + (w0 / edgeNum)) i j
+--         -- below we don't care about the order of children;
+--         -- note that we have to remove duplicates, otherwise
+--         -- weights could be modified for a specific pair
+--         -- multiple times
+--         | j <- setNub (children i dag) ]
 
 
 -- | Get the weight of the edges connecting the two IDs.
@@ -215,6 +224,16 @@ edgeWeight :: ID -> ID -> RelaxM a [Weight]
 edgeWeight i j = runError "edgeWeight: invalid ID" $ do
     Node{..} <- may =<< E.gets (M.lookup i . nodeMap)
     return $ snd <$> L.filter (\e -> fst e == j) nodeEdges
+
+
+-- | Modify the weight of all the edges outgoing from the given ID.
+modEdgesWeight :: (Weight -> Weight) -> ID -> RelaxM a ()
+modEdgesWeight f i = runError "edgeWeight: invalid ID" $ do
+    Node{..} <- may =<< E.gets (M.lookup i . nodeMap)
+    E.modify' . insert i $ Node
+        { nodeLabel = nodeLabel
+        , nodeEdges = map (second f) nodeEdges }
+        -- , nodeEdges = [(k, f w) | (k, w) <- nodeEdges] }
 
 
 -- | Modify the weight of the edges connecting the two IDs.
@@ -228,9 +247,6 @@ modEdgeWeight f i j = runError "edgeWeight: invalid ID" $ do
                 then (k, f w)
                 else (k, w)
             | (k, w) <- nodeEdges ] }
-  where
-    insert k n dag = dag
-        {nodeMap = M.insert k n (nodeMap dag)}
 
 
 ---------------------------
