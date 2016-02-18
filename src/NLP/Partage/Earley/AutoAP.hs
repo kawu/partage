@@ -1030,17 +1030,16 @@ step (ItemA p :-> e) = do
 
 
 -- | Extract the set of parsed trees obtained on the given input
--- sentence.  Should be run on the result of the earley algorithm.
+-- sentence.  Should be run on the result of the earley parser.
 parsedTrees
     :: forall n t. (Ord n, Ord t)
-    => Hype n t    -- ^ Final state of the earley parser
+    => Hype n t     -- ^ Final state of the earley parser
     -> n            -- ^ The start symbol
     -> Int          -- ^ Length of the input sentence
-    -> S.Set (T.Tree n t)
+    -> [T.Tree n t]
 parsedTrees earSt start n
 
-    = S.fromList
-    $ concatMap fromPassive
+    = concatMap fromPassive
     $ finalFrom start n earSt
 
   where
@@ -1168,7 +1167,7 @@ parse
     => FactGram n t         -- ^ The grammar (set of rules)
     -> n                    -- ^ The start symbol
     -> Input t            -- ^ Input sentence
-    -> IO (S.Set (T.Tree n t))
+    -> IO [T.Tree n t]
 parse gram start input = do
     auto <- mkAuto (D.fromGram gram)
     parseAuto auto start input
@@ -1274,7 +1273,7 @@ parseAuto
     => Auto n t           -- ^ Grammar automaton
     -> n                  -- ^ The start symbol
     -> Input t            -- ^ Input sentence
-    -> IO (S.Set (T.Tree n t))
+    -> IO [T.Tree n t]
 parseAuto auto start input = do
     earSt <- earleyAuto auto input
     let n = V.length (inputSent input)
