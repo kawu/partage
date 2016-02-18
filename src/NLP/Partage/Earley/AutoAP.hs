@@ -1272,7 +1272,7 @@ parseAuto
     :: (Hashable t, Ord t, Hashable n, Ord n)
 #endif
     => Auto n t           -- ^ Grammar automaton
-    -> n                    -- ^ The start symbol
+    -> n                  -- ^ The start symbol
     -> Input t            -- ^ Input sentence
     -> IO (S.Set (T.Tree n t))
 parseAuto auto start input = do
@@ -1351,13 +1351,10 @@ finalFrom start n Hype{..} =
 
 -- | Check whether the given sentence is recognized
 -- based on the resulting state of the earley parser.
---
--- TODO: The function returns `True` also when a subtree
--- of an elementary tree is recognized, it seems.
 isRecognized
     :: (SOrd t, SOrd n)
     => Input t           -- ^ Input sentence
-    -> Hype n t            -- ^ Earley parsing result
+    -> Hype n t          -- ^ Earley parsing result
     -> Bool
 isRecognized input Hype{..} =
     (not . null)
@@ -1369,8 +1366,12 @@ isRecognized input Hype{..} =
         [ True | item <- S.toList done
         , item ^. spanP ^. beg == 0
         , item ^. spanP ^. end == n
-        , isNothing (item ^. spanP ^. gap) ]
+        , isNothing (item ^. spanP ^. gap)
+        -- admit only *fully* recognized trees
+        , isRoot (item ^. label) ]
     agregate = S.unions . map M.keysSet . M.elems
+    isRoot (NonT _ Nothing) = True
+    isRoot _ = False
 
 
 --------------------------------------------------
