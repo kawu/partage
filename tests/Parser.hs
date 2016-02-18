@@ -12,6 +12,8 @@ import           Control.Applicative ((<$>))
 import           Control.Monad (forM_)
 import           Test.Tasty (TestTree)
 
+import qualified Data.Set as S
+
 import qualified NLP.Partage.Earley as E
 
 import qualified TestSet as T
@@ -26,5 +28,6 @@ tests = T.testTree "Parser"
         = E.recognizeFrom gram start
         . E.fromList
     parseFrom gram start
-        = E.parse gram start
+        = fmap S.fromList
+        . E.parse gram start
         . E.fromList
