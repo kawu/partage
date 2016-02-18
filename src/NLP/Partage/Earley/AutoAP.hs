@@ -1166,7 +1166,7 @@ parse
 #endif
     => FactGram n t         -- ^ The grammar (set of rules)
     -> n                    -- ^ The start symbol
-    -> Input t            -- ^ Input sentence
+    -> Input t              -- ^ Input sentence
     -> IO [T.Tree n t]
 parse gram start input = do
     auto <- mkAuto (D.fromGram gram)
@@ -1182,7 +1182,7 @@ earley
     :: (Hashable t, Ord t, Hashable n, Ord n)
 #endif
     => FactGram n t         -- ^ The grammar (set of rules)
-    -> Input t            -- ^ Input sentence
+    -> Input t              -- ^ Input sentence
     -> IO (Hype n t)
 earley gram input = do
     auto <- mkAuto (D.fromGram gram)

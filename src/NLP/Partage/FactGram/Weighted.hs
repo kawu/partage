@@ -30,7 +30,7 @@ module NLP.Partage.FactGram.Weighted
 
 import           Prelude hiding (lookup)
 import           Control.Applicative ((<$>))
-import           Control.Arrow (first, second)
+import           Control.Arrow (first)
 import qualified Control.Monad.State.Strict as E
 import           Control.Monad.Trans.Maybe (MaybeT (..))
 
@@ -42,7 +42,7 @@ import qualified Data.Map.Strict as M
 import qualified Data.MemoCombinators as Memo
 
 
-import           NLP.Partage.FactGram.Internal (Lab(..))
+import           NLP.Partage.FactGram.Internal (Lab(..), Rule(..))
 -- import qualified NLP.Partage.Tree as G
 import qualified NLP.Partage.Tree.Other as O
 
@@ -480,20 +480,20 @@ newID = E.gets $ \DagSt{..} -> M.size rootMap + M.size normMap
 ----------------------
 
 
--- | Local rule type.  Body elements are enriched with weights.
-data Rule n t w = Rule {
-    -- | Head of the rule
-      headR :: Lab n t
-    -- | Body of the rule with the corresponding weights
-    , bodyR :: [(Lab n t, w)]
-    } deriving (Show, Eq, Ord)
+-- -- | Local rule type.  Body elements are enriched with weights.
+-- data Rule n t w = Rule {
+--     -- | Head of the rule
+--       headR :: Lab n t
+--     -- | Body of the rule with the corresponding weights
+--     , bodyR :: [(Lab n t, w)]
+--     } deriving (Show, Eq, Ord)
 
 
 -- | Flatten the given weighted grammar.
 flattenWithWeights
     :: (Ord n, Ord t)
     => [(O.SomeTree n t, Weight)]   -- ^ Weighted grammar
-    -> S.Set (Rule n t Weight)
+    -> M.Map (Rule n t) Weight
 flattenWithWeights
     = dagRules
     . dagFromWeightedForest
@@ -501,34 +501,56 @@ flattenWithWeights
 
 
 -- | Extract rules from the grammar DAG.
---
--- TODO: It's not the end, some `NonT`s should be converted to
--- spine non-terminals!
 dagRules
-    :: (Ord n, Ord t, Ord w)
+    :: (Ord n, Ord t, Num w)
     => DAG (O.Node n t) w
-    -> S.Set (Rule n t w)
-dagRules dag = S.fromList
-    [ nodeRule i n
+    -> M.Map (Rule n t) w
+dagRules dag = M.fromList
+    [ (nodeRule i n, nodeWeight i)
     | (i, n) <- M.toList (nodeMap dag)
     , not (isLeaf i dag) ]
   where
+    nodeWeight i = (sum . map snd) (edges i dag)
     nodeRule i n = Rule
         (mkLab i n)
-        (map (first mkElem) (edges i dag))
-    mkLab i n = case nodeLabel n of
-        -- we will distinguish `NonT` from `AuxRoot` and `AuxVert`
-        -- in a post-processing phase
-        O.NonTerm x -> NonT x (mkSym i)
-        O.Foot x    -> AuxFoot x
-        O.Term x    -> Term x
+        (map (mkElem . fst) (edges i dag))
     mkElem i = case M.lookup i (nodeMap dag) of
         Nothing -> error "dagRules.mkElem: unknown ID"
         Just n  -> mkLab i n
+    mkLab i n = case nodeLabel n of
+        O.NonTerm x ->
+            if spineNode i then
+                if isRoot i dag
+                    then AuxRoot x
+                    else AuxVert x i
+            else NonT x (mkSym i)
+        O.Foot x -> AuxFoot x
+        O.Term x -> Term x
     mkSym i
         | isLeaf i dag = Nothing
         | isRoot i dag = Nothing
         | otherwise    = Just i
+    spineNode = isSpine dag
+
+
+-- | A function which tells whether the given node is a spine node.
+isSpine :: DAG (O.Node n t) w -> ID -> Bool
+isSpine dag =
+    spine
+  where
+    spine = Memo.integral spine'
+    spine' i
+        | isFoot i dag = True
+        | otherwise    = or . map spine . children i $ dag
+
+
+-- | Is it a foot node?
+isFoot :: ID -> DAG (O.Node n t) w -> Bool
+isFoot i dag = case lookup i dag of
+    Nothing -> False
+    Just n  -> case nodeLabel n of
+        O.Foot _  -> True
+        _         -> False
 
 
 -- -- | Convert the DAG node to a rule.
