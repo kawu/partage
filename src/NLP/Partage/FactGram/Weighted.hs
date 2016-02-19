@@ -18,6 +18,7 @@ module NLP.Partage.FactGram.Weighted
 -- ** Utils
 , rootSet
 , edges
+, label
 
 -- * Conversion
 , dagFromForest
@@ -93,6 +94,11 @@ data Node a b = Node
     , nodeEdges :: [(ID, b)]
     -- ^ Note that IDs on the `nodeEdges` list can be repeated.
     } deriving (Show, Eq, Ord)
+
+
+-- | Retrieve the label of the DAG node.
+label :: ID -> DAG a b -> Maybe a
+label i dag = nodeLabel <$> lookup i dag
 
 
 -- | Edges outgoing from the given node.
