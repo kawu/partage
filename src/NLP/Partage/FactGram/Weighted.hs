@@ -47,6 +47,7 @@ import           NLP.Partage.FactGram.Internal (Lab(..), Rule(..))
 import qualified NLP.Partage.Tree.Other as O
 
 
+
 ----------------------
 -- DAGs
 ----------------------
@@ -344,8 +345,7 @@ parents i = maybe S.empty id . M.lookup i
 type DistFun = ID -> Int
 
 
--- | Compute the minimal distance from each node to a root in the
--- DAG.
+-- | Compute the minimal distance from each node to a root.
 rootDistFun
     :: ParentMap    -- ^ Parent map of the DAG
     -> DistFun
@@ -354,7 +354,7 @@ rootDistFun parMap =
   where
     dist = Memo.integral dist'
     dist' i =
-        (minim 0 . map ((+1).dist))
+        (maxim 0 . map ((+1).dist))
             (S.toList $ parents i parMap)
 
 
@@ -599,6 +599,14 @@ minim :: Ord a => a -> [a] -> a
 minim x0 xs = case xs of
              [] -> x0
              _  -> minimum xs
+
+
+-- | A version of `minimum` which the value specified for the case
+-- where the input list is empty.
+maxim :: Ord a => a -> [a] -> a
+maxim x0 xs = case xs of
+             [] -> x0
+             _  -> maximum xs
 
 
 -- | Change list to a set, but still represented by a list...
