@@ -49,6 +49,7 @@ library
       , NLP.Partage.Auto.Trie
       , NLP.Partage.Auto.DAWG
       , NLP.Partage.Auto.Set
+      , NLP.Partage.Auto.WeiTrie
       , NLP.Partage.Earley
       , NLP.Partage.FactGram.Weighted
 

@@ -8,18 +8,17 @@
 
 module NLP.Partage.Auto.Trie
 (
--- -- * Trie
---   Trie
--- , empty
--- , insert
--- , fromLang
---
--- -- * From grammar
--- , buildTrie
---
--- -- * Interface
--- , shell
-  fromGram
+-- * Trie
+  Trie (..)
+, empty
+, insert
+, fromLang
+
+-- * From grammar
+, buildTrie
+
+-- * Interface
+, fromGram
 ) where
 
 
@@ -43,7 +42,10 @@ import           NLP.Partage.FactGram (FactGram, Lab(..), Rule(..))
 --------------------------------------------------
 
 
--- | Simple trie implementation.
+-- | Simple trie implementation.  Note that we don't store info if the
+-- particular trie represents a final node or not because, given that
+-- head elements are distinguished from body elements, the final node
+-- is always represented by an empty trie.
 newtype Trie a = Trie { _unTrie :: M.Map a (Trie a) }
 
 
@@ -72,9 +74,7 @@ fromLang = foldl' (flip insert) empty
 
 -- | Build trie from the given grammar.
 buildTrie :: (Ord n, Ord t) => FactGram n t -> Trie (A.Edge (Lab n t))
-buildTrie gram = fromLang
-    [ map A.Body bodyR ++ [A.Head headR]
-    | Rule{..} <- S.toList gram ]
+buildTrie gram = fromLang [A.ruleSeq r | r <- S.toList gram]
 
 
 --------------------------------------------------

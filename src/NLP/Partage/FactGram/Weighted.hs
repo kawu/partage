@@ -23,7 +23,7 @@ module NLP.Partage.FactGram.Weighted
 , dagFromForest
 , dagFromWeightedForest
 -- ** Flattening
-, Rule (..)
+, WeiFactGram
 , flattenWithWeights
 ) where
 
@@ -475,6 +475,15 @@ newID :: DagM a b ID
 newID = E.gets $ \DagSt{..} -> M.size rootMap + M.size normMap
 
 
+--------------------------------
+-- Weighted factorized grammar
+--------------------------------
+
+
+-- | Factorized grammar: a set of flat production rules.
+type WeiFactGram n t = M.Map (Rule n t) Weight
+
+
 ----------------------
 -- Grammar Flattening
 ----------------------
@@ -493,7 +502,7 @@ newID = E.gets $ \DagSt{..} -> M.size rootMap + M.size normMap
 flattenWithWeights
     :: (Ord n, Ord t)
     => [(O.SomeTree n t, Weight)]   -- ^ Weighted grammar
-    -> M.Map (Rule n t) Weight
+    -> WeiFactGram n t
 flattenWithWeights
     = dagRules
     . dagFromWeightedForest
@@ -551,15 +560,6 @@ isFoot i dag = case lookup i dag of
     Just n  -> case nodeLabel n of
         O.Foot _  -> True
         _         -> False
-
-
--- -- | Convert the DAG node to a rule.
--- nodeRule
---     :: DAG (O.Node n t) w
---     -> ID
---     -> Node (O.Node n t) w
---     -> Rule n t w
--- nodeRule dag i n = undefined
 
 
 ---------------------------
