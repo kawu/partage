@@ -868,8 +868,9 @@ tryAdjoinTerm' p cost = void $ P.runListT $ do
         pSpan = p ^. spanP
     -- Ensure that `p` is auxiliary but not top-level
     guard $ auxiliary pSpan <= not (topLevel pLab)
-    -- Retrieve all completed, top-level items representing auxiliary trees
-    -- which have a specific gap and modify a specific source non-terminal.
+    -- Retrieve all completed, top-level items representing auxiliary
+    -- trees which have a specific gap and modify a specific source
+    -- non-terminal.
     (q, cost') <- auxModifyGap
         (nonTerm $ p ^. label)
         ( p ^. spanP ^. beg
@@ -963,8 +964,9 @@ _earley gram xs =
                 { _beg   = i
                 , _end   = i
                 , _gap   = Nothing } }
-          -- WARNING: most likely we cannot change costZero to anyting else
-          -- here without losing the correctness of the heuristic
+          -- WARNING: most likely we cannot change costZero to
+          -- anyting else here without losing the correctness of the
+          -- heuristic
           , costZero )
         -- | (Rule{..}, cost) <- M.toList gram
         | Rule{..} <- S.toList gram

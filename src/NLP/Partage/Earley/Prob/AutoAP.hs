@@ -69,6 +69,7 @@ import           Data.Lens.Light
 import qualified Data.Vector                as V
 import           Data.Hashable (Hashable)
 import qualified Data.HashTable.IO          as H
+import qualified Data.MemoCombinators as Memo
 
 import qualified Pipes                      as P
 -- import qualified Pipes.Prelude              as P
@@ -83,8 +84,10 @@ import           NLP.Partage.FactGram.Internal
 import qualified NLP.Partage.Auto as A
 -- import qualified NLP.Partage.Auto.DAWG  as D
 import qualified NLP.Partage.Tree       as T
+import qualified NLP.Partage.Tree.Other as O
 
 import           NLP.Partage.FactGram.Weighted (Weight)
+import qualified NLP.Partage.FactGram.Weighted as W
 import qualified NLP.Partage.Earley.Tmp as Tmp
 
 -- For debugging purposes
@@ -264,8 +267,6 @@ data Trav n t
         -- ^ The adjoined item
         , _passMod  :: Passive n t
         -- ^ The modified item
-        , _weight   :: Weight
-        -- ^ The traversal weight
         }
     -- ^ Adjoin terminate with two passive arguments
     deriving (Show, Eq, Ord)
@@ -481,23 +482,22 @@ data Hype n t = Hype
 -- | Make an initial `Hype` from a set of states.
 mkHype
     :: (HOrd n, HOrd t)
-    => Weight       -- ^ Initial estimation for (0, length sent) span
-    -- -> [Weight]     -- `minCosts` component
-    -> (Tmp.Bag t -> Weight)    -- ^ Heuristic
-    -> (ID -> Tmp.Bag t -> Weight)    -- ^ Heuristic
+    => (      Tmp.Bag t -> Weight)  -- ^ Heuristic
+    -> (ID -> Tmp.Bag t -> Weight)  -- ^ Heuristic
     -> Auto n t
-    -- -> S.Set Active
-    -> M.Map Active Weight
+    -- -> M.Map Active Weight          -- ^ Initial active items
     -> Hype n t
-mkHype initEst estiCost1 estiCost2 auto m = Hype
+-- mkHype initEst estiCost1 estiCost2 auto m = Hype
+mkHype estiCost1 estiCost2 auto = Hype
     { automat  = auto
     , estiCost1 = estiCost1
     , estiCost2 = estiCost2
     , doneActive  = M.empty
     , donePassive = M.empty
-    , waiting = Q.fromList
-        [ ItemA p :-> extWeight0 c initEst
-        | (p, c) <- M.toList m ] }
+    , waiting = Q.empty }
+--     , waiting = Q.fromList
+--         [ ItemA p :-> extWeight0 c initEst
+--         | (p, c) <- M.toList m ] }
 
 
 -- | Earley parser monad.  Contains the input sentence (reader)
@@ -956,6 +956,41 @@ provideBeg x i = do
 --         , q ^. label == x ]
 
 
+-- | Return all processed items which:
+-- * are fully parsed (i.e. passive)
+-- * provide a label with a given non-terminal,
+-- * begin on the given position,
+--
+-- (Note the similarity to `provideBeg`)
+provideBeg'
+    :: (Ord n, Ord t) => n -> Pos
+    -> P.ListT (Earley n t) (Passive n t, Weight)
+provideBeg' x i = undefined
+-- provideBeg' x i = do
+--     EarSt{..} <- lift RWS.get
+--     each
+--         [ (q, prioVal e) | (q, e) <- M.toList donePassive
+--         , q ^. spanP ^.beg == i
+--         , nonTerm (q ^. label) == x ]
+
+
+-- | Return all fully parsed items:
+-- * top-level and representing auxiliary trees,
+-- * modifying the given source non-terminal,
+-- * with the given gap.
+auxModifyGap
+    :: Ord n => n -> (Pos, Pos)
+    -> P.ListT (Earley n t) (Passive n t, Weight)
+auxModifyGap x gapSpan = undefined
+-- auxModifyGap x gapSpan = do
+--     EarSt{..} <- lift RWS.get
+--     each
+--         [ (q, prioVal e) | (q, e) <- M.toList donePassive
+--         , q ^. spanP ^. gap == Just gapSpan
+--         , topLevel (q ^. label)
+--         , nonTerm  (q ^. label) == x ]
+
+
 --------------------------------------------------
 -- SCAN
 --------------------------------------------------
@@ -1023,7 +1058,7 @@ trySubst p cost = void $ P.runListT $ do
     -- construct the resultant state
     -- let q' = q {state = j, spanA = spanA p {end = end p}}
     let q' = setL state j
-           . setL (end . spanA) (pSpan ^. end)
+           . setL (spanA >>> end) (pSpan ^. end)
            $ q
     -- compute the estimated distance for the resulting state
     estDist <- lift . estimateDistA $ q'
@@ -1090,154 +1125,317 @@ trySubst' q cost = void $ P.runListT $ do
 --------------------------------------------------
 
 
--- -- | `tryAdjoinInit p q':
--- -- * `p' is a completed state (regular or auxiliary)
--- -- * `q' not completed and expects a *real* foot
--- tryAdjoinInit :: (SOrd n, SOrd t) => Passive n t -> Earley n t ()
--- tryAdjoinInit p = void $ P.runListT $ do
--- #ifdef Debug
---     begTime <- lift . lift $ Time.getCurrentTime
--- #endif
---     let pLab = p ^. label
---         pSpan = p ^. spanP
---     -- make sure that the corresponding rule is either regular or
---     -- intermediate auxiliary ((<=) used as implication here)
---     guard $ auxiliary pSpan <= not (topLevel pLab)
---     -- find all active items which expect a foot with the given
---     -- symbol and which end where `p` begins
---     let foot = AuxFoot $ nonTerm pLab
---     q <- expectEnd foot (getL beg pSpan)
---     -- follow the foot
---     j <- follow (getL state q) foot
---     -- construct the resultant state
---     let q' = setL state j
---            . setL (spanA >>> end) (pSpan ^. end)
+-- | `tryAdjoinInit p q':
+-- * `p' is a completed state (regular or auxiliary)
+-- * `q' not completed and expects a *real* foot
+tryAdjoinInit
+    :: (SOrd n, SOrd t)
+    => Passive n t
+    -> Weight
+    -> Earley n t ()
+tryAdjoinInit p _cost = void $ P.runListT $ do
+#ifdef Debug
+    begTime <- lift . lift $ Time.getCurrentTime
+#endif
+    let pLab = p ^. label
+        pSpan = p ^. spanP
+    -- make sure that the corresponding rule is either regular or
+    -- intermediate auxiliary ((<=) used as implication here)
+    guard $ auxiliary pSpan <= not (topLevel pLab)
+    -- find all active items which expect a foot with the given
+    -- symbol and which end where `p` begins
+    let foot = AuxFoot $ nonTerm pLab
+    (q, cost) <- expectEnd foot (pSpan ^. beg)
+    -- follow the foot
+    (tranCost, j) <- follow (q ^. state) foot
+    -- construct the resultant state
+    let q' = setL state j
+           . setL (spanA >>> end) (pSpan ^. end)
+           . setL (spanA >>> gap) (Just
+                ( pSpan ^. beg
+                , pSpan ^. end ))
+           $ q
+    -- compute the estimated distance for the resulting state
+    estDist <- lift . estimateDistA $ q'
+    -- push the resulting state into the waiting queue
+    lift . pushInduced q'
+         . extWeight (addWeight cost tranCost) estDist 
+         -- $ Foot q (nonTerm foot) tranCost
+         $ Foot q p tranCost
+--     -- push the resulting state into the waiting queue
+--     lift $ pushInduced q' $ Foot q p -- -- $ nonTerm foot
+#ifdef Debug
+    -- print logging information
+    lift . lift $ do
+        endTime <- Time.getCurrentTime
+        putStr "[A]  " >> printPassive p
+        putStr "  +  " >> printActive q
+        putStr "  :  " >> printActive q'
+        putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
+#endif
+
+
+-- | Reverse of `tryAdjoinInit` where the given state `q`
+-- expects a real foot.
+-- * `q' not completed and expects a *real* foot
+-- * `p' is a completed state (regular or auxiliary)
+tryAdjoinInit'
+    :: (SOrd n, SOrd t)
+    => Active
+    -> Weight
+    -> Earley n t ()
+tryAdjoinInit' q cost = void $ P.runListT $ do
+    -- Retrieve the foot expected by `q`.
+    (AuxFoot footNT, tranCost, j) <- elems (q ^. state)
+    -- (AuxFoot footNT, _) <- some $ expects' q
+    -- Find all fully passive items which provide the given source
+    -- non-terminal and which begin where `q` ends.
+    (p, _cost) <- provideBeg' footNT (q ^. spanA ^. end)
+    let pLab = p ^. label
+        pSpan = p ^. spanP
+    -- The retrieved items must not be auxiliary top-level.
+    guard $ auxiliary pSpan <= not (topLevel pLab)
+    -- construct the resultant state
+--     let q' = setL (spanA >>> end) (pSpan ^. end)
 --            . setL (spanA >>> gap) (Just
 --                 ( pSpan ^. beg
 --                 , pSpan ^. end ))
+--            . modL' right tail
 --            $ q
---     -- push the resulting state into the waiting queue
---     lift $ pushInduced q' $ Foot q p -- -- $ nonTerm foot
--- #ifdef Debug
---     -- print logging information
---     lift . lift $ do
---         endTime <- Time.getCurrentTime
---         putStr "[A]  " >> printPassive p
---         putStr "  +  " >> printActive q
---         putStr "  :  " >> printActive q'
---         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
--- #endif
---
---
--- --------------------------------------------------
--- -- INTERNAL ADJOIN
--- --------------------------------------------------
---
---
--- -- | `tryAdjoinCont p q':
--- -- * `p' is a completed, auxiliary state
--- -- * `q' not completed and expects a *dummy* foot
--- tryAdjoinCont :: (SOrd n, SOrd t) => Passive n t -> Earley n t ()
--- tryAdjoinCont p = void $ P.runListT $ do
--- #ifdef Debug
---     begTime <- lift . lift $ Time.getCurrentTime
--- #endif
---     let pLab = p ^. label
---         pSpan = p ^. spanP
---     -- make sure the label is not top-level (internal spine
---     -- non-terminal)
---     guard . not $ topLevel pLab
---     -- make sure that `p' is an auxiliary item
---     guard . auxiliary $ pSpan
---     -- find all rules which expect a spine non-terminal provided
---     -- by `p' and which end where `p' begins
---     q <- expectEnd pLab (pSpan ^. beg)
---     -- follow the spine non-terminal
---     j <- follow (q ^. state) pLab
---     -- construct the resulting state; the span of the gap of the
---     -- inner state `p' is copied to the outer state based on `q'
---     let q' = setL state j
---            . setL (spanA >>> end) (pSpan ^. end)
---            . setL (spanA >>> gap) (pSpan ^. gap)
---            $ q
+    let q' = setL state j
+           . setL (spanA >>> end) (pSpan ^. end)
+           . setL (spanA >>> gap) (Just
+                ( pSpan ^. beg
+                , pSpan ^. end ))
+           $ q
+    -- compute the estimated distance for the resulting state
+    estDist <- lift . estimateDistA $ q'
+    -- push the resulting state into the waiting queue
+    lift . pushInduced q'
+         . extWeight (addWeight cost tranCost) estDist 
+         $ Foot q p tranCost
+#ifdef Debug
+    -- print logging information
+    lift . lift $ do
+        endTime <- Time.getCurrentTime
+        putStr "[A'] " >> printActive q
+        putStr "  +  " >> printPassive p
+        putStr "  :  " >> printActive q'
+        putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
+#endif
+
+
+--------------------------------------------------
+-- INTERNAL ADJOIN
+--------------------------------------------------
+
+
+-- | `tryAdjoinCont p q':
+-- * `p' is a completed, auxiliary state
+-- * `q' not completed and expects a *dummy* foot
+tryAdjoinCont
+    :: (SOrd n, SOrd t)
+    => Passive n t
+    -> Weight
+    -> Earley n t ()
+tryAdjoinCont p cost = void $ P.runListT $ do
+#ifdef Debug
+    begTime <- lift . lift $ Time.getCurrentTime
+#endif
+    let pLab = p ^. label
+        pSpan = p ^. spanP
+    -- make sure the label is not top-level (internal spine
+    -- non-terminal)
+    guard . not $ topLevel pLab
+    -- make sure that `p' is an auxiliary item
+    guard . auxiliary $ pSpan
+    -- find all rules which expect a spine non-terminal provided
+    -- by `p' and which end where `p' begins
+    (q, cost') <- expectEnd pLab (pSpan ^. beg)
+    -- follow the spine non-terminal
+    (tranCost, j) <- follow (q ^. state) pLab
+    -- construct the resulting state; the span of the gap of the
+    -- inner state `p' is copied to the outer state based on `q'
+    let q' = setL state j
+           . setL (spanA >>> end) (pSpan ^. end)
+           . setL (spanA >>> gap) (pSpan ^. gap)
+           $ q
+    -- compute the estimated distance for the resulting state
+    estDist <- lift . estimateDistA $ q'
+    -- push the resulting state into the waiting queue
+    lift . pushInduced q'
+         . extWeight (sumWeight [cost, cost', tranCost]) estDist
+         $ Subst p q tranCost
 --     -- push the resulting state into the waiting queue
 --     lift $ pushInduced q' $ Subst p q
--- #ifdef Debug
---     -- logging info
---     lift . lift $ do
---         endTime <- Time.getCurrentTime
---         putStr "[B]  " >> printPassive p
---         putStr "  +  " >> printActive q
---         putStr "  :  " >> printActive q'
---         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
--- #endif
---
---
--- --------------------------------------------------
--- -- ROOT ADJOIN
--- --------------------------------------------------
---
---
--- -- | Adjoin a fully-parsed auxiliary state `p` to a partially parsed
--- -- tree represented by a fully parsed rule/state `q`.
--- tryAdjoinTerm :: (SOrd t, SOrd n) => Passive n t -> Earley n t ()
--- tryAdjoinTerm q = void $ P.runListT $ do
--- #ifdef Debug
---     begTime <- lift . lift $ Time.getCurrentTime
--- #endif
---     let qLab = q ^. label
---         qSpan = q ^. spanP
---     -- make sure the label is top-level
---     guard $ topLevel qLab
---     -- make sure that it is an auxiliary item (by definition only
---     -- auxiliary states have gaps)
---     (gapBeg, gapEnd) <- each $ maybeToList $ qSpan ^. gap
---     -- take all passive items with a given span and a given
---     -- root non-terminal (IDs irrelevant)
---     p <- rootSpan (nonTerm qLab) (gapBeg, gapEnd)
---     let p' = setL (spanP >>> beg) (qSpan ^. beg)
---            . setL (spanP >>> end) (qSpan ^. end)
---            $ p
---     lift $ pushPassive p' $ Adjoin q p
--- #ifdef Debug
---     lift . lift $ do
---         endTime <- Time.getCurrentTime
---         putStr "[C]  " >> printPassive q
---         putStr "  +  " >> printPassive p
---         putStr "  :  " >> printPassive p'
---         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
--- #endif
---
---
--- --------------------------------------------------
--- -- Earley step
--- --------------------------------------------------
---
---
--- -- | Step of the algorithm loop.  `p' is the state popped up from
--- -- the queue.
--- step
---     :: (SOrd t, SOrd n)
---     => Binding (Item n t) (ExtPrio n t)
---     -> Earley n t ()
--- step (ItemP p :-> e) = do
---     mapM_ ($ p)
---       [ trySubst
---       , tryAdjoinInit
---       , tryAdjoinCont
---       , tryAdjoinTerm ]
---     savePassive p $ prioTrav e
--- step (ItemA p :-> e) = do
---     mapM_ ($ p)
---       [ tryScan ]
---     saveActive p $ prioTrav e
---
---
--- ---------------------------
--- -- Extracting Parsed Trees
--- ---------------------------
---
---
+#ifdef Debug
+    -- logging info
+    lift . lift $ do
+        endTime <- Time.getCurrentTime
+        putStr "[B]  " >> printPassive p
+        putStr "  +  " >> printActive q
+        putStr "  :  " >> printActive q'
+        putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
+#endif
+
+
+-- | Reversed `tryAdjoinCont`.
+tryAdjoinCont'
+    :: (SOrd n, SOrd t)
+    => Active
+    -> Weight
+    -> Earley n t ()
+tryAdjoinCont' q cost = void $ P.runListT $ do
+    -- Retrieve the auxiliary vertebrea expected by `q`
+    -- (qLab@AuxVert{}, _) <- some $ expects' q
+    (qLab@AuxVert{}, tranCost, j) <- elems (q ^. state)
+    -- Find all fully parsed items which provide the given label
+    -- and which begin where `q` ends.
+    (p, cost') <- provideBeg qLab (q ^. spanA ^. end)
+    let pSpan = p ^. spanP
+    -- construct the resulting state; the span of the gap of the
+    -- inner state `p' is copied to the outer state based on `q'
+    let q' = setL state j
+           . setL (spanA >>> end) (pSpan ^. end)
+           . setL (spanA >>> gap) (pSpan ^. gap)
+           $ q
+    -- compute the estimated distance for the resulting state
+    estDist <- lift . estimateDistA $ q'
+    -- push the resulting state into the waiting queue
+    lift . pushInduced q'
+         . extWeight (sumWeight [cost, cost', tranCost]) estDist
+         $ Subst p q tranCost
+#ifdef Debug
+    -- logging info
+    lift . lift $ do
+        endTime <- Time.getCurrentTime
+        putStr "[B'] " >> printActive q
+        putStr "  +  " >> printPassive p
+        putStr "  :  " >> printActive q'
+        putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
+#endif
+
+
+--------------------------------------------------
+-- ROOT ADJOIN
+--------------------------------------------------
+
+
+-- | Adjoin a fully-parsed auxiliary state `p` to a partially parsed
+-- tree represented by a fully parsed rule/state `q`.
+tryAdjoinTerm
+    :: (SOrd t, SOrd n)
+    => Passive n t
+    -> Weight
+    -> Earley n t ()
+tryAdjoinTerm q cost = void $ P.runListT $ do
+#ifdef Debug
+    begTime <- lift . lift $ Time.getCurrentTime
+#endif
+    let qLab = q ^. label
+        qSpan = q ^. spanP
+    -- make sure the label is top-level
+    guard $ topLevel qLab
+    -- make sure that it is an auxiliary item (by definition only
+    -- auxiliary states have gaps)
+    (gapBeg, gapEnd) <- each $ maybeToList $ qSpan ^. gap
+    -- take all passive items with a given span and a given
+    -- root non-terminal (IDs irrelevant)
+    (p, cost') <- rootSpan (nonTerm qLab) (gapBeg, gapEnd)
+    let p' = setL (spanP >>> beg) (qSpan ^. beg)
+           . setL (spanP >>> end) (qSpan ^. end)
+           $ p
+    -- lift $ pushPassive p' $ Adjoin q p
+    -- compute the estimated distance for the resulting state
+    estDist <- lift . estimateDistP $ p'
+    -- push the resulting state into the waiting queue
+    lift . pushPassive p'
+         . extWeight (addWeight cost cost') estDist
+         $ Adjoin q p
+#ifdef Debug
+    lift . lift $ do
+        endTime <- Time.getCurrentTime
+        putStr "[C]  " >> printPassive q
+        putStr "  +  " >> printPassive p
+        putStr "  :  " >> printPassive p'
+        putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
+#endif
+
+
+-- | Reversed `tryAdjoinTerm`.
+tryAdjoinTerm'
+    :: (SOrd t, SOrd n)
+    => Passive n t
+    -> Weight
+    -> Earley n t ()
+tryAdjoinTerm' p cost = void $ P.runListT $ do
+    let pLab = p ^. label
+        pSpan = p ^. spanP
+    -- Ensure that `p` is auxiliary but not top-level
+    guard $ auxiliary pSpan <= not (topLevel pLab)
+    -- Retrieve all completed, top-level items representing auxiliary
+    -- trees which have a specific gap and modify a specific source
+    -- non-terminal.
+    (q, cost') <- auxModifyGap
+        (nonTerm $ p ^. label)
+        ( p ^. spanP ^. beg
+        , p ^. spanP ^. end )
+    let qSpan = q ^. spanP
+    -- Construct the resulting state:
+    let p' = setL (spanP >>> beg) (qSpan ^. beg)
+           . setL (spanP >>> end) (qSpan ^. end)
+           $ p
+    -- compute the estimated distance for the resulting state
+    estDist <- lift . estimateDistP $ p'
+    -- push the resulting state into the waiting queue
+    lift . pushPassive p'
+         . extWeight (addWeight cost cost') estDist
+         $ Adjoin q p
+#ifdef Debug
+    lift . lift $ do
+        endTime <- Time.getCurrentTime
+        putStr "[C'] " >> printPassive p
+        putStr "  +  " >> printPassive q
+        putStr "  :  " >> printPassive p'
+        putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
+#endif
+
+
+--------------------------------------------------
+-- Earley step
+--------------------------------------------------
+
+
+-- | Step of the algorithm loop.  `p' is the state popped up from
+-- the queue.
+step
+    :: (SOrd t, SOrd n)
+    => Binding (Item n t) (ExtWeight n t)
+    -> Earley n t ()
+step (ItemP p :-> e) = do
+    -- mapM_ ($ p)
+    mapM_ (\f -> f p $ priWeight e)
+      [ trySubst
+      , tryAdjoinInit
+      , tryAdjoinCont
+      , tryAdjoinTerm
+      , tryAdjoinTerm' ]
+    savePassive p e -- $ prioTrav e
+step (ItemA p :-> e) = do
+    -- mapM_ ($ p)
+    mapM_ (\f -> f p $ priWeight e)
+      [ tryScan
+      , trySubst'
+      , tryAdjoinInit'
+      , tryAdjoinCont' ]
+    saveActive p e -- $ prioTrav e
+
+
+---------------------------
+-- Extracting Parsed Trees
+---------------------------
+
+
 -- -- | Extract the set of parsed trees obtained on the given input
 -- -- sentence.  Should be run on the result of the earley parser.
 -- parsedTrees
@@ -1449,45 +1647,60 @@ trySubst' q cost = void $ P.runListT $ do
 --     earSt <- earleyAuto auto input
 --     let n = V.length (inputSent input)
 --     return $ parsedTrees earSt start n
---
---
--- -- | See `earley`.
--- earleyAuto
--- #ifdef Debug
---     :: (SOrd t, SOrd n)
--- #else
---     :: (Hashable t, Ord t, Hashable n, Ord n)
--- #endif
---     => Auto n t         -- ^ Grammar automaton
---     -> Input t          -- ^ Input sentence
---     -> IO (Hype n t)
--- earleyAuto auto input = do
---     fst <$> RWS.execRWST loop input st0
---   where
---     -- we put in the initial state all the states with the dot on
---     -- the left of the body of the rule (-> left = []) on all
---     -- positions of the input sentence.
---     st0 = mkHype auto $ S.fromList
---         [ Active root Span
---             { _beg   = i
---             , _end   = i
---             , _gap   = Nothing }
---         | i <- [0 .. n - 1]
---         , root <- S.toList . A.roots $ gramAuto auto ]
---     -- input length
---     n = V.length (inputSent input)
---     -- the computation is performed as long as the waiting queue
---     -- is non-empty.
---     loop = popItem >>= \mp -> case mp of
---         Nothing -> return ()
---         Just p  -> step p >> loop
---
---
--- --------------------------------------------------
--- -- New utilities
--- --------------------------------------------------
---
---
+
+
+-- | See `earley`.
+earleyAuto
+#ifdef Debug
+    :: (SOrd t, SOrd n)
+#else
+    :: (Hashable t, Ord t, Hashable n, Ord n)
+#endif
+    => Memo.Memo t      -- ^ Memoization strategy for terminals
+    -> Auto n t         -- ^ Grammar automaton
+    -> W.DAG
+        (O.Node n t)
+        Weight          -- ^ The corresponding grammar DAG
+    -> M.Map t W.Weight -- ^ The lower bound estimates
+                        --   on terminal weights
+    -> Input t          -- ^ Input sentence
+    -> IO (Hype n t)
+earleyAuto memoTerm auto dag termWei input = do
+    fst <$> RWS.execRWST (init >> loop) input st0
+  where
+    -- input length
+    -- n = V.length (inputSent input)
+    n = length (inputSent input)
+    -- empty hypergraph
+    st0 = mkHype esti1 esti2 auto
+    -- the heuristic
+    esti1 = Tmp.estiCost1 memoTerm termWei
+    esti2 = Tmp.estiCost2 memoTerm (gramAuto auto) dag esti1
+    -- initialize hypergraph with initial active items
+    init = P.runListT $ do
+        root <- each . S.toList
+              . A.roots . A.fromWei
+              . gramAuto $ auto
+        i    <- each [0 .. n - 1]
+        let q = Active root Span
+                { _beg   = i
+                , _end   = i
+                , _gap   = Nothing }
+        lift $ do
+            estDist <- estimateDistA q
+            pushActive q $ extWeight0 zeroWeight estDist
+    -- the computation is performed as long as the waiting queue
+    -- is non-empty.
+    loop = popItem >>= \mp -> case mp of
+        Nothing -> return ()
+        Just p  -> step p >> loop
+
+
+--------------------------------------------------
+-- New utilities
+--------------------------------------------------
+
+
 -- -- | Return the list of final passive chart items.
 -- finalFrom
 --     :: (Ord n, Eq t)

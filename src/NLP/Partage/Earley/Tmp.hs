@@ -108,10 +108,10 @@ memoBag memoElem =
 -- to fully parse the given input sentence.
 estiCost1
     :: (Ord t)
-    => Memo.Memo t                  -- ^ Memoization strategy for terminals
-    -> M.Map t W.Weight             -- ^ The lower bound estimates
-                                    --   on terminal weights
-    -> Bag t                        -- ^ Bag of terminals
+    => Memo.Memo t      -- ^ Memoization strategy for terminals
+    -> M.Map t W.Weight -- ^ The lower bound estimates
+                        --   on terminal weights
+    -> Bag t            -- ^ Bag of terminals
     -> W.Weight
 estiCost1 memoElem termWei =
     esti
