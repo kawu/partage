@@ -1,9 +1,21 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE TupleSections #-}
 
 
 module NLP.Partage.Earley.Tmp
 (
+-- * Bag
+  Bag
+, pocket
+, bagEmpty
+, bagAdd
+, bagDiff
+, bagFromList
+
+-- * Heuristic
+, estiCost1
+, estiCost2
 ) where
 
 
@@ -32,13 +44,12 @@ import qualified NLP.Partage.Earley.AutoAP as E
 -- earley
 --     :: (Hashable t, Ord t, Hashable n, Ord n)
 --     => W.WeiFactGram n t            -- ^ The grammar (map from rules to weights)
---     -> W.DAG (O.Node n t) W.Weight  -- ^ 
+--     -> W.DAG (O.Node n t) W.Weight  -- ^
 --     -> E.Input t                    -- ^ Input sentence
 --     -> IO (E.Hype n t)
 -- earley gram input = do
 --     auto <- mkAuto (D.fromGram gram)
 --     earleyAuto auto input
-
 
 
 --------------------------------
@@ -50,9 +61,34 @@ import qualified NLP.Partage.Earley.AutoAP as E
 type Bag a = M.Map a Int
 
 
+-- | Empty bag.
+bagEmpty :: Bag a
+bagEmpty = M.empty
+
+
 -- | Single element bag.
 pocket :: (Ord a) => a -> Bag a
 pocket x = M.singleton x 1
+
+
+-- | Add two bags.
+bagAdd :: (Ord a) => Bag a -> Bag a -> Bag a
+bagAdd = M.unionWith (+)
+
+
+-- | Difference between the two bags:
+-- `bagDiff b1 b2` = b1 \ b2
+bagDiff :: (Ord a) => Bag a -> Bag a -> Bag a
+bagDiff =
+    let x `minus` y
+            | x > y     = Just (x - y)
+            | otherwise = Nothing
+     in M.differenceWith minus
+
+
+-- | Create a bag form a list of objects.
+bagFromList :: (Ord a) => [a] -> Bag a
+bagFromList = M.fromListWith (+) . map (,1)
 
 
 -- | Memoization combinator.
@@ -63,47 +99,59 @@ memoBag memoElem =
     in  Memo.wrap M.fromAscList M.toAscList memoList
 
 
--- | Difference between the two bags.
-bagDiff :: Bag a -> Bag a -> Bag a
-bagDiff = undefined
-
-
--- | Add two bags.
-bagAdd :: (Ord a) => Bag a -> Bag a -> Bag a
-bagAdd = M.unionWith (+) 
-
-
--- | Empty bag.
-bagEmpty :: Bag a
-bagEmpty = M.empty
-
-
 --------------------------------
--- Heuristic
+-- Heuristic, part 1
 --------------------------------
 
 
 -- | Heuristic: lower bound estimate on the cost (weight) remaining
 -- to fully parse the given input sentence.
-estiCost
+estiCost1
+    :: (Ord t)
+    => Memo.Memo t                  -- ^ Memoization strategy for terminals
+    -> M.Map t W.Weight             -- ^ The lower bound estimates
+                                    --   on terminal weights
+    -> Bag t                        -- ^ Bag of terminals
+    -> W.Weight
+estiCost1 memoElem termWei =
+    esti
+  where
+    esti = memoBag memoElem esti'
+    esti' bag = sum
+        [ maybe 0
+            (* fromIntegral n)
+            (M.lookup t termWei)
+        | (t, n) <- M.toList bag ]
+
+
+--------------------------------
+-- Heuristic, part 2
+--------------------------------
+
+
+-- | Heuristic: lower bound estimate on the cost (weight) remaining
+-- to fully parse the given input sentence.
+estiCost2
     :: (Ord n, Ord t)
     => Memo.Memo t                  -- ^ Memoization strategy for terminals
     -> A.WeiGramAuto n t            -- ^ The weighted automaton
     -> W.DAG (O.Node n t) W.Weight  -- ^ The corresponding grammar DAG
-    -> M.Map t W.Weight             -- ^ Minimal bounds on terminal weights
+    -> (Bag t -> W.Weight)          -- ^ `estiCost1`
     -> ID                           -- ^ ID of the automaton node
     -> Bag t                        -- ^ Bag of terminals
     -> W.Weight
-estiCost memoElem A.WeiAuto{..} weiDag termWei =
+estiCost2 memoElem A.WeiAuto{..} weiDag estiTerm =
     esti
   where
+    -- estiTerm = estiCost1 memoElem termWei
     esti = Memo.memo2 Memo.integral (memoBag memoElem) esti'
     esti' i bag = if null (edgesWei i)
-        then sum
-            [ maybe 0
-                (* fromIntegral n)
-                (M.lookup t termWei)
-            | (t, n) <- M.toList bag ]
+        then estiTerm bag
+--         then sum
+--             [ maybe 0
+--                 (* fromIntegral n)
+--                 (M.lookup t termWei)
+--             | (t, n) <- M.toList bag ]
         else minimum
             [ w + wS + esti j (bag `bagDiff` bagS)
             | (x, w, j) <- edgesWei i
@@ -117,7 +165,8 @@ estiCost memoElem A.WeiAuto{..} weiDag termWei =
 
 
 -- | Compute the weight of the grammar subtree corresponding to the
--- given DAG node.
+-- given DAG node.  Return also the corresponding bag of terminals
+-- stored in leaves of the subtree.
 dagCost
     :: (Ord n, Ord t, Num w)
     => W.DAG (O.Node n t) w     -- ^ Grammar DAG
@@ -138,7 +187,8 @@ dagCost dag =
 
 
 -- | Like `dagCost` but works for a specific grammar label.
--- For non-internal nodes (roots or leaves) returns 0.
+-- For non-internal nodes (roots or leaves) returns
+-- `(bagEmpty, 0)`.
 labCost
     :: (Ord n, Ord t, Num w)
     => W.DAG (O.Node n t) w     -- ^ Grammar DAG

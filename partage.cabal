@@ -52,6 +52,7 @@ library
       , NLP.Partage.Auto.WeiTrie
       , NLP.Partage.Earley
       , NLP.Partage.FactGram.Weighted
+      , NLP.Partage.Earley.Prob.AutoAP
       , NLP.Partage.Earley.Tmp
 
 -- NOT FOR THIS VERIONS:

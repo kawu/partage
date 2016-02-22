@@ -378,7 +378,7 @@ data Hype n t = Hype
     { automat   :: Auto n t
 --     { automat :: A.GramAuto n t
 --     -- ^ The underlying automaton
--- 
+--
 --     -- , withBody :: M.Map (Lab n t) (S.Set ID)
 --     , withBody :: H.CuckooHashTable (Lab n t) (S.Set ID)
 --     -- ^ A data structure which, for each label, determines the
