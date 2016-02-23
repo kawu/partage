@@ -36,7 +36,7 @@ library
       , data-memocombinators    >= 0.5  && < 0.6
 
       -- only when debugging:
-      -- , time                >= 1.5      && < 1.7
+      , time                >= 1.5      && < 1.7
 
     exposed-modules:
 --         NLP.Partage.Core
@@ -73,7 +73,7 @@ library
       , NLP.Partage.Earley.AutoAP
 
     ghc-options: -Wall
-    -- cpp-options: -DDebug
+    cpp-options: -DDebug
 
 
 source-repository head

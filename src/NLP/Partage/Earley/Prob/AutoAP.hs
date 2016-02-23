@@ -1040,6 +1040,8 @@ tryScan p cost = void $ P.runListT $ do
         putStr "[S]  " >> printActive p
         putStr "  :  " >> printActive q
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
+        putStr " #W  " >> print (addWeight cost termCost)
+        putStr " #E  " >> print estDist
 #endif
 
 
@@ -1087,6 +1089,8 @@ trySubst p cost = void $ P.runListT $ do
         putStr "  +  " >> printActive q
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
+        putStr " #W  " >> print (sumWeight [cost, cost', tranCost])
+        putStr " #E  " >> print estDist
 #endif
 
 
@@ -1130,6 +1134,8 @@ trySubst' q cost = void $ P.runListT $ do
         putStr "  +  " >> printPassive p
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
+        putStr " #W  " >> print (sumWeight [cost, cost', tranCost])
+        putStr " #E  " >> print estDist
 #endif
 
 
@@ -1172,7 +1178,7 @@ tryAdjoinInit p _cost = void $ P.runListT $ do
     estDist <- lift . estimateDistA $ q'
     -- push the resulting state into the waiting queue
     lift . pushInduced q'
-         . extWeight (addWeight cost tranCost) estDist 
+         . extWeight (addWeight cost tranCost) estDist
          -- $ Foot q (nonTerm foot) tranCost
          $ Foot q p tranCost
 --     -- push the resulting state into the waiting queue
@@ -1185,6 +1191,8 @@ tryAdjoinInit p _cost = void $ P.runListT $ do
         putStr "  +  " >> printActive q
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
+        putStr " #W  " >> print (addWeight cost tranCost)
+        putStr " #E  " >> print estDist
 #endif
 
 
@@ -1198,6 +1206,9 @@ tryAdjoinInit'
     -> Weight
     -> Earley n t ()
 tryAdjoinInit' q cost = void $ P.runListT $ do
+#ifdef Debug
+    begTime <- lift . lift $ Time.getCurrentTime
+#endif
     -- Retrieve the foot expected by `q`.
     (AuxFoot footNT, tranCost, j) <- elems (q ^. state)
     -- (AuxFoot footNT, _) <- some $ expects' q
@@ -1225,7 +1236,7 @@ tryAdjoinInit' q cost = void $ P.runListT $ do
     estDist <- lift . estimateDistA $ q'
     -- push the resulting state into the waiting queue
     lift . pushInduced q'
-         . extWeight (addWeight cost tranCost) estDist 
+         . extWeight (addWeight cost tranCost) estDist
          $ Foot q p tranCost
 #ifdef Debug
     -- print logging information
@@ -1235,6 +1246,8 @@ tryAdjoinInit' q cost = void $ P.runListT $ do
         putStr "  +  " >> printPassive p
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
+        putStr " #W  " >> print (addWeight cost tranCost)
+        putStr " #E  " >> print estDist
 #endif
 
 
@@ -1289,6 +1302,8 @@ tryAdjoinCont p cost = void $ P.runListT $ do
         putStr "  +  " >> printActive q
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
+        putStr " #W  " >> print (sumWeight [cost, cost', tranCost])
+        putStr " #E  " >> print estDist
 #endif
 
 
@@ -1299,6 +1314,9 @@ tryAdjoinCont'
     -> Weight
     -> Earley n t ()
 tryAdjoinCont' q cost = void $ P.runListT $ do
+#ifdef Debug
+    begTime <- lift . lift $ Time.getCurrentTime
+#endif
     -- Retrieve the auxiliary vertebrea expected by `q`
     -- (qLab@AuxVert{}, _) <- some $ expects' q
     (qLab@AuxVert{}, tranCost, j) <- elems (q ^. state)
@@ -1326,6 +1344,8 @@ tryAdjoinCont' q cost = void $ P.runListT $ do
         putStr "  +  " >> printPassive p
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
+        putStr " #W  " >> print (sumWeight [cost, cost', tranCost])
+        putStr " #E  " >> print estDist
 #endif
 
 
@@ -1372,6 +1392,8 @@ tryAdjoinTerm q cost = void $ P.runListT $ do
         putStr "  +  " >> printPassive p
         putStr "  :  " >> printPassive p'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
+        putStr " #W  " >> print (addWeight cost cost')
+        putStr " #E  " >> print estDist
 #endif
 
 
@@ -1382,6 +1404,9 @@ tryAdjoinTerm'
     -> Weight
     -> Earley n t ()
 tryAdjoinTerm' p cost = void $ P.runListT $ do
+#ifdef Debug
+    begTime <- lift . lift $ Time.getCurrentTime
+#endif
     let pLab = p ^. label
         pSpan = p ^. spanP
     -- Ensure that `p` is auxiliary but not top-level
@@ -1411,6 +1436,8 @@ tryAdjoinTerm' p cost = void $ P.runListT $ do
         putStr "  +  " >> printPassive q
         putStr "  :  " >> printPassive p'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
+        putStr " #W  " >> print (addWeight cost cost')
+        putStr " #E  " >> print estDist
 #endif
 
 
