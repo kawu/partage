@@ -46,7 +46,6 @@ import qualified Data.Tree as R
 import qualified Data.Map.Strict as M
 import qualified Data.MemoCombinators as Memo
 
-
 import           NLP.Partage.FactGram.Internal (Lab(..), Rule(..))
 import qualified NLP.Partage.Tree as T
 import qualified NLP.Partage.Tree.Other as O

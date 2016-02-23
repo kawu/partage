@@ -541,7 +541,7 @@ tryScan p = void $ runMaybeT $ do
     let q = modL' (spanA >>> end) (+1)
           . modL' right tail
           $ p
-#ifdef Debug
+#ifdef DebugOn
     -- print logging information
     lift . lift $ do
         putStr "[S]  " >> printActive p
@@ -574,7 +574,7 @@ trySubst p = void $ P.runListT $ do
     let q' = setL (end.spanA) (pSpan ^. end)
            . modL' right tail
            $ q
-#ifdef Debug
+#ifdef DebugOn
     -- print logging information
     lift . lift $ do
         putStr "[U]  " >> printPassive p
@@ -611,7 +611,7 @@ tryAdjoinInit p = void $ P.runListT $ do
                 , pSpan ^. end ))
            . modL' right tail
            $ q
-#ifdef Debug
+#ifdef DebugOn
     -- print logging information
     lift . lift $ do
         putStr "[A]  " >> printPassive p
@@ -648,7 +648,7 @@ tryAdjoinCont p = void $ P.runListT $ do
            . setL (spanA >>> gap) (pSpan ^. gap)
            . modL' right tail
            $ q
-#ifdef Debug
+#ifdef DebugOn
     -- logging info
     lift . lift $ do
         putStr "[B]  " >> printPassive p
@@ -686,7 +686,7 @@ tryAdjoinTerm q = void $ P.runListT $ do
     let p' = setL (spanP >>> beg) (qSpan ^. beg)
            . setL (spanP >>> end) (qSpan ^. end)
            $ p
-#ifdef Debug
+#ifdef DebugOn
     lift . lift $ do
         putStr "[C]  " >> printPassive q
         putStr "  +  " >> printPassive p

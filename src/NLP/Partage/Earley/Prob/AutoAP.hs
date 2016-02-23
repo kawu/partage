@@ -93,7 +93,7 @@ import qualified NLP.Partage.FactGram.Weighted as W
 import qualified NLP.Partage.Earley.Tmp as Tmp
 
 -- For debugging purposes
-#ifdef Debug
+#ifdef DebugOn
 import qualified Data.Time              as Time
 #endif
 
@@ -767,31 +767,45 @@ savePassive p ts =
 
 -- | Add the active item to the waiting queue.  Check first if it
 -- is not already in the set of processed (`done') states.
-pushActive :: (Ord t, Ord n)
+pushActive :: (SOrd t, SOrd n)
            => Active -> ExtWeight n t -> Earley n t ()
-pushActive p new = isProcessedA p >>= \b -> if b
+pushActive p new = track p new >> isProcessedA p >>= \b -> if b
     then saveActive p new
     else modify' $ \s -> s {waiting = newWait (waiting s)}
   where
     newWait = Q.insertWith joinExtWeight (ItemA p) new
+#ifdef DebugOn
+    track q new = lift $ do
+        putStr ">A>  " >> printActive q
+        putStr " :>  " >> print (((,) <$> priWeight <*> estWeight) new)
+#else
+    track p new = return ()
+#endif
 
 
 -- | Add the passive item to the waiting queue.  Check first if it
 -- is not already in the set of processed (`done') states.
-pushPassive :: (Ord t, Ord n)
+pushPassive :: (SOrd t, SOrd n)
             => Passive n t
             -> ExtWeight n t
             -> Earley n t ()
-pushPassive p new = isProcessedP p >>= \b -> if b
+pushPassive p new = track p new >> isProcessedP p >>= \b -> if b
     then savePassive p new
     else modify' $ \s -> s {waiting = newWait (waiting s)}
   where
-    newWait = Q.insertWith joinExtWeight (ItemP p) new
     -- newPrio = ExtPrio (prioP p) (S.singleton t)
+    newWait = Q.insertWith joinExtWeight (ItemP p) new
+#ifdef DebugOn
+    track p new = lift $ do
+        putStr ">P>  " >> printPassive p
+        putStr " :>  " >> print (((,) <$> priWeight <*> estWeight) new)
+#else
+    track p new = return ()
+#endif
 
 
 -- | Add to the waiting queue all items induced from the given item.
-pushInduced :: (Ord t, Ord n)
+pushInduced :: (SOrd t, SOrd n)
             => Active
             -> ExtWeight n t
             -> Earley n t ()
@@ -800,12 +814,14 @@ pushInduced p new = do
         (pushActive p new)
     P.runListT $ do
         (headCost, x) <- heads (getL state p)
-        -- while "reading" the head, we increase the weight of the
-        -- current parse and decrease the estimated weight at the
+        -- TODO: while "reading" the head, we increase the weight of
+        -- the current parse and decrease the estimated weight at the
         -- same time
         let new' = new
-                { priWeight = priWeight new + headCost
-                , estWeight = estWeight new - headCost }
+                { priWeight = priWeight new + headCost }
+                -- TODO: we don't have to do the one below, because
+                -- the estimation concerns only subtrees so far.
+                -- , estWeight = estWeight new - headCost }
         lift . flip pushPassive new' $
            Passive x (p ^. spanA)
 
@@ -1012,7 +1028,7 @@ auxModifyGap x gapSpan = do
 -- | Try to perform SCAN on the given active state.
 tryScan :: (SOrd t, SOrd n) => Active -> Weight -> Earley n t ()
 tryScan p cost = void $ P.runListT $ do
-#ifdef Debug
+#ifdef DebugOn
     begTime <- lift . lift $ Time.getCurrentTime
 #endif
     -- read the word immediately following the ending position of
@@ -1033,7 +1049,7 @@ tryScan p cost = void $ P.runListT $ do
     lift . pushInduced q
          . extWeight (addWeight cost termCost) estDist
          $ Scan p c termCost
-#ifdef Debug
+#ifdef DebugOn
     -- print logging information
     lift . lift $ do
         endTime <- Time.getCurrentTime
@@ -1058,7 +1074,7 @@ trySubst
     -> Weight
     -> Earley n t ()
 trySubst p cost = void $ P.runListT $ do
-#ifdef Debug
+#ifdef DebugOn
     begTime <- lift . lift $ Time.getCurrentTime
 #endif
     let pLab = getL label p
@@ -1081,7 +1097,7 @@ trySubst p cost = void $ P.runListT $ do
     lift . pushInduced q'
          . extWeight (sumWeight [cost, cost', tranCost]) estDist
          $ Subst p q tranCost
-#ifdef Debug
+#ifdef DebugOn
     -- print logging information
     lift . lift $ do
         endTime <- Time.getCurrentTime
@@ -1102,7 +1118,7 @@ trySubst'
     -> Weight
     -> Earley n t ()
 trySubst' q cost = void $ P.runListT $ do
-#ifdef Debug
+#ifdef DebugOn
     begTime <- lift . lift $ Time.getCurrentTime
 #endif
     -- Learn what non-terminals `q` actually expects.
@@ -1126,7 +1142,7 @@ trySubst' q cost = void $ P.runListT $ do
     lift . pushInduced q'
          . extWeight (sumWeight [cost, cost', tranCost]) estDist
          $ Subst p q tranCost
-#ifdef Debug
+#ifdef DebugOn
     -- print logging information
     lift . lift $ do
         endTime <- Time.getCurrentTime
@@ -1153,7 +1169,7 @@ tryAdjoinInit
     -> Weight
     -> Earley n t ()
 tryAdjoinInit p _cost = void $ P.runListT $ do
-#ifdef Debug
+#ifdef DebugOn
     begTime <- lift . lift $ Time.getCurrentTime
 #endif
     let pLab = p ^. label
@@ -1183,7 +1199,7 @@ tryAdjoinInit p _cost = void $ P.runListT $ do
          $ Foot q p tranCost
 --     -- push the resulting state into the waiting queue
 --     lift $ pushInduced q' $ Foot q p -- -- $ nonTerm foot
-#ifdef Debug
+#ifdef DebugOn
     -- print logging information
     lift . lift $ do
         endTime <- Time.getCurrentTime
@@ -1206,7 +1222,7 @@ tryAdjoinInit'
     -> Weight
     -> Earley n t ()
 tryAdjoinInit' q cost = void $ P.runListT $ do
-#ifdef Debug
+#ifdef DebugOn
     begTime <- lift . lift $ Time.getCurrentTime
 #endif
     -- Retrieve the foot expected by `q`.
@@ -1238,7 +1254,7 @@ tryAdjoinInit' q cost = void $ P.runListT $ do
     lift . pushInduced q'
          . extWeight (addWeight cost tranCost) estDist
          $ Foot q p tranCost
-#ifdef Debug
+#ifdef DebugOn
     -- print logging information
     lift . lift $ do
         endTime <- Time.getCurrentTime
@@ -1265,7 +1281,7 @@ tryAdjoinCont
     -> Weight
     -> Earley n t ()
 tryAdjoinCont p cost = void $ P.runListT $ do
-#ifdef Debug
+#ifdef DebugOn
     begTime <- lift . lift $ Time.getCurrentTime
 #endif
     let pLab = p ^. label
@@ -1294,7 +1310,7 @@ tryAdjoinCont p cost = void $ P.runListT $ do
          $ Subst p q tranCost
 --     -- push the resulting state into the waiting queue
 --     lift $ pushInduced q' $ Subst p q
-#ifdef Debug
+#ifdef DebugOn
     -- logging info
     lift . lift $ do
         endTime <- Time.getCurrentTime
@@ -1314,7 +1330,7 @@ tryAdjoinCont'
     -> Weight
     -> Earley n t ()
 tryAdjoinCont' q cost = void $ P.runListT $ do
-#ifdef Debug
+#ifdef DebugOn
     begTime <- lift . lift $ Time.getCurrentTime
 #endif
     -- Retrieve the auxiliary vertebrea expected by `q`
@@ -1336,7 +1352,7 @@ tryAdjoinCont' q cost = void $ P.runListT $ do
     lift . pushInduced q'
          . extWeight (sumWeight [cost, cost', tranCost]) estDist
          $ Subst p q tranCost
-#ifdef Debug
+#ifdef DebugOn
     -- logging info
     lift . lift $ do
         endTime <- Time.getCurrentTime
@@ -1362,7 +1378,7 @@ tryAdjoinTerm
     -> Weight
     -> Earley n t ()
 tryAdjoinTerm q cost = void $ P.runListT $ do
-#ifdef Debug
+#ifdef DebugOn
     begTime <- lift . lift $ Time.getCurrentTime
 #endif
     let qLab = q ^. label
@@ -1404,7 +1420,7 @@ tryAdjoinTerm'
     -> Weight
     -> Earley n t ()
 tryAdjoinTerm' p cost = void $ P.runListT $ do
-#ifdef Debug
+#ifdef DebugOn
     begTime <- lift . lift $ Time.getCurrentTime
 #endif
     let pLab = p ^. label
@@ -1429,7 +1445,7 @@ tryAdjoinTerm' p cost = void $ P.runListT $ do
     lift . pushPassive p'
          . extWeight (addWeight cost cost') estDist
          $ Adjoin q p
-#ifdef Debug
+#ifdef DebugOn
     lift . lift $ do
         endTime <- Time.getCurrentTime
         putStr "[C'] " >> printPassive p
@@ -1572,7 +1588,7 @@ step (ItemA p :-> e) = do
 -- -- | Does the given grammar generate the given sentence?
 -- -- Uses the `earley` algorithm under the hood.
 -- recognize
--- #ifdef Debug
+-- #ifdef DebugOn
 --     :: (SOrd t, SOrd n)
 -- #else
 --     :: (Hashable t, Ord t, Hashable n, Ord n)
@@ -1590,7 +1606,7 @@ step (ItemA p :-> e) = do
 -- symbol in its root)?  Uses the `earley` algorithm under the
 -- hood.
 recognizeFrom
-#ifdef Debug
+#ifdef DebugOn
     :: (SOrd t, SOrd n)
 #else
     :: (Hashable t, Ord t, Hashable n, Ord n)
@@ -1609,7 +1625,7 @@ recognizeFrom memoTerm gram start input = do
 
 -- -- | Parse the given sentence and return the set of parsed trees.
 -- parse
--- #ifdef Debug
+-- #ifdef DebugOn
 --     :: (SOrd t, SOrd n)
 -- #else
 --     :: (Hashable t, Ord t, Hashable n, Ord n)
@@ -1626,7 +1642,7 @@ recognizeFrom memoTerm gram start input = do
 -- -- | Perform the earley-style computation given the grammar and
 -- -- the input sentence.
 -- earley
--- #ifdef Debug
+-- #ifdef DebugOn
 --     :: (SOrd t, SOrd n)
 -- #else
 --     :: (Hashable t, Ord t, Hashable n, Ord n)
@@ -1646,7 +1662,7 @@ recognizeFrom memoTerm gram start input = do
 
 -- -- | See `recognize`.
 -- recognizeAuto
--- #ifdef Debug
+-- #ifdef DebugOn
 --     :: (SOrd t, SOrd n)
 -- #else
 --     :: (Hashable t, Ord t, Hashable n, Ord n)
@@ -1660,7 +1676,7 @@ recognizeFrom memoTerm gram start input = do
 
 -- | See `recognizeFrom`.
 recognizeFromAuto
-#ifdef Debug
+#ifdef DebugOn
     :: (SOrd t, SOrd n)
 #else
     :: (Hashable t, Ord t, Hashable n, Ord n)
@@ -1679,7 +1695,7 @@ recognizeFromAuto memoTerm auto start input = do
 
 -- -- | See `parse`.
 -- parseAuto
--- #ifdef Debug
+-- #ifdef DebugOn
 --     :: (SOrd t, SOrd n)
 -- #else
 --     :: (Hashable t, Ord t, Hashable n, Ord n)
@@ -1696,7 +1712,7 @@ recognizeFromAuto memoTerm auto start input = do
 
 -- | See `earley`.
 earleyAuto
-#ifdef Debug
+#ifdef DebugOn
     :: (SOrd t, SOrd n)
 #else
     :: (Hashable t, Ord t, Hashable n, Ord n)

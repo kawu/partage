@@ -83,7 +83,7 @@ import qualified NLP.Partage.Auto.DAWG  as D
 import qualified NLP.Partage.Tree       as T
 
 -- For debugging purposes
-#ifdef Debug
+#ifdef DebugOn
 import qualified Data.Time              as Time
 #endif
 
@@ -811,7 +811,7 @@ hasElems i = do
 -- | Try to perform SCAN on the given active state.
 tryScan :: (SOrd t, SOrd n) => Active -> Earley n t ()
 tryScan p = void $ P.runListT $ do
-#ifdef Debug
+#ifdef DebugOn
     begTime <- lift . lift $ Time.getCurrentTime
 #endif
     -- read the word immediately following the ending position of
@@ -827,7 +827,7 @@ tryScan p = void $ P.runListT $ do
           $ p
     -- push the resulting state into the waiting queue
     lift $ pushInduced q $ Scan p c
-#ifdef Debug
+#ifdef DebugOn
     -- print logging information
     lift . lift $ do
         endTime <- Time.getCurrentTime
@@ -846,7 +846,7 @@ tryScan p = void $ P.runListT $ do
 -- (=> substitution) other rules.
 trySubst :: (SOrd t, SOrd n) => Passive n t -> Earley n t ()
 trySubst p = void $ P.runListT $ do
-#ifdef Debug
+#ifdef DebugOn
     begTime <- lift . lift $ Time.getCurrentTime
 #endif
     let pLab = getL label p
@@ -865,7 +865,7 @@ trySubst p = void $ P.runListT $ do
            $ q
     -- push the resulting state into the waiting queue
     lift $ pushInduced q' $ Subst p q
-#ifdef Debug
+#ifdef DebugOn
     -- print logging information
     lift . lift $ do
         endTime <- Time.getCurrentTime
@@ -886,7 +886,7 @@ trySubst p = void $ P.runListT $ do
 -- * `q' not completed and expects a *real* foot
 tryAdjoinInit :: (SOrd n, SOrd t) => Passive n t -> Earley n t ()
 tryAdjoinInit p = void $ P.runListT $ do
-#ifdef Debug
+#ifdef DebugOn
     begTime <- lift . lift $ Time.getCurrentTime
 #endif
     let pLab = p ^. label
@@ -909,7 +909,7 @@ tryAdjoinInit p = void $ P.runListT $ do
            $ q
     -- push the resulting state into the waiting queue
     lift $ pushInduced q' $ Foot q p -- -- $ nonTerm foot
-#ifdef Debug
+#ifdef DebugOn
     -- print logging information
     lift . lift $ do
         endTime <- Time.getCurrentTime
@@ -930,7 +930,7 @@ tryAdjoinInit p = void $ P.runListT $ do
 -- * `q' not completed and expects a *dummy* foot
 tryAdjoinCont :: (SOrd n, SOrd t) => Passive n t -> Earley n t ()
 tryAdjoinCont p = void $ P.runListT $ do
-#ifdef Debug
+#ifdef DebugOn
     begTime <- lift . lift $ Time.getCurrentTime
 #endif
     let pLab = p ^. label
@@ -953,7 +953,7 @@ tryAdjoinCont p = void $ P.runListT $ do
            $ q
     -- push the resulting state into the waiting queue
     lift $ pushInduced q' $ Subst p q
-#ifdef Debug
+#ifdef DebugOn
     -- logging info
     lift . lift $ do
         endTime <- Time.getCurrentTime
@@ -973,7 +973,7 @@ tryAdjoinCont p = void $ P.runListT $ do
 -- tree represented by a fully parsed rule/state `q`.
 tryAdjoinTerm :: (SOrd t, SOrd n) => Passive n t -> Earley n t ()
 tryAdjoinTerm q = void $ P.runListT $ do
-#ifdef Debug
+#ifdef DebugOn
     begTime <- lift . lift $ Time.getCurrentTime
 #endif
     let qLab = q ^. label
@@ -990,7 +990,7 @@ tryAdjoinTerm q = void $ P.runListT $ do
            . setL (spanP >>> end) (qSpan ^. end)
            $ p
     lift $ pushPassive p' $ Adjoin q p
-#ifdef Debug
+#ifdef DebugOn
     lift . lift $ do
         endTime <- Time.getCurrentTime
         putStr "[C]  " >> printPassive q
@@ -1125,7 +1125,7 @@ parsedTrees earSt start n
 -- | Does the given grammar generate the given sentence?
 -- Uses the `earley` algorithm under the hood.
 recognize
-#ifdef Debug
+#ifdef DebugOn
     :: (SOrd t, SOrd n)
 #else
     :: (Hashable t, Ord t, Hashable n, Ord n)
@@ -1143,7 +1143,7 @@ recognize gram input = do
 -- symbol in its root)?  Uses the `earley` algorithm under the
 -- hood.
 recognizeFrom
-#ifdef Debug
+#ifdef DebugOn
     :: (SOrd t, SOrd n)
 #else
     :: (Hashable t, Ord t, Hashable n, Ord n)
@@ -1159,7 +1159,7 @@ recognizeFrom gram start input = do
 
 -- | Parse the given sentence and return the set of parsed trees.
 parse
-#ifdef Debug
+#ifdef DebugOn
     :: (SOrd t, SOrd n)
 #else
     :: (Hashable t, Ord t, Hashable n, Ord n)
@@ -1176,7 +1176,7 @@ parse gram start input = do
 -- | Perform the earley-style computation given the grammar and
 -- the input sentence.
 earley
-#ifdef Debug
+#ifdef DebugOn
     :: (SOrd t, SOrd n)
 #else
     :: (Hashable t, Ord t, Hashable n, Ord n)
@@ -1234,7 +1234,7 @@ mkWithBody dag = M.fromListWith S.union
 
 -- | See `recognize`.
 recognizeAuto
-#ifdef Debug
+#ifdef DebugOn
     :: (SOrd t, SOrd n)
 #else
     :: (Hashable t, Ord t, Hashable n, Ord n)
@@ -1248,7 +1248,7 @@ recognizeAuto auto xs =
 
 -- | See `recognizeFrom`.
 recognizeFromAuto
-#ifdef Debug
+#ifdef DebugOn
     :: (SOrd t, SOrd n)
 #else
     :: (Hashable t, Ord t, Hashable n, Ord n)
@@ -1265,7 +1265,7 @@ recognizeFromAuto auto start input = do
 
 -- | See `parse`.
 parseAuto
-#ifdef Debug
+#ifdef DebugOn
     :: (SOrd t, SOrd n)
 #else
     :: (Hashable t, Ord t, Hashable n, Ord n)
@@ -1282,7 +1282,7 @@ parseAuto auto start input = do
 
 -- | See `earley`.
 earleyAuto
-#ifdef Debug
+#ifdef DebugOn
     :: (SOrd t, SOrd n)
 #else
     :: (Hashable t, Ord t, Hashable n, Ord n)

@@ -21,7 +21,7 @@ instance (Ord a, H.Hashable a) => HOrd a where
 
 
 -- | 'Show' + 'Ord'
-#ifdef Debug
+#ifdef DebugOn
 class (Show a, HOrd a) => SOrd a where
 instance (Show a, HOrd a) => SOrd a where
 #else
