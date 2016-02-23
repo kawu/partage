@@ -17,7 +17,7 @@ module TestSet
 , mkGram3
 , gram3Tests
 
-, Gram
+-- , Gram
 , testTree
 )  where
 
@@ -32,7 +32,7 @@ import           Test.HUnit (Assertion, (@?=))
 import           Test.Tasty.HUnit (testCase)
 
 import           NLP.Partage.Tree (Tree (..), AuxTree (..))
-import           NLP.Partage.FactGram (Rule, flattenWithSharing)
+import qualified NLP.Partage.Tree.Other as O
 
 
 ---------------------------------------------------------------------
@@ -42,12 +42,13 @@ import           NLP.Partage.FactGram (Rule, flattenWithSharing)
 
 type Tr    = Tree String String
 type AuxTr = AuxTree String String
-type Rl    = Rule String String
+type Other = O.SomeTree String String
+-- type Rl    = Rule String String
 -- type WRl   = W.Rule String String
 
 
 -- | A compiled grammar.
-type Gram  = S.Set Rl
+-- type Gram  = S.Set Rl
 
 -- -- | A compiled grammar with weights.
 -- type WeightedTree  = (Tr, Cost)
@@ -141,8 +142,8 @@ mouse = Branch "NP"
 
 
 -- | Compile the first grammar.
-mkGram1 :: IO Gram
-mkGram1 = flattenWithSharing $
+mkGram1 :: [Other]
+mkGram1 = -- flattenWithSharing $
     map Left [tom, sleeps, caught, a, mouse] ++
     map Right [almost, quickly]
 
@@ -225,8 +226,8 @@ beta2 = AuxTree (Branch "X"
     ) [1,0]
 
 
-mkGram2 :: IO Gram
-mkGram2 = flattenWithSharing $
+mkGram2 :: [Other]
+mkGram2 = -- flattenWithSharing $
     map Left [alpha] ++
     map Right [beta1, beta2]
 
@@ -257,8 +258,8 @@ gram2Tests =
 ---------------------------------------------------------------------
 
 
-mkGram3 :: IO Gram
-mkGram3 = flattenWithSharing $
+mkGram3 :: [Other] -- IO Gram
+mkGram3 = -- flattenWithSharing $
     map Left [sent] ++
     map Right [xtree]
   where
@@ -289,15 +290,17 @@ gram3Tests =
 
 -- | Compiled grammars.
 data Res = Res
-    { gram1 :: Gram
-    , gram2 :: Gram
-    , gram3 :: Gram }
+    { gram1 :: [Other]
+    , gram2 :: [Other]
+    , gram3 :: [Other] }
 
 
 -- | Construct the shared resource (i.e. the grammars) used in
 -- tests.
-mkGrams :: IO Res
-mkGrams = Res <$> mkGram1 <*> mkGram2 <*> mkGram3
+-- mkGrams :: IO Res
+mkGrams :: Res
+mkGrams =
+    Res mkGram1 mkGram2 mkGram3
 
 
 ---------------------------------------------------------------------
@@ -309,12 +312,13 @@ mkGrams = Res <$> mkGram1 <*> mkGram2 <*> mkGram3
 testTree
     :: String
         -- ^ Name of the tested module
-    -> (Gram -> String -> [String] -> IO Bool)
+    -> ([Other] -> String -> [String] -> IO Bool)
         -- ^ Recognition function
-    -> Maybe (Gram -> String -> [String] -> IO (S.Set Tr))
+    -> Maybe ([Other] -> String -> [String] -> IO (S.Set Tr))
         -- ^ Parsing function (optional)
     -> TestTree
-testTree modName reco parse = withResource mkGrams (const $ return ()) $
+testTree modName reco parse =
+  withResource (return mkGrams) (const $ return ()) $
     \resIO -> testGroup modName $
         map (testIt resIO gram1) gram1Tests ++
         map (testIt resIO gram2) gram2Tests ++

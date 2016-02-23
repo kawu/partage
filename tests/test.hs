@@ -6,5 +6,6 @@ import qualified Parser
 
 main :: IO ()
 main = defaultMain $ testGroup "Tests"
-    [ Parser.tests
+    [ Parser.testEarley
+    , Parser.testAStar
     ]
