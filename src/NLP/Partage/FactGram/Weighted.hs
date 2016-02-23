@@ -20,6 +20,10 @@ module NLP.Partage.FactGram.Weighted
 , edges
 , label
 
+-- * Ensemble
+, Gram (..)
+, mkGram
+
 -- * Conversion
 , dagFromForest
 , dagFromWeightedForest
@@ -44,7 +48,7 @@ import qualified Data.MemoCombinators as Memo
 
 
 import           NLP.Partage.FactGram.Internal (Lab(..), Rule(..))
--- import qualified NLP.Partage.Tree as G
+import qualified NLP.Partage.Tree as T
 import qualified NLP.Partage.Tree.Other as O
 
 
@@ -422,7 +426,7 @@ dagFromForest ts =
 type DagM a b = E.State (DagSt a b)
 
 
--- | State underlying `DagM`. 
+-- | State underlying `DagM`.
 -- Invariant: sets of IDs in `rootMap` and `normMap`
 -- are disjoint.
 data DagSt a b = DagSt
@@ -566,6 +570,62 @@ isFoot i dag = case lookup i dag of
     Just n  -> case nodeLabel n of
         O.Foot _  -> True
         _         -> False
+
+
+----------------------
+-- Ensemble
+----------------------
+
+
+-- | The datatype which contains the grammar in its different forms
+-- needed for parsing.
+data Gram n t = Gram
+    { dagGram   :: DAG (O.Node n t) Weight
+    -- ^ Grammar as a DAG (with subtree sharing)
+    , factGram  :: WeiFactGram n t
+    -- ^ Factorized (flattened) form of the grammar
+    , termWei   :: M.Map t Weight
+    -- ^ The lower bound estimates on reading terminal weights.
+    -- Based on the idea that weights of the elementary trees are
+    -- evenly distributed over its terminals.
+    }
+
+
+-- | Construct `Gram` based on the given weighted grammar.
+mkGram
+    :: (Ord n, Ord t)
+    => [(O.SomeTree n t, Weight)]   -- ^ Weighted grammar
+    -> Gram n t
+mkGram ts = Gram
+    { dagGram   = dagGram_
+    , factGram  = dagRules dagGram_
+    , termWei   = mkTermWei ts }
+  where
+    dagGram_
+        = dagFromWeightedForest
+        . map (first O.encode)
+        $ ts
+
+
+-- | Compute the lower bound estimates on reading terminal weights.
+-- Based on the idea that weights of the elementary trees are evenly
+-- distributed over its terminals.
+mkTermWei
+    :: (Ord n, Ord t)
+    => [(O.SomeTree n t, Weight)]   -- ^ Weighted grammar
+    -> M.Map t Weight
+mkTermWei ts = M.fromListWith min
+    [ (x, w / fromIntegral n)
+    | (t, w) <- ts
+    , let terms = listTerms t
+          n = length terms
+    , x <- terms ]
+
+
+-- | List the terminal leaves of the tree.
+listTerms :: O.SomeTree n t -> [t]
+listTerms (Left t) = T.project t
+listTerms (Right a) = T.project (T.auxTree a)
 
 
 ---------------------------

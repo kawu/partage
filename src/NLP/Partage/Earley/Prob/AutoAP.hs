@@ -16,24 +16,25 @@ module NLP.Partage.Earley.Prob.AutoAP
 -- * Earley-style parsing
 -- ** Input
   Input (..)
--- , fromList
+, fromList
 -- , fromSets
--- -- ** From a factorized grammar
+
+-- ** From a factorized grammar
 -- , recognize
--- , recognizeFrom
+, recognizeFrom
 -- , parse
 -- , earley
--- -- ** With automata precompiled
+-- ** With automata precompiled
 -- , recognizeAuto
--- , recognizeFromAuto
+, recognizeFromAuto
 -- , parseAuto
--- , earleyAuto
--- -- ** Automaton
--- , Auto
--- , mkAuto
---
--- -- * Parsing trace (hypergraph)
--- , Hype
+, earleyAuto
+-- ** Automaton
+, Auto
+, mkAuto
+
+-- * Parsing trace (hypergraph)
+, Hype
 -- -- ** Extracting parsed trees
 -- , parsedTrees
 -- -- ** Stats
@@ -41,13 +42,13 @@ module NLP.Partage.Earley.Prob.AutoAP
 -- , hyperEdgesNum
 -- -- ** Printing
 -- , printHype
---
--- -- * Sentence position
--- , Pos
+
+-- * Sentence position
+, Pos
 ) where
 
 
-import           Prelude hiding             (span, (.))
+import           Prelude hiding             (init, span, (.))
 import           Control.Applicative        ((<$>))
 import qualified Control.Arrow as Arr
 import           Control.Monad      (guard, void, (>=>), when, forM_)
@@ -75,7 +76,6 @@ import qualified Pipes                      as P
 -- import qualified Pipes.Prelude              as P
 
 import           Data.DAWG.Ord (ID)
--- import qualified Data.DAWG.Ord.Dynamic      as D
 
 import           NLP.Partage.SOrd
 import           NLP.Partage.FactGram (FactGram)
@@ -83,10 +83,12 @@ import           NLP.Partage.FactGram.Internal
                                 ( Lab(..), viewLab )
 import qualified NLP.Partage.Auto as A
 -- import qualified NLP.Partage.Auto.DAWG  as D
+import qualified NLP.Partage.Auto.WeiTrie  as Trie
 import qualified NLP.Partage.Tree       as T
 import qualified NLP.Partage.Tree.Other as O
 
-import           NLP.Partage.FactGram.Weighted (Weight)
+import           NLP.Partage.FactGram.Weighted
+    (Weight, WeiFactGram)
 import qualified NLP.Partage.FactGram.Weighted as W
 import qualified NLP.Partage.Earley.Tmp as Tmp
 
@@ -413,24 +415,40 @@ printItem (ItemA p) = printActive p
 -- | Local automaton type based on `A.GramAuto`.
 data Auto n t = Auto
     { gramAuto  :: A.WeiGramAuto n t
-    -- ^ The underlying automaton
-    -- , withBody :: M.Map (Lab n t) (S.Set ID)
-    , withBody :: H.CuckooHashTable (Lab n t) (S.Set ID)
+    -- ^ The underlying grammar as an automaton
+    , withBody  :: H.CuckooHashTable (Lab n t) (S.Set ID)
     -- ^ A data structure which, for each label, determines the
     -- set of automaton states from which this label goes out
     -- as a body transition.
+    , dagGram   :: W.DAG (O.Node n t) Weight
+    -- ^ Grammar as a DAG (with subtree sharing)
+    , termWei   :: M.Map t Weight
+    -- ^ The lower bound estimates on reading terminal weights.
+    -- Based on the idea that weights of the elementary trees are
+    -- evenly distributed over its terminals.
     }
 
 
--- | Construct `Auto` based on the underlying `A.GramAuto`.
+-- | Construct `Auto` based on the weighted grammar.
 mkAuto
     :: (Hashable t, Ord t, Hashable n, Ord n)
-    => A.WeiGramAuto n t -> IO (Auto n t)
-mkAuto dag = do
-    theBody <- H.fromList . M.toList $ mkWithBody dag
+    => W.Gram n t -> IO (Auto n t)
+mkAuto gram = do
+    let auto = Trie.fromGram (W.factGram gram)
+    body <- H.fromList . M.toList $ mkWithBody auto
     return $ Auto
-        { gramAuto = dag
-        , withBody = theBody }
+        { gramAuto  = auto
+        , withBody  = body
+        , dagGram   = W.dagGram gram
+        , termWei   = W.termWei gram }
+-- mkAuto
+--     :: (Hashable t, Ord t, Hashable n, Ord n)
+--     => A.WeiGramAuto n t -> IO (Auto n t)
+-- mkAuto dag = do
+--     theBody <- H.fromList . M.toList $ mkWithBody dag
+--     return $ Auto
+--         { gramAuto = dag
+--         , withBody = theBody }
 
 
 -- | Create the `withBody` component based on the automaton.
@@ -934,11 +952,9 @@ rootSpan x (i, j) = do
         Just m -> map (Arr.second priWeight) (M.toList m)
 
 
--- -- | List all processed passive items.
--- listDone :: Done n t -> [Item n t]
--- listDone done = ($ done) $
---     M.elems >=> M.elems >=>
---     M.elems >=> S.toList
+-- | List all processed passive items.
+listPassive :: Hype n t -> [(Passive n t, ExtWeight n t)]
+listPassive = (M.elems >=> M.toList) . donePassive
 
 
 -- | Return all processed passive items which:
@@ -948,12 +964,11 @@ provideBeg
     :: (Ord n, Ord t) => Lab n t -> Pos
     -> P.ListT (Earley n t) (Passive n t, Weight)
 provideBeg x i = do
-    undefined
---     EarSt{..} <- lift RWS.get
---     each
---         [ (q, prioVal e) | (q, e) <- M.toList donePassive
---         , q ^. spanP ^. beg == i
---         , q ^. label == x ]
+    hype <- lift RWS.get
+    each
+        [ (q, priWeight e) | (q, e) <- listPassive hype
+        , q ^. spanP ^. beg == i
+        , q ^. label == x ]
 
 
 -- | Return all processed items which:
@@ -965,13 +980,12 @@ provideBeg x i = do
 provideBeg'
     :: (Ord n, Ord t) => n -> Pos
     -> P.ListT (Earley n t) (Passive n t, Weight)
-provideBeg' x i = undefined
--- provideBeg' x i = do
---     EarSt{..} <- lift RWS.get
---     each
---         [ (q, prioVal e) | (q, e) <- M.toList donePassive
---         , q ^. spanP ^.beg == i
---         , nonTerm (q ^. label) == x ]
+provideBeg' x i = do
+    hype <- lift RWS.get
+    each
+        [ (q, priWeight e) | (q, e) <- listPassive hype
+        , q ^. spanP ^.beg == i
+        , nonTerm (q ^. label) == x ]
 
 
 -- | Return all fully parsed items:
@@ -981,14 +995,13 @@ provideBeg' x i = undefined
 auxModifyGap
     :: Ord n => n -> (Pos, Pos)
     -> P.ListT (Earley n t) (Passive n t, Weight)
-auxModifyGap x gapSpan = undefined
--- auxModifyGap x gapSpan = do
---     EarSt{..} <- lift RWS.get
---     each
---         [ (q, prioVal e) | (q, e) <- M.toList donePassive
---         , q ^. spanP ^. gap == Just gapSpan
---         , topLevel (q ^. label)
---         , nonTerm  (q ^. label) == x ]
+auxModifyGap x gapSpan = do
+    hype <- lift RWS.get
+    each
+        [ (q, priWeight e) | (q, e) <- listPassive hype
+        , q ^. spanP ^. gap == Just gapSpan
+        , topLevel (q ^. label)
+        , nonTerm  (q ^. label) == x ]
 
 
 --------------------------------------------------
@@ -1543,27 +1556,30 @@ step (ItemA p :-> e) = do
 -- recognize gram input = do
 --     auto <- mkAuto (D.fromGram gram)
 --     recognizeAuto auto input
---
---
--- -- | Does the given grammar generate the given sentence from the
--- -- given non-terminal symbol (i.e. from an initial tree with this
--- -- symbol in its root)?  Uses the `earley` algorithm under the
--- -- hood.
--- recognizeFrom
--- #ifdef Debug
---     :: (SOrd t, SOrd n)
--- #else
---     :: (Hashable t, Ord t, Hashable n, Ord n)
--- #endif
---     => FactGram n t         -- ^ The grammar (set of rules)
---     -> n                    -- ^ The start symbol
---     -> Input t            -- ^ Input sentence
---     -> IO Bool
--- recognizeFrom gram start input = do
---     auto <- mkAuto (D.fromGram gram)
---     recognizeFromAuto auto start input
---
---
+
+
+-- | Does the given grammar generate the given sentence from the
+-- given non-terminal symbol (i.e. from an initial tree with this
+-- symbol in its root)?  Uses the `earley` algorithm under the
+-- hood.
+recognizeFrom
+#ifdef Debug
+    :: (SOrd t, SOrd n)
+#else
+    :: (Hashable t, Ord t, Hashable n, Ord n)
+#endif
+    => Memo.Memo t             -- ^ Memoization strategy for terminals
+    -> [ ( O.SomeTree n t
+         , Weight ) ]          -- ^ Weighted grammar
+    -> n                    -- ^ The start symbol
+    -> Input t              -- ^ Input sentence
+    -> IO Bool
+-- recognizeFrom memoTerm gram dag termWei start input = do
+recognizeFrom memoTerm gram start input = do
+    auto <- mkAuto (W.mkGram gram)
+    recognizeFromAuto memoTerm auto start input
+
+
 -- -- | Parse the given sentence and return the set of parsed trees.
 -- parse
 -- #ifdef Debug
@@ -1613,25 +1629,27 @@ step (ItemA p :-> e) = do
 --     -> IO Bool
 -- recognizeAuto auto xs =
 --     isRecognized xs <$> earleyAuto auto xs
---
---
--- -- | See `recognizeFrom`.
--- recognizeFromAuto
--- #ifdef Debug
---     :: (SOrd t, SOrd n)
--- #else
---     :: (Hashable t, Ord t, Hashable n, Ord n)
--- #endif
---     => Auto n t       -- ^ Grammar automaton
---     -> n                    -- ^ The start symbol
---     -> Input t            -- ^ Input sentence
---     -> IO Bool
--- recognizeFromAuto auto start input = do
---     hype <- earleyAuto auto input
---     let n = V.length (inputSent input)
---     return $ (not.null) (finalFrom start n hype)
---
---
+
+
+-- | See `recognizeFrom`.
+recognizeFromAuto
+#ifdef Debug
+    :: (SOrd t, SOrd n)
+#else
+    :: (Hashable t, Ord t, Hashable n, Ord n)
+#endif
+    => Memo.Memo t      -- ^ Memoization strategy for terminals
+    -> Auto n t         -- ^ Grammar automaton
+    -> n                -- ^ The start symbol
+    -> Input t          -- ^ Input sentence
+    -> IO Bool
+recognizeFromAuto memoTerm auto start input = do
+    hype <- earleyAuto memoTerm auto input
+    -- let n = V.length (inputSent input)
+    let n = length (inputSent input)
+    return $ (not.null) (finalFrom start n hype)
+
+
 -- -- | See `parse`.
 -- parseAuto
 -- #ifdef Debug
@@ -1658,14 +1676,9 @@ earleyAuto
 #endif
     => Memo.Memo t      -- ^ Memoization strategy for terminals
     -> Auto n t         -- ^ Grammar automaton
-    -> W.DAG
-        (O.Node n t)
-        Weight          -- ^ The corresponding grammar DAG
-    -> M.Map t W.Weight -- ^ The lower bound estimates
-                        --   on terminal weights
     -> Input t          -- ^ Input sentence
     -> IO (Hype n t)
-earleyAuto memoTerm auto dag termWei input = do
+earleyAuto memoTerm auto input = do
     fst <$> RWS.execRWST (init >> loop) input st0
   where
     -- input length
@@ -1674,8 +1687,11 @@ earleyAuto memoTerm auto dag termWei input = do
     -- empty hypergraph
     st0 = mkHype esti1 esti2 auto
     -- the heuristic
-    esti1 = Tmp.estiCost1 memoTerm termWei
-    esti2 = Tmp.estiCost2 memoTerm (gramAuto auto) dag esti1
+    esti1 = Tmp.estiCost1 memoTerm (termWei auto)
+    esti2 = Tmp.estiCost2 memoTerm
+                (gramAuto auto)
+                (dagGram auto)
+                esti1
     -- initialize hypergraph with initial active items
     init = P.runListT $ do
         root <- each . S.toList
@@ -1701,22 +1717,22 @@ earleyAuto memoTerm auto dag termWei input = do
 --------------------------------------------------
 
 
--- -- | Return the list of final passive chart items.
--- finalFrom
---     :: (Ord n, Eq t)
---     => n            -- ^ The start symbol
---     -> Int          -- ^ The length of the input sentence
---     -> Hype n t    -- ^ Result of the earley computation
---     -> [Passive n t]
--- finalFrom start n Hype{..} =
---     case M.lookup (0, start, n) donePassive of
---         Nothing -> []
---         Just m ->
---             [ p
---             | p <- M.keys m
---             , p ^. label == NonT start Nothing ]
---
---
+-- | Return the list of final passive chart items.
+finalFrom
+    :: (Ord n, Eq t)
+    => n            -- ^ The start symbol
+    -> Int          -- ^ The length of the input sentence
+    -> Hype n t     -- ^ Result of the earley computation
+    -> [Passive n t]
+finalFrom start n Hype{..} =
+    case M.lookup (0, start, n) donePassive of
+        Nothing -> []
+        Just m ->
+            [ p
+            | p <- M.keys m
+            , p ^. label == NonT start Nothing ]
+
+
 -- -- -- | Return the list of final passive chart items.
 -- -- final
 -- --     :: (Ord n, Eq t)

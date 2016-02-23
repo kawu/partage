@@ -112,7 +112,10 @@ check p (WeiTrie t) = and
 
 
 -- | Build trie from the given grammar.
-buildTrie :: (Ord n, Ord t) => WeiFactGram n t -> WeiTrie (A.Edge (Lab n t)) Weight
+buildTrie
+    :: (Ord n, Ord t)
+    => WeiFactGram n t
+    -> WeiTrie (A.Edge (Lab n t)) Weight
 buildTrie gram = fromLang [(A.ruleSeq r, w) | (r, w) <- M.toList gram]
 
 
@@ -122,7 +125,10 @@ buildTrie gram = fromLang [(A.ruleSeq r, w) | (r, w) <- M.toList gram]
 
 
 -- | Abstract over the concrete implementation.
-shell :: (Ord n, Ord t) => WeiTrie (A.Edge (Lab n t)) Weight -> A.WeiGramAuto n t
+shell
+    :: (Ord n, Ord t)
+    => WeiTrie (A.Edge (Lab n t)) Weight
+    -> A.WeiGramAuto n t
 shell d0 = A.WeiAuto
     { rootsWei  = S.singleton (rootID d)
     , followWei = follow d
@@ -131,7 +137,10 @@ shell d0 = A.WeiAuto
 
 
 -- | Build the trie-based representation of the given grammar.
-fromGram :: (Ord n, Ord t) => WeiFactGram n t -> A.WeiGramAuto n t
+fromGram
+    :: (Ord n, Ord t)
+    => WeiFactGram n t
+    -> A.WeiGramAuto n t
 fromGram = shell . buildTrie
 
 
