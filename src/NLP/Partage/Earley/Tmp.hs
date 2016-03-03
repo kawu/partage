@@ -268,9 +268,9 @@ supCost dag =
 -- given DAG node.
 treeCost
     :: (Ord n, Ord t)
-    => W.DAG (O.Node n t) W.Weight     -- ^ Grammar DAG
-    -> A.WeiGramAuto n t        -- ^ The weighted automaton
-    -> W.ID                     -- ^ ID of the DAG node
+    => W.DAG (O.Node n t) W.Weight  -- ^ Grammar DAG
+    -> A.WeiGramAuto n t            -- ^ The weighted automaton
+    -> ID                           -- ^ ID of the *automaton*(!) node
     -> M.Map (Bag t) W.Weight
 treeCost dag A.WeiAuto{..} =
   cost
@@ -278,7 +278,7 @@ treeCost dag A.WeiAuto{..} =
     cost = Memo.integral cost'
     cost' i =
       if null (edgesWei i)
-      then sup i
+      then sup i    -- WRONG!!!!
       else M.fromListWith min
            [ Arr.second (+w) (bag_x `add2` bag_j)
            | (x, w, j) <- edgesWei i
