@@ -23,6 +23,7 @@ import qualified Control.Arrow as Arr
 -- import           Data.Hashable (Hashable)
 -- import qualified Data.HashTable.IO          as H
 import qualified Data.List as L
+import qualified Data.Set as S
 import qualified Data.Map.Strict as M
 import qualified Data.MemoCombinators as Memo
 
@@ -167,26 +168,25 @@ estiCost2 memoElem A.WeiAuto{..} weiDag estiTerm =
 -- | Compute the weight of the grammar subtree corresponding to the
 -- given DAG node.  Return also the corresponding bag of terminals
 -- stored in leaves of the subtree.
-dagCost
+subCost
     :: (Ord n, Ord t, Num w)
     => W.DAG (O.Node n t) w     -- ^ Grammar DAG
     -> W.ID                     -- ^ ID of the DAG node
     -> (Bag t, w)
-dagCost dag =
+subCost dag =
     cost
   where
     cost = Memo.integral cost'
     cost' i = case W.label i dag of
-        Nothing -> error "dagCost: incorrect ID"
+        Nothing -> error "subCost: incorrect ID"
         Just v  -> case v of
             O.Term t -> (pocket t, 0)
             _  -> L.foldl' add2 (bagEmpty, 0)
                 [ Arr.second (+w) (cost j)
                 | (j, w) <- W.edges i dag ]
-    add2 (b1, w1) (b2, w2) = (bagAdd b1 b2, w1 + w2)
 
 
--- | Like `dagCost` but works for a specific grammar label.
+-- | Like `subCost` but works for a specific grammar label.
 -- For non-internal nodes (roots or leaves) returns
 -- `(bagEmpty, 0)`.
 labCost
@@ -197,9 +197,51 @@ labCost
 -- TODO: can we move `x` before the equation sign?
 labCost dag = \x -> case x of
     A.Body y -> case y of
-        I.NonT _ (Just i) -> cost i
-        I.AuxVert _ i     -> cost i
-        _                 -> (bagEmpty, 0)
+      I.NonT _ (Just i) -> cost i
+      I.AuxVert _ i     -> cost i
+      _                 -> (bagEmpty, 0)
     A.Head _ -> (bagEmpty, 0)
   where
-    cost = dagCost dag
+    cost = subCost dag
+
+
+--------------------------------
+-- Heuristic: Super Tree Cost
+--------------------------------
+
+
+-- | Compute the weight of the grammar supertree corresponding to the
+-- given DAG node.  Return also the corresponding bag of terminals
+-- stored in leaves of the subtree.
+supCost
+    :: (Ord n, Ord t, Num w, Ord w)
+    => W.DAG (O.Node n t) w     -- ^ Grammar DAG
+    -> W.ID                     -- ^ ID of the DAG node
+    -> M.Map (Bag t) w
+supCost dag =
+    sup
+  where
+    sup = Memo.integral sup'
+    sup' i
+      | W.isRoot i dag = M.empty
+      | otherwise = M.fromListWith min
+          [ (sup_j `add2` sub j) `sub2` sub i
+          | j <- S.toList (W.parents i parMap)
+          , sup_j <- M.toList (sup j) ]
+    sub = subCost dag
+    parMap = W.parentMap dag
+
+
+--------------------------------
+-- Misc
+--------------------------------
+
+
+-- | Add two bags enriched with weights.
+add2 :: (Ord a, Num w) => (Bag a, w) -> (Bag a, w) -> (Bag a, w)
+add2 (b1, w1) (b2, w2) = (bagAdd b1 b2, w1 + w2)
+
+
+-- | Substract two bags enriched with weights.
+sub2 :: (Ord a, Num w) => (Bag a, w) -> (Bag a, w) -> (Bag a, w)
+sub2 (b1, w1) (b2, w2) = (bagDiff b1 b2, w1 - w2)

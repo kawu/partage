@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards    #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -19,6 +19,10 @@ module NLP.Partage.FactGram.Weighted
 , rootSet
 , edges
 , label
+, isRoot
+-- ** Parent Map
+, parents
+, parentMap
 
 -- * Ensemble
 , Gram (..)
@@ -33,23 +37,22 @@ module NLP.Partage.FactGram.Weighted
 ) where
 
 
-import           Prelude hiding (lookup)
-import           Control.Applicative ((<$>))
-import           Control.Arrow (first)
-import qualified Control.Monad.State.Strict as E
-import           Control.Monad.Trans.Maybe (MaybeT (..))
+import           Control.Applicative           ((<$>))
+import           Control.Arrow                 (first)
+import qualified Control.Monad.State.Strict    as E
+import           Control.Monad.Trans.Maybe     (MaybeT (..))
+import           Prelude                       hiding (lookup)
 
-import qualified Data.List as L
-import           Data.Ord (comparing)
-import qualified Data.Set as S
-import qualified Data.Tree as R
-import qualified Data.Map.Strict as M
-import qualified Data.MemoCombinators as Memo
+import qualified Data.List                     as L
+import qualified Data.Map.Strict               as M
+import qualified Data.MemoCombinators          as Memo
+import           Data.Ord                      (comparing)
+import qualified Data.Set                      as S
+import qualified Data.Tree                     as R
 
-import           NLP.Partage.FactGram.Internal (Lab(..), Rule(..))
-import qualified NLP.Partage.Tree as T
-import qualified NLP.Partage.Tree.Other as O
-
+import           NLP.Partage.FactGram.Internal (Lab (..), Rule (..))
+import qualified NLP.Partage.Tree              as T
+import qualified NLP.Partage.Tree.Other        as O
 
 
 ----------------------
@@ -73,9 +76,9 @@ type Weight = Double
 -- Type @a@ represents values of DAG nodes, type @b@ -- values of
 -- DAG edges.
 data DAG a b = DAG
-    { rootSet   :: S.Set ID
+    { rootSet :: S.Set ID
     -- ^ The set of roots of the DAG
-    , nodeMap   :: M.Map ID (Node a b)
+    , nodeMap :: M.Map ID (Node a b)
     -- ^ The set of nodes in the DAG
     }
 
@@ -579,11 +582,11 @@ isFoot i dag = case lookup i dag of
 -- | The datatype which contains the grammar in its different forms
 -- needed for parsing.
 data Gram n t = Gram
-    { dagGram   :: DAG (O.Node n t) Weight
+    { dagGram  :: DAG (O.Node n t) Weight
     -- ^ Grammar as a DAG (with subtree sharing)
-    , factGram  :: WeiFactGram n t
+    , factGram :: WeiFactGram n t
     -- ^ Factorized (flattened) form of the grammar
-    , termWei   :: M.Map t Weight
+    , termWei  :: M.Map t Weight
     -- ^ The lower bound estimates on reading terminal weights.
     -- Based on the idea that weights of the elementary trees are
     -- evenly distributed over its terminals.
