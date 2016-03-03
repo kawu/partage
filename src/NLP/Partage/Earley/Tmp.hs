@@ -16,6 +16,10 @@ module NLP.Partage.Earley.Tmp
 -- * Heuristic
 , estiCost1
 , estiCost2
+, estiCost3
+
+-- * Tmp
+, treeCost
 ) where
 
 
@@ -148,16 +152,37 @@ estiCost2 memoElem A.WeiAuto{..} weiDag estiTerm =
     esti = Memo.memo2 Memo.integral (memoBag memoElem) esti'
     esti' i bag = if null (edgesWei i)
         then estiTerm bag
---         then sum
---             [ maybe 0
---                 (* fromIntegral n)
---                 (M.lookup t termWei)
---             | (t, n) <- M.toList bag ]
         else minimum
             [ w + wS + esti j (bag `bagDiff` bagS)
             | (x, w, j) <- edgesWei i
             , let (bagS, wS) = cost x ]
     cost = labCost weiDag
+
+
+--------------------------------
+-- Heuristic, part 3
+--------------------------------
+
+
+-- | Heuristic: lower bound estimate on the cost (weight) remaining
+-- to fully parse the given input sentence.
+estiCost3
+    :: (Ord n, Ord t)
+    => Memo.Memo t                  -- ^ Memoization strategy for terminals
+    -> A.WeiGramAuto n t            -- ^ The weighted automaton
+    -> W.DAG (O.Node n t) W.Weight  -- ^ The corresponding grammar DAG
+    -> (Bag t -> W.Weight)          -- ^ `estiCost1`
+    -> ID                           -- ^ ID of the automaton node
+    -> Bag t                        -- ^ Bag of terminals
+    -> W.Weight
+estiCost3 memoElem weiAuto@A.WeiAuto{..} weiDag estiTerm =
+    esti
+  where
+    esti = Memo.memo2 Memo.integral (memoBag memoElem) esti'
+    esti' i bag = minimum
+      [ estiTerm (bag `bagDiff` bag') + w
+      | (bag', w) <- M.toList (cost i) ]
+    cost = treeCost weiDag weiAuto
 
 
 --------------------------------
@@ -210,9 +235,8 @@ labCost dag = \x -> case x of
 --------------------------------
 
 
--- | Compute the weight of the grammar supertree corresponding to the
--- given DAG node.  Return also the corresponding bag of terminals
--- stored in leaves of the subtree.
+-- | Compute the bags of terminals and the corresponding (minimal) weights
+-- for the individual super-trees surrounding the given DAG node.
 supCost
     :: (Ord n, Ord t, Num w, Ord w)
     => W.DAG (O.Node n t) w     -- ^ Grammar DAG
@@ -223,13 +247,45 @@ supCost dag =
   where
     sup = Memo.integral sup'
     sup' i
-      | W.isRoot i dag = M.empty
+      -- | W.isRoot i dag = M.empty
+      | W.isRoot i dag = M.singleton bagEmpty 0
       | otherwise = M.fromListWith min
           [ (sup_j `add2` sub j) `sub2` sub i
           | j <- S.toList (W.parents i parMap)
           , sup_j <- M.toList (sup j) ]
     sub = subCost dag
     parMap = W.parentMap dag
+
+
+--------------------------------
+-- Heuristic: Super Tree Cost
+--------------------------------
+
+
+-- | Compute the bags of terminals and the corresponding
+-- (minimal) weights which still need to be scanned before
+-- some full elementary tree is parsed starting from the
+-- given DAG node.
+treeCost
+    :: (Ord n, Ord t)
+    => W.DAG (O.Node n t) W.Weight     -- ^ Grammar DAG
+    -> A.WeiGramAuto n t        -- ^ The weighted automaton
+    -> W.ID                     -- ^ ID of the DAG node
+    -> M.Map (Bag t) W.Weight
+treeCost dag A.WeiAuto{..} =
+  cost
+  where
+    cost = Memo.integral cost'
+    cost' i =
+      if null (edgesWei i)
+      then sup i
+      else M.fromListWith min
+           [ Arr.second (+w) (bag_x `add2` bag_j)
+           | (x, w, j) <- edgesWei i
+           , bag_j <- M.toList (cost j)
+           , let bag_x = sub x ]
+    sub = labCost dag
+    sup = supCost dag
 
 
 --------------------------------

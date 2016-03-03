@@ -818,10 +818,10 @@ pushInduced p new = do
         -- the current parse and decrease the estimated weight at the
         -- same time
         let new' = new
-                { priWeight = priWeight new + headCost }
-                -- TODO: we don't have to do the one below, because
-                -- the estimation concerns only subtrees so far.
-                -- , estWeight = estWeight new - headCost }
+                { priWeight = priWeight new + headCost
+                -- TODO: we do the one below, because
+                -- estimation concerns also supertrees.
+                , estWeight = estWeight new - headCost }
         lift . flip pushPassive new' $
            Passive x (p ^. spanA)
 
@@ -841,7 +841,8 @@ popItem = RWS.state $ \st -> case Q.minView (waiting st) of
 ----------------------
 
 
--- | Estimate the remaining distnance for a passive item.
+-- | Estimate the remaining distance for a passive item.
+-- TODO: This is incorrect now!
 estimateDistP :: (Ord t) => Passive n t -> Earley n t Weight
 estimateDistP p = do
     tbag <- bagOfTerms (p ^. spanP)
@@ -849,11 +850,22 @@ estimateDistP p = do
     return $ esti tbag
 
 
--- | Estimate the remaining distnance for an active item.
-estimateDistA :: (Ord t) => Active -> Earley n t Weight
+-- | Estimate the remaining distance for an active item.
+estimateDistA :: (Ord n, SOrd t) => Active -> Earley n t Weight
 estimateDistA q = do
     tbag <- bagOfTerms (q ^. spanA)
     esti <- RWS.gets estiCost2
+#ifdef DebugOn
+    Auto{..} <- RWS.gets automat
+    lift $ do
+        putStr " #TC(0) " >> print ( Tmp.treeCost
+          dagGram gramAuto 3 )
+        putStr " #TBAG  " >> print tbag
+        putStr " #TCOST " >> print ( Tmp.treeCost
+          dagGram gramAuto (q ^. state) )
+        putStr " #STATE " >> print (q ^. state)
+        putStr " #ESTI  " >> print (esti (q ^. state) tbag)
+#endif
     return $ esti (q ^. state) tbag
 
 
@@ -1731,7 +1743,7 @@ earleyAuto memoTerm auto input = do
     st0 = mkHype esti1 esti2 auto
     -- the heuristic
     esti1 = Tmp.estiCost1 memoTerm (termWei auto)
-    esti2 = Tmp.estiCost2 memoTerm
+    esti2 = Tmp.estiCost3 memoTerm
                 (gramAuto auto)
                 (dagGram auto)
                 esti1
