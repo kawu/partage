@@ -18,14 +18,14 @@ module NLP.Partage.Earley.AutoAP
 , fromList
 , fromSets
 -- ** From a factorized grammar
-, recognize
+-- , recognize
 , recognizeFrom
-, parse
-, earley
+-- , parse
+-- , earley
 -- ** With automata precompiled
-, recognizeAuto
+-- , recognizeAuto
 , recognizeFromAuto
-, parseAuto
+-- , parseAuto
 , earleyAuto
 -- ** Automaton
 , Auto
@@ -449,6 +449,14 @@ readInput i = do
     each $ S.toList xs
 
 
+-- -- | Is the rule with the given head top-level?
+-- isRoot :: DID -> Earley Bool
+-- isRoot x = case x of
+--     NonT{..}  -> isNothing labID
+--     AuxRoot{} -> True
+--     _         -> False
+
+
 --------------------------------------------------
 -- Hypergraph stats
 --------------------------------------------------
@@ -571,12 +579,12 @@ passiveTrav
     :: (Ord n, Ord t)
     => Passive n t -> Hype n t
     -> Maybe (S.Set (Trav n t))
-passiveTrav p
-    = ( M.lookup
+passiveTrav p hype =
+    ( M.lookup
         ( p ^. spanP ^. beg
-        , nonTerm $ p ^. label
+        , nonTerm (p ^. dagID) hype
         , p ^. spanP ^. end ) >=> M.lookup p )
-    . donePassive
+    ( donePassive hype )
 
 
 -- | Check if the state is not already processed.
@@ -602,14 +610,14 @@ savePassive
 savePassive p ts =
     RWS.state $ \s -> ((), s {donePassive = newDone s})
   where
-    newDone st =
+    newDone hype =
         M.insertWith
             ( M.unionWith S.union )
             ( p ^. spanP ^. beg
-            , nonTerm $ p ^. label
+            , nonTerm (p ^. dagID) hype
             , p ^. spanP ^. end )
             ( M.singleton p ts )
-            ( donePassive st )
+            ( donePassive hype )
 
 
 --------------------
@@ -740,7 +748,7 @@ expectEnd did i = do
     doneEnd <- some $ M.lookup i doneActive
     -- determine automaton states from which the given label
     -- leaves as a body transition
-    stateSet <- some $ M.lookup (withBody automat) did
+    stateSet <- some $ M.lookup did (withBody automat)
     -- pick one of the states
     stateID <- each . S.toList $
          stateSet `S.intersection` M.keysSet doneEnd
@@ -752,7 +760,7 @@ expectEnd did i = do
 
 -- | Check if a passive item exists with:
 -- * the given root non-terminal value (but not top-level
---   auxiliary)
+--   auxiliary) (UPDATE: is this second part ensured?)
 -- * the given span
 rootSpan
     :: Ord n => n -> (Pos, Pos)
@@ -785,7 +793,18 @@ followTerm i c = do
     -- get the dag ID corresponding to the given terminal
     did  <- some $ M.lookup c (termDID auto)
     -- follow the label
-    some $ A.follow (gramAuto auto) i (A.Body $ Term did)
+    some $ A.follow (gramAuto auto) i (A.Body did)
+
+
+-- | Follow the given terminal in the underlying automaton.
+followFoot :: (Ord n, Ord t) => ID -> n -> P.ListT (Earley n t) ID
+followFoot i c = do
+    -- get the underlying automaton
+    auto <- RWS.gets $ automat
+    -- get the dag ID corresponding to the given terminal
+    did  <- some $ M.lookup c (footDID auto)
+    -- follow the label
+    some $ A.follow (gramAuto auto) i (A.Body did)
 
 
 -- | Follow the given body transition in the underlying automaton.
@@ -910,9 +929,6 @@ trySubst p = void $ P.runListT $ do
 --------------------------------------------------
 
 
--- TODO: I have finished here!
-
-
 -- | `tryAdjoinInit p q':
 -- * `p' is a completed state (regular or auxiliary)
 -- * `q' not completed and expects a *real* foot
@@ -921,17 +937,25 @@ tryAdjoinInit p = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- lift . lift $ Time.getCurrentTime
 #endif
-    let pLab = p ^. label
+    let pDID = p ^. dagID
         pSpan = p ^. spanP
+    -- the underlying dag grammar
+    dag <- RWS.gets (gramDAG . automat)
+    footMap <- RWS.gets (footDID  . automat)
     -- make sure that the corresponding rule is either regular or
     -- intermediate auxiliary ((<=) used as implication here)
-    guard $ auxiliary pSpan <= not (topLevel pLab)
+    -- guard $ auxiliary pSpan <= not (topLevel pLab)
+    guard $ auxiliary pSpan <= not (DAG.isRoot pDID dag)
+    -- what is the symbol in the p's DAG node?
+    footNT <- some (nonTerm' =<< DAG.label pDID dag)
+    -- what is the corresponding foot DAG ID?
+    footID <- some $ M.lookup footNT footMap 
     -- find all active items which expect a foot with the given
     -- symbol and which end where `p` begins
-    let foot = AuxFoot $ nonTerm pLab
-    q <- expectEnd foot (getL beg pSpan)
+    -- let foot = AuxFoot $ nonTerm pLab
+    q <- expectEnd footID (getL beg pSpan)
     -- follow the foot
-    j <- follow (getL state q) foot
+    j <- follow (getL state q) footID
     -- construct the resultant state
     let q' = setL state j
            . setL (spanA >>> end) (pSpan ^. end)
@@ -965,18 +989,21 @@ tryAdjoinCont p = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- lift . lift $ Time.getCurrentTime
 #endif
-    let pLab = p ^. label
+    let pDID = p ^. dagID
         pSpan = p ^. spanP
+    -- the underlying dag grammar
+    dag <- RWS.gets (gramDAG . automat)
     -- make sure the label is not top-level (internal spine
     -- non-terminal)
-    guard . not $ topLevel pLab
+    -- guard . not $ topLevel pLab
+    guard . not $ DAG.isRoot pDID dag
     -- make sure that `p' is an auxiliary item
     guard . auxiliary $ pSpan
     -- find all rules which expect a spine non-terminal provided
     -- by `p' and which end where `p' begins
-    q <- expectEnd pLab (pSpan ^. beg)
+    q <- expectEnd pDID (pSpan ^. beg)
     -- follow the spine non-terminal
-    j <- follow (q ^. state) pLab
+    j <- follow (q ^. state) pDID
     -- construct the resulting state; the span of the gap of the
     -- inner state `p' is copied to the outer state based on `q'
     let q' = setL state j
@@ -1008,16 +1035,22 @@ tryAdjoinTerm q = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- lift . lift $ Time.getCurrentTime
 #endif
-    let qLab = q ^. label
+    -- let qLab = q ^. label
+    let qDID = q ^. dagID
         qSpan = q ^. spanP
+    -- the underlying dag grammar
+    dag <- RWS.gets (gramDAG . automat)
     -- make sure the label is top-level
-    guard $ topLevel qLab
+    -- guard $ topLevel qLab
+    guard $ DAG.isRoot qDID dag
     -- make sure that it is an auxiliary item (by definition only
     -- auxiliary states have gaps)
-    (gapBeg, gapEnd) <- each $ maybeToList $ qSpan ^. gap
+    (gapBeg, gapEnd) <- some $ qSpan ^. gap
     -- take all passive items with a given span and a given
     -- root non-terminal (IDs irrelevant)
-    p <- rootSpan (nonTerm qLab) (gapBeg, gapEnd)
+    qNonTerm <- some (nonTerm' =<< DAG.label qDID dag)
+    -- p <- rootSpan (nonTerm qLab) (gapBeg, gapEnd)
+    p <- rootSpan qNonTerm (gapBeg, gapEnd)
     let p' = setL (spanP >>> beg) (qSpan ^. beg)
            . setL (spanP >>> end) (qSpan ^. end)
            $ p
@@ -1069,40 +1102,40 @@ parsedTrees
     -> n            -- ^ The start symbol
     -> Int          -- ^ Length of the input sentence
     -> [T.Tree n t]
-parsedTrees earSt start n
+parsedTrees hype start n
 
     = concatMap fromPassive
-    $ finalFrom start n earSt
+    $ finalFrom start n hype
 
   where
 
     fromPassive :: Passive n t -> [T.Tree n t]
     fromPassive p = concat
         [ fromPassiveTrav p trav
-        | travSet <- maybeToList $ passiveTrav p earSt
+        | travSet <- maybeToList $ passiveTrav p hype
         , trav <- S.toList travSet ]
 
     fromPassiveTrav p (Scan q t) =
         [ T.Branch
-            (nonTerm $ getL label p)
+            (nonTerm (getL dagID p) hype)
             (reverse $ T.Leaf t : ts)
         | ts <- fromActive q ]
 
 --     fromPassiveTrav p (Foot q x) =
 --         [ T.Branch
---             (nonTerm $ getL label p)
+--             (nonTerm $ getL dagID p)
 --             (reverse $ T.Branch x [] : ts)
 --         | ts <- fromActive q ]
 
     fromPassiveTrav p (Foot q _p') =
         [ T.Branch
-            (nonTerm $ getL label p)
-            (reverse $ T.Branch (nonTerm $ p ^. label) [] : ts)
+            (nonTerm (getL dagID p) hype)
+            (reverse $ T.Branch (nonTerm (p ^. dagID) hype) [] : ts)
         | ts <- fromActive q ]
 
     fromPassiveTrav p (Subst qp qa) =
         [ T.Branch
-            (nonTerm $ getL label p)
+            (nonTerm (getL dagID p) hype)
             (reverse $ t : ts)
         | ts <- fromActive qa
         , t  <- fromPassive qp ]
@@ -1120,7 +1153,7 @@ parsedTrees earSt start n
 
 
     fromActive  :: Active -> [[T.Tree n t]]
-    fromActive p = case activeTrav p earSt of
+    fromActive p = case activeTrav p hype of
         Nothing -> error "fromActive: unknown active item"
         Just travSet -> if S.null travSet
             then [[]]
@@ -1133,7 +1166,7 @@ parsedTrees earSt start n
         | ts <- fromActive q ]
 
     fromActiveTrav _p (Foot q p) =
-        [ T.Branch (nonTerm $ p ^. label) [] : ts
+        [ T.Branch (nonTerm (p ^. dagID) hype) [] : ts
         | ts <- fromActive q ]
 
 --     fromActiveTrav _p (Foot q x) =
@@ -1185,7 +1218,7 @@ recognizeFrom
     -> Input t              -- ^ Input sentence
     -> IO Bool
 recognizeFrom DAG.Gram{..} start input = do
-    auto <- mkAuto dagGram (D.fromGram factGram)
+    let auto = mkAuto dagGram (D.fromGram factGram)
     recognizeFromAuto auto start input
 
 
@@ -1238,9 +1271,12 @@ data Auto n t = Auto
     -- set of automaton states from which this label goes out
     -- as a body transition.
     , termDID   :: M.Map t DID
-    -- ^ A map which assigns Dag IDs to the corresponding terminals. 
+    -- ^ A map which assigns DAG IDs to the corresponding terminals. 
     -- Note that each grammar terminal is represented by exactly
     -- one grammar DAG node.
+    , footDID   :: M.Map n DID
+    -- ^ A map which assigns DAG IDs to the corresponding foot
+    -- non-terminals.
     }
 
 
@@ -1255,14 +1291,12 @@ mkAuto dag auto = Auto
     { gramDAG  = dag
     , gramAuto = auto
     , withBody = mkWithBody auto
-    , termDID  = undefined }
+    , termDID  = undefined
+    , footDID  = undefined }
 
 
 -- | Create the `withBody` component based on the automaton.
-mkWithBody
-    :: (Ord n, Ord t)
-    => A.GramAuto n t
-    -> M.Map (Lab n t) (S.Set ID)
+mkWithBody :: A.GramAuto -> M.Map DID (S.Set ID)
 mkWithBody dag = M.fromListWith S.union
     [ (x, S.singleton i)
     | (i, A.Body x, _j) <- A.allEdges dag ]
@@ -1371,7 +1405,11 @@ finalFrom start n Hype{..} =
         Just m ->
             [ p
             | p <- M.keys m
-            , p ^. label == NonT start Nothing ]
+            -- , p ^. label == NonT start Nothing ]
+            , DAG.isRoot (p ^. dagID) dag
+            , DAG.label (p ^. dagID) dag
+                == Just (O.NonTerm start) ]
+    where dag = gramDAG automat
 
 
 -- -- | Return the list of final passive chart items.
@@ -1408,10 +1446,11 @@ isRecognized input Hype{..} =
         , item ^. spanP ^. end == n
         , isNothing (item ^. spanP ^. gap)
         -- admit only *fully* recognized trees
-        , isRoot (item ^. label) ]
+        , DAG.isRoot (item ^. dagID) (gramDAG automat) ]
+        -- , isRoot (item ^. label) ]
     agregate = S.unions . map M.keysSet . M.elems
-    isRoot (NonT _ Nothing) = True
-    isRoot _ = False
+    -- isRoot (NonT _ Nothing) = True
+    -- isRoot _ = False
 
 
 --------------------------------------------------
@@ -1441,12 +1480,29 @@ some :: Monad m => Maybe a -> P.ListT m a
 some = each . maybeToList
 
 
--- | Is the rule with the given head top-level?
-topLevel :: Lab n t -> Bool
-topLevel x = case x of
-    NonT{..}  -> isNothing labID
-    AuxRoot{} -> True
-    _         -> False
+-- | Take the non-terminal of the underlying DAG node.
+nonTerm :: DID -> Hype n t -> n
+nonTerm i hype = check $ do
+    x <- DAG.label i (gramDAG $ automat hype)
+    nonTerm' x
+  where
+    check Nothing  = error "nonTerm: not a non-terminal ID"
+    check (Just x) = x
+
+
+-- | Take the non-terminal of the underlying DAG node.
+nonTerm' :: O.Node n t -> Maybe n
+nonTerm' (O.NonTerm y) = Just y
+nonTerm' (O.Foot y) = Just y
+nonTerm' _ = Nothing
+
+
+-- -- | Is the rule with the given head top-level?
+-- topLevel :: Lab n t -> Bool
+-- topLevel x = case x of
+--     NonT{..}  -> isNothing labID
+--     AuxRoot{} -> True
+--     _         -> False
 
 
 -- -- | Pipe all values from the set corresponding to the given key.
