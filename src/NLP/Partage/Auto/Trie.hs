@@ -34,7 +34,8 @@ import qualified Data.Map.Strict as M
 import           Data.DAWG.Ord (ID)
 
 import qualified NLP.Partage.Auto as A
-import           NLP.Partage.FactGram (FactGram, Lab(..), Rule(..))
+import           NLP.Partage.FactGram.DAG (DID(..), Rule(..))
+-- import           NLP.Partage.FactGram (FactGram, Lab(..), Rule(..))
 
 
 --------------------------------------------------
@@ -73,7 +74,7 @@ fromLang = foldl' (flip insert) empty
 
 
 -- | Build trie from the given grammar.
-buildTrie :: (Ord n, Ord t) => FactGram n t -> Trie (A.Edge (Lab n t))
+buildTrie :: S.Set Rule -> Trie (A.Edge DID)
 buildTrie gram = fromLang [A.ruleSeq r | r <- S.toList gram]
 
 
@@ -83,7 +84,7 @@ buildTrie gram = fromLang [A.ruleSeq r | r <- S.toList gram]
 
 
 -- | Abstract over the concrete implementation.
-shell :: (Ord n, Ord t) => Trie (A.Edge (Lab n t)) -> A.GramAuto n t
+shell :: Trie (A.Edge DID) -> A.GramAuto
 shell d0 = A.Auto
     { roots  = S.singleton (rootID d)
     , follow = follow d
@@ -92,7 +93,7 @@ shell d0 = A.Auto
 
 
 -- | Build the trie-based representation of the given grammar.
-fromGram :: (Ord n, Ord t) => FactGram n t -> A.GramAuto n t
+fromGram :: S.Set Rule -> A.GramAuto
 fromGram = shell . buildTrie
 
 

@@ -32,8 +32,9 @@ import qualified Data.Map.Strict            as M
 
 import           Data.DAWG.Ord (ID)
 
-import           NLP.Partage.FactGram
-    ( FactGram, Lab(..), Rule(..) )
+import           NLP.Partage.FactGram.DAG (DID(..), Rule(..))
+-- import           NLP.Partage.FactGram
+--     ( FactGram, Lab(..), Rule(..) )
 
 
 import qualified NLP.Partage.Auto as A
@@ -71,12 +72,11 @@ shell AutoSet{..} = A.Auto
 
 -- | Build the set of automata from the given grammar.
 fromGram
-    :: (Ord n, Ord t)
-    => (FactGram n t -> A.GramAuto n t)
+    :: (S.Set Rule -> A.GramAuto)
         -- ^ The underlying automaton construction method
-    -> FactGram n t
+    -> S.Set Rule
         -- ^ The grammar to compress
-    -> A.GramAuto n t
+    -> A.GramAuto
 fromGram mkOne = shell . buildAutoSet mkOne
 
 
@@ -132,12 +132,11 @@ unionsAS = foldl' unionAS emptyAS
 
 -- | Build automata from the given grammar.
 buildAutoSet
-    :: (Ord n, Ord t)
-    => (FactGram n t -> A.GramAuto n t)
+    :: (S.Set Rule -> A.GramAuto)
         -- ^ The underlying automaton construction method
-    -> FactGram n t
+    -> S.Set Rule
         -- ^ The grammar to compress
-    -> AutoSet (A.Edge (Lab n t))
+    -> AutoSet (A.Edge DID)
 buildAutoSet mkOne gram = runM $
     unionsAS <$> sequence
         [ mkAutoSet

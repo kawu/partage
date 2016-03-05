@@ -27,8 +27,9 @@ import qualified Data.Set                   as S
 -- import           Data.DAWG.Ord (ID)
 import qualified Data.DAWG.Ord              as D
 
-import           NLP.Partage.FactGram
-    ( FactGram, Lab(..), Rule(..) )
+import           NLP.Partage.FactGram.DAG (DID(..), Rule(..))
+-- import           NLP.Partage.FactGram
+--     ( FactGram, Lab(..), Rule(..) )
 
 
 import qualified NLP.Partage.Auto as A
@@ -45,7 +46,7 @@ import qualified NLP.Partage.Auto as A
 
 -- | Abstract over the concrete representation of the grammar
 -- automaton.
-shell :: (Ord n, Ord t) => DAWG n t -> A.GramAuto n t
+shell :: DAWG -> A.GramAuto
 shell d = A.Auto
     { roots  = S.singleton (D.root d)
     , follow = \i x ->  D.follow i x d
@@ -53,7 +54,7 @@ shell d = A.Auto
 
 
 -- | Build the DAWG-based representation of the given grammar.
-fromGram :: (Ord n, Ord t) => FactGram n t -> A.GramAuto n t
+fromGram :: S.Set Rule -> A.GramAuto
 fromGram = shell . buildAuto
 
 
@@ -66,11 +67,11 @@ fromGram = shell . buildAuto
 -- grammar.  Left transitions contain non-terminals belonging to
 -- body non-terminals while Right transitions contain rule heads
 -- non-terminals.
-type DAWG n t = D.DAWG (A.Edge (Lab n t)) ()
+type DAWG = D.DAWG (A.Edge DID) ()
 
 
 -- | Build automaton from the given grammar.
-buildAuto :: (Ord n, Ord t) => FactGram n t -> DAWG n t
+buildAuto :: S.Set Rule -> DAWG
 buildAuto gram = D.fromLang
     [ map A.Body bodyR ++ [A.Head headR]
     | Rule{..} <- S.toList gram ]

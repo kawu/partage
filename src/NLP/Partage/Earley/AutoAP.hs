@@ -75,11 +75,14 @@ import           Data.DAWG.Ord (ID)
 -- import qualified Data.DAWG.Ord.Dynamic      as D
 
 import           NLP.Partage.SOrd
-import           NLP.Partage.FactGram (FactGram)
-import           NLP.Partage.FactGram.Internal
-                                ( Lab(..), viewLab )
+-- import           NLP.Partage.FactGram (FactGram)
+import           NLP.Partage.FactGram.DAG (Gram(..), DID(..), DAG)
+import qualified NLP.Partage.FactGram.DAG as DAG
+-- import           NLP.Partage.FactGram.Internal
+--                                 ( Lab(..), viewLab )
 import qualified NLP.Partage.Auto as A
 import qualified NLP.Partage.Auto.DAWG  as D
+import qualified NLP.Partage.Tree.Other as O
 import qualified NLP.Partage.Tree       as T
 
 -- For debugging purposes
@@ -159,8 +162,10 @@ $( makeLenses [''Active] )
 
 
 -- | Passive chart item : label + span.
+-- UPDATE: instead of a label, DAG node ID.
 data Passive n t = Passive {
-      _label :: Lab n t
+      -- _label :: Lab n t
+      _dagID :: DID
     , _spanP :: Span
     } deriving (Show, Eq, Ord)
 $( makeLenses [''Passive] )
@@ -205,7 +210,8 @@ printActive p = do
 printPassive :: (Show n, Show t) => Passive n t -> IO ()
 printPassive p = do
     putStr "("
-    putStr . viewLab $ getL label p
+    -- putStr . viewLab $ getL label p
+    putStr . show $ getL dagID p
     putStr ", "
     printSpan $ getL spanP p
     putStrLn ")"
@@ -697,22 +703,44 @@ popItem = RWS.state $ \st -> case Q.minView (waiting st) of
 --     each $ M.keys doneEndLab
 
 
+-- -- | Return all active processed items which:
+-- -- * expect a given label,
+-- -- * end on the given position.
+-- expectEnd
+--     :: (HOrd n, HOrd t) => Lab n t -> Pos
+--     -> P.ListT (Earley n t) Active
+-- expectEnd sym i = do
+--     Hype{..} <- lift RWS.get
+--     -- determine items which end on the given position
+--     doneEnd <- some $ M.lookup i doneActive
+--     -- determine automaton states from which the given label
+--     -- leaves as a body transition
+--     stateSet <- do
+--         maybeSet <- lift . lift $
+--             H.lookup (withBody automat) sym
+--         some maybeSet
+--     -- pick one of the states
+--     stateID <- each . S.toList $
+--          stateSet `S.intersection` M.keysSet doneEnd
+--     -- determine items which refer to the chosen states
+--     doneEndLab <- some $ M.lookup stateID doneEnd
+--     -- return them all!
+--     each $ M.keys doneEndLab
+
+
 -- | Return all active processed items which:
 -- * expect a given label,
 -- * end on the given position.
 expectEnd
-    :: (HOrd n, HOrd t) => Lab n t -> Pos
+    :: (HOrd n, HOrd t) => DID -> Pos
     -> P.ListT (Earley n t) Active
-expectEnd sym i = do
+expectEnd did i = do
     Hype{..} <- lift RWS.get
     -- determine items which end on the given position
     doneEnd <- some $ M.lookup i doneActive
     -- determine automaton states from which the given label
     -- leaves as a body transition
-    stateSet <- do
-        maybeSet <- lift . lift $
-            H.lookup (withBody automat) sym
-        some maybeSet
+    stateSet <- some $ M.lookup (withBody automat) did
     -- pick one of the states
     stateID <- each . S.toList $
          stateSet `S.intersection` M.keysSet doneEnd
@@ -753,16 +781,18 @@ rootSpan x (i, j) = do
 followTerm :: (Ord n, Ord t) => ID -> t -> P.ListT (Earley n t) ID
 followTerm i c = do
     -- get the underlying automaton
-    auto <- RWS.gets $ gramAuto . automat
+    auto <- RWS.gets $ automat
+    -- get the dag ID corresponding to the given terminal
+    did  <- some $ M.lookup c (termDID auto)
     -- follow the label
-    some $ A.follow auto i (A.Body $ Term c)
+    some $ A.follow (gramAuto auto) i (A.Body $ Term did)
 
 
 -- | Follow the given body transition in the underlying automaton.
 -- It represents the transition function of the automaton.
 --
 -- TODO: merge with `followTerm`.
-follow :: (Ord n, Ord t) => ID -> Lab n t -> P.ListT (Earley n t) ID
+follow :: (Ord n, Ord t) => ID -> DID -> P.ListT (Earley n t) ID
 follow i x = do
     -- get the underlying automaton
     auto <- RWS.gets $ gramAuto . automat
@@ -771,7 +801,7 @@ follow i x = do
 
 
 -- | Rule heads outgoing from the given automaton state.
-heads :: ID -> P.ListT (Earley n t) (Lab n t)
+heads :: ID -> P.ListT (Earley n t) DID
 heads i = do
     auto <- RWS.gets $ gramAuto . automat
     let mayHead (x, _) = case x of
@@ -849,19 +879,18 @@ trySubst p = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- lift . lift $ Time.getCurrentTime
 #endif
-    let pLab = getL label p
+    let pDID = getL dagID p
         pSpan = getL spanP p
     -- make sure that `p' represents regular rules
     guard . regular $ pSpan
     -- find active items which end where `p' begins and which
-    -- expect the non-terminal provided by `p' (ID included)
-    q <- expectEnd pLab (getL beg pSpan)
-    -- follow the transition symbol
-    j <- follow (getL state q) pLab
+    -- expect the DAG node provided by `p'
+    q <- expectEnd pDID (getL beg pSpan)
+    -- follow the DAG node
+    j <- follow (getL state q) pDID
     -- construct the resultant state
-    -- let q' = q {state = j, spanA = spanA p {end = end p}}
     let q' = setL state j
-           . setL (end.spanA) (getL end pSpan)
+           . setL (end . spanA) (getL end pSpan)
            $ q
     -- push the resulting state into the waiting queue
     lift $ pushInduced q' $ Subst p q
@@ -879,6 +908,9 @@ trySubst p = void $ P.runListT $ do
 --------------------------------------------------
 -- FOOT ADJOIN
 --------------------------------------------------
+
+
+-- TODO: I have finished here!
 
 
 -- | `tryAdjoinInit p q':
@@ -1117,25 +1149,25 @@ parsedTrees earSt start n
         error "parsedTrees: fromActiveTrav called on a passive item"
 
 
---------------------------------------------------
--- EARLEY
---------------------------------------------------
-
-
--- | Does the given grammar generate the given sentence?
--- Uses the `earley` algorithm under the hood.
-recognize
-#ifdef DebugOn
-    :: (SOrd t, SOrd n)
-#else
-    :: (Hashable t, Ord t, Hashable n, Ord n)
-#endif
-    => FactGram n t         -- ^ The grammar (set of rules)
-    -> Input t            -- ^ Input sentence
-    -> IO Bool
-recognize gram input = do
-    auto <- mkAuto (D.fromGram gram)
-    recognizeAuto auto input
+-- --------------------------------------------------
+-- -- EARLEY
+-- --------------------------------------------------
+-- 
+-- 
+-- -- | Does the given grammar generate the given sentence?
+-- -- Uses the `earley` algorithm under the hood.
+-- recognize
+-- #ifdef DebugOn
+--     :: (SOrd t, SOrd n)
+-- #else
+--     :: (Hashable t, Ord t, Hashable n, Ord n)
+-- #endif
+--     => FactGram n t         -- ^ The grammar (set of rules)
+--     -> Input t            -- ^ Input sentence
+--     -> IO Bool
+-- recognize gram input = do
+--     auto <- mkAuto (D.fromGram gram)
+--     recognizeAuto auto input
 
 
 -- | Does the given grammar generate the given sentence from the
@@ -1148,45 +1180,45 @@ recognizeFrom
 #else
     :: (Hashable t, Ord t, Hashable n, Ord n)
 #endif
-    => FactGram n t         -- ^ The grammar (set of rules)
+    => DAG.Gram n t         -- ^ The grammar
     -> n                    -- ^ The start symbol
-    -> Input t            -- ^ Input sentence
+    -> Input t              -- ^ Input sentence
     -> IO Bool
-recognizeFrom gram start input = do
-    auto <- mkAuto (D.fromGram gram)
+recognizeFrom DAG.Gram{..} start input = do
+    auto <- mkAuto dagGram (D.fromGram factGram)
     recognizeFromAuto auto start input
 
 
--- | Parse the given sentence and return the set of parsed trees.
-parse
-#ifdef DebugOn
-    :: (SOrd t, SOrd n)
-#else
-    :: (Hashable t, Ord t, Hashable n, Ord n)
-#endif
-    => FactGram n t         -- ^ The grammar (set of rules)
-    -> n                    -- ^ The start symbol
-    -> Input t              -- ^ Input sentence
-    -> IO [T.Tree n t]
-parse gram start input = do
-    auto <- mkAuto (D.fromGram gram)
-    parseAuto auto start input
+-- -- | Parse the given sentence and return the set of parsed trees.
+-- parse
+-- #ifdef DebugOn
+--     :: (SOrd t, SOrd n)
+-- #else
+--     :: (Hashable t, Ord t, Hashable n, Ord n)
+-- #endif
+--     => FactGram n t         -- ^ The grammar (set of rules)
+--     -> n                    -- ^ The start symbol
+--     -> Input t              -- ^ Input sentence
+--     -> IO [T.Tree n t]
+-- parse gram start input = do
+--     auto <- mkAuto (D.fromGram gram)
+--     parseAuto auto start input
 
 
--- | Perform the earley-style computation given the grammar and
--- the input sentence.
-earley
-#ifdef DebugOn
-    :: (SOrd t, SOrd n)
-#else
-    :: (Hashable t, Ord t, Hashable n, Ord n)
-#endif
-    => FactGram n t         -- ^ The grammar (set of rules)
-    -> Input t              -- ^ Input sentence
-    -> IO (Hype n t)
-earley gram input = do
-    auto <- mkAuto (D.fromGram gram)
-    earleyAuto auto input
+-- -- | Perform the earley-style computation given the grammar and
+-- -- the input sentence.
+-- earley
+-- #ifdef DebugOn
+--     :: (SOrd t, SOrd n)
+-- #else
+--     :: (Hashable t, Ord t, Hashable n, Ord n)
+-- #endif
+--     => FactGram n t         -- ^ The grammar (set of rules)
+--     -> Input t              -- ^ Input sentence
+--     -> IO (Hype n t)
+-- earley gram input = do
+--     auto <- mkAuto (D.fromGram gram)
+--     earleyAuto auto input
 
 
 --------------------------------------------------
@@ -1196,25 +1228,34 @@ earley gram input = do
 
 -- | Local automaton type based on `A.GramAuto`.
 data Auto n t = Auto
-    { gramAuto  :: A.GramAuto n t
+    { gramDAG   :: DAG (O.Node n t) ()
+    -- ^ The underlying grammar DAG
+    , gramAuto  :: A.GramAuto
     -- ^ The underlying automaton
-    -- , withBody :: M.Map (Lab n t) (S.Set ID)
-    , withBody :: H.CuckooHashTable (Lab n t) (S.Set ID)
+    , withBody  :: M.Map DID (S.Set ID)
+    -- , withBody :: H.CuckooHashTable (Lab n t) (S.Set ID)
     -- ^ A data structure which, for each label, determines the
     -- set of automaton states from which this label goes out
     -- as a body transition.
+    , termDID   :: M.Map t DID
+    -- ^ A map which assigns Dag IDs to the corresponding terminals. 
+    -- Note that each grammar terminal is represented by exactly
+    -- one grammar DAG node.
     }
 
 
 -- | Construct `Auto` based on the underlying `A.GramAuto`.
 mkAuto
-    :: (Hashable t, Ord t, Hashable n, Ord n)
-    => A.GramAuto n t -> IO (Auto n t)
-mkAuto dag = do
-    theBody <- H.fromList . M.toList $ mkWithBody dag
-    return $ Auto
-        { gramAuto = dag
-        , withBody = theBody }
+    -- :: (Hashable t, Ord t, Hashable n, Ord n)
+    :: DAG (O.Node n t) ()
+    -> A.GramAuto
+    -> Auto n t
+    -- -> IO Auto
+mkAuto dag auto = Auto
+    { gramDAG  = dag
+    , gramAuto = auto
+    , withBody = mkWithBody auto
+    , termDID  = undefined }
 
 
 -- | Create the `withBody` component based on the automaton.
@@ -1232,18 +1273,18 @@ mkWithBody dag = M.fromListWith S.union
 --------------------------------------------------
 
 
--- | See `recognize`.
-recognizeAuto
-#ifdef DebugOn
-    :: (SOrd t, SOrd n)
-#else
-    :: (Hashable t, Ord t, Hashable n, Ord n)
-#endif
-    => Auto n t           -- ^ Grammar automaton
-    -> Input t            -- ^ Input sentence
-    -> IO Bool
-recognizeAuto auto xs =
-    isRecognized xs <$> earleyAuto auto xs
+-- -- | See `recognize`.
+-- recognizeAuto
+-- #ifdef DebugOn
+--     :: (SOrd t, SOrd n)
+-- #else
+--     :: (Hashable t, Ord t, Hashable n, Ord n)
+-- #endif
+--     => Auto n t           -- ^ Grammar automaton
+--     -> Input t            -- ^ Input sentence
+--     -> IO Bool
+-- recognizeAuto auto xs =
+--     isRecognized xs <$> earleyAuto auto xs
 
 
 -- | See `recognizeFrom`.
@@ -1263,21 +1304,21 @@ recognizeFromAuto auto start input = do
     return $ (not.null) (finalFrom start n hype)
 
 
--- | See `parse`.
-parseAuto
-#ifdef DebugOn
-    :: (SOrd t, SOrd n)
-#else
-    :: (Hashable t, Ord t, Hashable n, Ord n)
-#endif
-    => Auto n t           -- ^ Grammar automaton
-    -> n                  -- ^ The start symbol
-    -> Input t            -- ^ Input sentence
-    -> IO [T.Tree n t]
-parseAuto auto start input = do
-    earSt <- earleyAuto auto input
-    let n = V.length (inputSent input)
-    return $ parsedTrees earSt start n
+-- -- | See `parse`.
+-- parseAuto
+-- #ifdef DebugOn
+--     :: (SOrd t, SOrd n)
+-- #else
+--     :: (Hashable t, Ord t, Hashable n, Ord n)
+-- #endif
+--     => Auto n t           -- ^ Grammar automaton
+--     -> n                  -- ^ The start symbol
+--     -> Input t            -- ^ Input sentence
+--     -> IO [T.Tree n t]
+-- parseAuto auto start input = do
+--     earSt <- earleyAuto auto input
+--     let n = V.length (inputSent input)
+--     return $ parsedTrees earSt start n
 
 
 -- | See `earley`.

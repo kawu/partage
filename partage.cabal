@@ -49,11 +49,12 @@ library
       , NLP.Partage.Auto.Trie
       , NLP.Partage.Auto.DAWG
       , NLP.Partage.Auto.Set
-      , NLP.Partage.Auto.WeiTrie
+      -- , NLP.Partage.Auto.WeiTrie
       , NLP.Partage.Earley
-      , NLP.Partage.FactGram.Weighted
-      , NLP.Partage.Earley.Prob.AutoAP
-      , NLP.Partage.Earley.Tmp
+      , NLP.Partage.FactGram.DAG
+--       , NLP.Partage.FactGram.Weighted
+--       , NLP.Partage.Earley.Prob.AutoAP
+--       , NLP.Partage.Earley.Tmp
 
 -- NOT FOR THIS VERIONS:
 --       , NLP.Partage.WRule

@@ -28,7 +28,8 @@ import qualified Data.Map.Strict as M
 import           Data.DAWG.Ord (ID)
 
 import qualified NLP.Partage.Auto as A
-import           NLP.Partage.FactGram (FactGram, Lab(..), Rule(..))
+import           NLP.Partage.FactGram.DAG (DID(..), Rule(..))
+-- import           NLP.Partage.FactGram (FactGram, Lab(..), Rule(..))
 
 
 -- | A single list.
@@ -86,7 +87,7 @@ edges ListSet{..} i
 
 
 -- | Build trie from the given grammar.
-buildList :: (Ord n, Ord t) => FactGram n t -> [[A.Edge (Lab n t)]]
+buildList :: S.Set Rule -> [[A.Edge DID]]
 buildList gram =
     [ map A.Body bodyR ++ [A.Head headR]
     | Rule{..} <- S.toList gram ]
@@ -98,7 +99,7 @@ buildList gram =
 
 
 -- | Abstract over the concrete implementation.
-shell :: (Ord n, Ord t) => [[A.Edge (Lab n t)]] -> A.GramAuto n t
+shell :: [[A.Edge DID]] -> A.GramAuto
 shell d0 = A.Auto
     { roots  = rootSet d
     , follow = follow d
@@ -107,5 +108,5 @@ shell d0 = A.Auto
 
 
 -- | Build the list-based representation of the given grammar.
-fromGram :: (Ord n, Ord t) => FactGram n t -> A.GramAuto n t
+fromGram :: S.Set Rule -> A.GramAuto
 fromGram = shell . buildList

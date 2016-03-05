@@ -24,12 +24,12 @@ module NLP.Partage.Auto
 -- * Automata
 , Auto (..)
 , GramAuto
--- ** Weighted
-, WeiAuto (..)
-, WeiGramAuto
--- ** Conversion
-, fromWei
-, toWei
+-- -- ** Weighted
+-- , WeiAuto (..)
+-- , WeiGramAuto
+-- -- ** Conversion
+-- , fromWei
+-- , toWei
 
 -- * Utilities
 , allIDs
@@ -42,8 +42,10 @@ import qualified Control.Monad.State.Strict as E
 import qualified Data.Set                   as S
 
 import           Data.DAWG.Ord (ID)
-import           NLP.Partage.FactGram (Rule(..), Lab(..))
-import           NLP.Partage.FactGram.Weighted (Weight)
+import           NLP.Partage.FactGram.DAG (DID(..), Rule(..))
+-- import qualified NLP.Partage.FactGram.DAG as DAG
+-- import           NLP.Partage.FactGram (Rule(..), Lab(..))
+-- import           NLP.Partage.FactGram.Weighted (Weight)
 
 
 -- | A datatype used to distinguish head non-terminals from body
@@ -56,7 +58,7 @@ data Edge a
 
 -- | Transform the rule into the corresponding sequence
 -- (to be added to an automaton).
-ruleSeq :: Rule n t -> [Edge (Lab n t)]
+ruleSeq :: Rule -> [Edge DID]
 ruleSeq Rule{..} = map Body bodyR ++ [Head headR]
 
 
@@ -74,7 +76,7 @@ data Auto a = Auto
 
 
 -- | Automaton type specialized to represent grammar rules.
-type GramAuto n t = Auto (Edge (Lab n t))
+type GramAuto = Auto (Edge DID)
 
 
 -- | Extract the set of underlying IDs.
@@ -112,41 +114,41 @@ walk Auto{..} =
 --------------------------------------------------
 
 
--- | Minimal weighted automaton implementation.
-data WeiAuto a = WeiAuto
-    { rootsWei  :: S.Set ID
-    -- ^ Set of automata roots
-    , followWei :: ID -> a -> Maybe (Weight, ID)
-    -- ^ Follow a transition with the given symbol from the given node
-    , edgesWei  :: ID -> [(a, Weight, ID)]
-    -- ^ List of outgoing edges (transitions)
-    }
-
-
--- | Weighted automaton type specialized to represent grammar rules.
-type WeiGramAuto n t = WeiAuto (Edge (Lab n t))
-
-
--- | Convert the weighted automaton to a regular one.
-fromWei :: WeiAuto a -> Auto a
-fromWei WeiAuto{..} = Auto
-    { roots = rootsWei
-    , follow = \i x -> do
-        (_, j) <- followWei i x
-        return j
-    , edges = \i ->
-        [(x, j) | (x, _, j) <- edgesWei i]
-    }
-
-
--- | Convert the regular automaton to a weighted one with
--- all weights equal to 0.
-toWei :: Auto a -> WeiAuto a
-toWei Auto{..} = WeiAuto
-    { rootsWei = roots
-    , followWei = \i x -> do
-        j <- follow i x
-        return (0, j)
-    , edgesWei = \i ->
-        [(x, 0, j) | (x, j) <- edges i]
-    }
+-- -- | Minimal weighted automaton implementation.
+-- data WeiAuto a = WeiAuto
+--     { rootsWei  :: S.Set ID
+--     -- ^ Set of automata roots
+--     , followWei :: ID -> a -> Maybe (Weight, ID)
+--     -- ^ Follow a transition with the given symbol from the given node
+--     , edgesWei  :: ID -> [(a, Weight, ID)]
+--     -- ^ List of outgoing edges (transitions)
+--     }
+-- 
+-- 
+-- -- | Weighted automaton type specialized to represent grammar rules.
+-- type WeiGramAuto n t = WeiAuto (Edge (Lab n t))
+-- 
+-- 
+-- -- | Convert the weighted automaton to a regular one.
+-- fromWei :: WeiAuto a -> Auto a
+-- fromWei WeiAuto{..} = Auto
+--     { roots = rootsWei
+--     , follow = \i x -> do
+--         (_, j) <- followWei i x
+--         return j
+--     , edges = \i ->
+--         [(x, j) | (x, _, j) <- edgesWei i]
+--     }
+-- 
+-- 
+-- -- | Convert the regular automaton to a weighted one with
+-- -- all weights equal to 0.
+-- toWei :: Auto a -> WeiAuto a
+-- toWei Auto{..} = WeiAuto
+--     { rootsWei = roots
+--     , followWei = \i x -> do
+--         j <- follow i x
+--         return (0, j)
+--     , edgesWei = \i ->
+--         [(x, 0, j) | (x, j) <- edges i]
+--     }
