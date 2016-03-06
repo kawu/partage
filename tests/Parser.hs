@@ -28,16 +28,17 @@ import qualified TestSet as T
 -- | All the tests of the parsing algorithm.
 testEarley :: TestTree
 testEarley = T.testTree "Earley"
-    recFrom Nothing -- (Just parseFrom)
+    recFrom (Just parseFrom)
   where
     recFrom gram start input = do
         let dag = DAG.mkGram gram
         E.recognizeFrom dag start (E.fromList input)
---     parseFrom gram start
---         = fmap S.fromList
---         . E.parse (compile gram) start
---         . E.fromList
---     compile = F.flattenWithSharing
+    parseFrom gram start input = do
+        let dag = DAG.mkGram gram
+        fmap S.fromList
+            . E.parse dag start
+            . E.fromList
+            $ input
 
 
 -- -- | All the tests of the parsing algorithm.

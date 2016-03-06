@@ -18,14 +18,14 @@ module NLP.Partage.Earley.AutoAP
 , fromList
 , fromSets
 -- ** From a factorized grammar
--- , recognize
+, recognize
 , recognizeFrom
--- , parse
--- , earley
+, parse
+, earley
 -- ** With automata precompiled
--- , recognizeAuto
+, recognizeAuto
 , recognizeFromAuto
--- , parseAuto
+, parseAuto
 , earleyAuto
 -- ** Automaton
 , Auto
@@ -1198,25 +1198,26 @@ parsedTrees hype start n
         error "parsedTrees: fromActiveTrav called on a passive item"
 
 
--- --------------------------------------------------
--- -- EARLEY
--- --------------------------------------------------
--- 
--- 
--- -- | Does the given grammar generate the given sentence?
--- -- Uses the `earley` algorithm under the hood.
--- recognize
--- #ifdef DebugOn
---     :: (SOrd t, SOrd n)
--- #else
---     :: (Hashable t, Ord t, Hashable n, Ord n)
--- #endif
---     => FactGram n t         -- ^ The grammar (set of rules)
---     -> Input t            -- ^ Input sentence
---     -> IO Bool
--- recognize gram input = do
---     auto <- mkAuto (D.fromGram gram)
---     recognizeAuto auto input
+--------------------------------------------------
+-- EARLEY
+--------------------------------------------------
+
+
+-- | Does the given grammar generate the given sentence?
+-- Uses the `earley` algorithm under the hood.
+recognize
+#ifdef DebugOn
+    :: (SOrd t, SOrd n)
+#else
+    -- :: (Hashable t, Ord t, Hashable n, Ord n)
+    :: (Ord t, Ord n)
+#endif
+    => DAG.Gram n t       -- ^ The grammar (set of rules)
+    -> Input t            -- ^ Input sentence
+    -> IO Bool
+recognize DAG.Gram{..} input = do
+    let auto = mkAuto dagGram (D.fromGram factGram)
+    recognizeAuto auto input
 
 
 -- | Does the given grammar generate the given sentence from the
@@ -1239,36 +1240,40 @@ recognizeFrom DAG.Gram{..} start input = do
     recognizeFromAuto auto start input
 
 
--- -- | Parse the given sentence and return the set of parsed trees.
--- parse
--- #ifdef DebugOn
---     :: (SOrd t, SOrd n)
--- #else
---     :: (Hashable t, Ord t, Hashable n, Ord n)
--- #endif
---     => FactGram n t         -- ^ The grammar (set of rules)
---     -> n                    -- ^ The start symbol
---     -> Input t              -- ^ Input sentence
---     -> IO [T.Tree n t]
--- parse gram start input = do
---     auto <- mkAuto (D.fromGram gram)
---     parseAuto auto start input
+-- | Parse the given sentence and return the set of parsed trees.
+parse
+#ifdef DebugOn
+    :: (SOrd t, SOrd n)
+#else
+    -- :: (Hashable t, Ord t, Hashable n, Ord n)
+    :: (Ord t, Ord n)
+#endif
+    => DAG.Gram n t         -- ^ The grammar (set of rules)
+    -> n                    -- ^ The start symbol
+    -> Input t              -- ^ Input sentence
+    -> IO [T.Tree n t]
+parse DAG.Gram{..} start input = do
+    -- auto <- mkAuto (D.fromGram gram)
+    let auto = mkAuto dagGram (D.fromGram factGram)
+    parseAuto auto start input
 
 
--- -- | Perform the earley-style computation given the grammar and
--- -- the input sentence.
--- earley
--- #ifdef DebugOn
---     :: (SOrd t, SOrd n)
--- #else
---     :: (Hashable t, Ord t, Hashable n, Ord n)
--- #endif
---     => FactGram n t         -- ^ The grammar (set of rules)
---     -> Input t              -- ^ Input sentence
---     -> IO (Hype n t)
--- earley gram input = do
---     auto <- mkAuto (D.fromGram gram)
---     earleyAuto auto input
+-- | Perform the earley-style computation given the grammar and
+-- the input sentence.
+earley
+#ifdef DebugOn
+    :: (SOrd t, SOrd n)
+#else
+    -- :: (Hashable t, Ord t, Hashable n, Ord n)
+    :: (Ord t, Ord n)
+#endif
+    => DAG.Gram n t         -- ^ The grammar (set of rules)
+    -> Input t              -- ^ Input sentence
+    -> IO (Hype n t)
+earley DAG.Gram{..} input = do
+    -- auto <- mkAuto (D.fromGram gram)
+    let auto = mkAuto dagGram (D.fromGram factGram)
+    earleyAuto auto input
 
 
 --------------------------------------------------
@@ -1368,18 +1373,19 @@ mkLeafDID dag = M.fromList
 --------------------------------------------------
 
 
--- -- | See `recognize`.
--- recognizeAuto
--- #ifdef DebugOn
---     :: (SOrd t, SOrd n)
--- #else
---     :: (Hashable t, Ord t, Hashable n, Ord n)
--- #endif
---     => Auto n t           -- ^ Grammar automaton
---     -> Input t            -- ^ Input sentence
---     -> IO Bool
--- recognizeAuto auto xs =
---     isRecognized xs <$> earleyAuto auto xs
+-- | See `recognize`.
+recognizeAuto
+#ifdef DebugOn
+    :: (SOrd t, SOrd n)
+#else
+    -- :: (Hashable t, Ord t, Hashable n, Ord n)
+    :: (Ord t, Ord n)
+#endif
+    => Auto n t           -- ^ Grammar automaton
+    -> Input t            -- ^ Input sentence
+    -> IO Bool
+recognizeAuto auto xs =
+    isRecognized xs <$> earleyAuto auto xs
 
 
 -- | See `recognizeFrom`.
@@ -1400,21 +1406,22 @@ recognizeFromAuto auto start input = do
     return $ (not.null) (finalFrom start n hype)
 
 
--- -- | See `parse`.
--- parseAuto
--- #ifdef DebugOn
---     :: (SOrd t, SOrd n)
--- #else
---     :: (Hashable t, Ord t, Hashable n, Ord n)
--- #endif
---     => Auto n t           -- ^ Grammar automaton
---     -> n                  -- ^ The start symbol
---     -> Input t            -- ^ Input sentence
---     -> IO [T.Tree n t]
--- parseAuto auto start input = do
---     earSt <- earleyAuto auto input
---     let n = V.length (inputSent input)
---     return $ parsedTrees earSt start n
+-- | See `parse`.
+parseAuto
+#ifdef DebugOn
+    :: (SOrd t, SOrd n)
+#else
+    -- :: (Hashable t, Ord t, Hashable n, Ord n)
+    :: (Ord t, Ord n)
+#endif
+    => Auto n t           -- ^ Grammar automaton
+    -> n                  -- ^ The start symbol
+    -> Input t            -- ^ Input sentence
+    -> IO [T.Tree n t]
+parseAuto auto start input = do
+    earSt <- earleyAuto auto input
+    let n = V.length (inputSent input)
+    return $ parsedTrees earSt start n
 
 
 -- | See `earley`.
