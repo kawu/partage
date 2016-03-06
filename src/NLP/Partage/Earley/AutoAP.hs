@@ -65,8 +65,8 @@ import qualified Data.PSQueue               as Q
 import           Data.PSQueue (Binding(..))
 import           Data.Lens.Light
 import qualified Data.Vector                as V
-import           Data.Hashable (Hashable)
-import qualified Data.HashTable.IO          as H
+-- import           Data.Hashable (Hashable)
+-- import qualified Data.HashTable.IO          as H
 
 import qualified Pipes                      as P
 -- import qualified Pipes.Prelude              as P
@@ -419,7 +419,8 @@ data Hype n t = Hype
 
 -- | Make an initial `Hype` from a set of states.
 mkHype
-    :: (HOrd n, HOrd t)
+    -- :: (HOrd n, HOrd t)
+    :: (Ord n, Ord t)
     => Auto n t
     -> S.Set Active
     -> Hype n t
@@ -740,7 +741,8 @@ popItem = RWS.state $ \st -> case Q.minView (waiting st) of
 -- * expect a given label,
 -- * end on the given position.
 expectEnd
-    :: (HOrd n, HOrd t) => DID -> Pos
+    -- :: (HOrd n, HOrd t) => DID -> Pos
+    :: (Ord n, Ord t) => DID -> Pos
     -> P.ListT (Earley n t) Active
 expectEnd did i = do
     Hype{..} <- lift RWS.get
@@ -796,15 +798,15 @@ followTerm i c = do
     some $ A.follow (gramAuto auto) i (A.Body did)
 
 
--- | Follow the given terminal in the underlying automaton.
-followFoot :: (Ord n, Ord t) => ID -> n -> P.ListT (Earley n t) ID
-followFoot i c = do
-    -- get the underlying automaton
-    auto <- RWS.gets $ automat
-    -- get the dag ID corresponding to the given terminal
-    did  <- some $ M.lookup c (footDID auto)
-    -- follow the label
-    some $ A.follow (gramAuto auto) i (A.Body did)
+-- -- | Follow the given terminal in the underlying automaton.
+-- followFoot :: (Ord n, Ord t) => ID -> n -> P.ListT (Earley n t) ID
+-- followFoot i c = do
+--     -- get the underlying automaton
+--     auto <- RWS.gets $ automat
+--     -- get the dag ID corresponding to the given terminal
+--     did  <- some $ M.lookup c (footDID auto)
+--     -- follow the label
+--     some $ A.follow (gramAuto auto) i (A.Body did)
 
 
 -- | Follow the given body transition in the underlying automaton.
@@ -902,11 +904,24 @@ trySubst p = void $ P.runListT $ do
         pSpan = getL spanP p
     -- make sure that `p' represents regular rules
     guard . regular $ pSpan
+    -- the underlying dag grammar
+    dag <- RWS.gets (gramDAG . automat)
+    leafMap <- RWS.gets (leafDID  . automat)
+    -- now, we need to choose the DAG node to search for depending on
+    -- whether the DAG node provided by `p' is a root or not
+    theDID <- if DAG.isRoot pDID dag then do
+        -- real substitution
+        leafNT <- some (nonTerm' =<< DAG.label pDID dag)
+        leafID <- some $ M.lookup leafNT leafMap
+        return leafID
+    else do
+        -- pseudo-substitution
+        return pDID
     -- find active items which end where `p' begins and which
     -- expect the DAG node provided by `p'
-    q <- expectEnd pDID (getL beg pSpan)
+    q <- expectEnd theDID (getL beg pSpan)
     -- follow the DAG node
-    j <- follow (getL state q) pDID
+    j <- follow (getL state q) theDID
     -- construct the resultant state
     let q' = setL state j
            . setL (end . spanA) (getL end pSpan)
@@ -1073,6 +1088,7 @@ tryAdjoinTerm q = void $ P.runListT $ do
 -- | Step of the algorithm loop.  `p' is the state popped up from
 -- the queue.
 step
+    -- :: (SOrd t, SOrd n)
     :: (SOrd t, SOrd n)
     => Binding (Item n t) (ExtPrio n t)
     -> Earley n t ()
@@ -1211,7 +1227,8 @@ recognizeFrom
 #ifdef DebugOn
     :: (SOrd t, SOrd n)
 #else
-    :: (Hashable t, Ord t, Hashable n, Ord n)
+    -- :: (Hashable t, Ord t, Hashable n, Ord n)
+    :: (Ord t, Ord n)
 #endif
     => DAG.Gram n t         -- ^ The grammar
     -> n                    -- ^ The start symbol
@@ -1276,14 +1293,23 @@ data Auto n t = Auto
     -- one grammar DAG node.
     , footDID   :: M.Map n DID
     -- ^ A map which assigns DAG IDs to the corresponding foot
-    -- non-terminals.
+    -- non-terminals.  Note that each grammar foot non-terminal
+    -- is represented by exactly one grammar DAG node.
+    , leafDID   :: M.Map n DID
+    -- ^ A map which assigns DAG IDs to the corresponding leaf
+    -- non-terminals.  Note that each grammar foot non-terminal
+    -- is represented by exactly one grammar DAG node.
+    --
+    -- TODO: Consider using hashtables to reresent termDID and
+    -- footDID.
     }
 
 
 -- | Construct `Auto` based on the underlying `A.GramAuto`.
 mkAuto
     -- :: (Hashable t, Ord t, Hashable n, Ord n)
-    :: DAG (O.Node n t) ()
+    :: (Ord t, Ord n)
+    => DAG (O.Node n t) ()
     -> A.GramAuto
     -> Auto n t
     -- -> IO Auto
@@ -1291,8 +1317,9 @@ mkAuto dag auto = Auto
     { gramDAG  = dag
     , gramAuto = auto
     , withBody = mkWithBody auto
-    , termDID  = undefined
-    , footDID  = undefined }
+    , termDID  = mkTermDID dag
+    , footDID  = mkFootDID dag
+    , leafDID  = mkLeafDID dag }
 
 
 -- | Create the `withBody` component based on the automaton.
@@ -1300,6 +1327,40 @@ mkWithBody :: A.GramAuto -> M.Map DID (S.Set ID)
 mkWithBody dag = M.fromListWith S.union
     [ (x, S.singleton i)
     | (i, A.Body x, _j) <- A.allEdges dag ]
+
+
+-- | Create the `termDID` component of the hypergraph. 
+mkTermDID
+    :: (Ord t)
+    => DAG (O.Node n t) ()
+    -> M.Map t DID
+mkTermDID dag = M.fromList
+    [ (t, i)
+    | i <- S.toList (DAG.setIDs dag)
+    , O.Term t <- maybeToList (DAG.label i dag) ]
+
+
+-- | Create the `footDID` component of the hypergraph. 
+mkFootDID
+    :: (Ord n)
+    => DAG (O.Node n t) ()
+    -> M.Map n DID
+mkFootDID dag = M.fromList
+    [ (x, i)
+    | i <- S.toList (DAG.setIDs dag)
+    , O.Foot x <- maybeToList (DAG.label i dag) ]
+
+
+-- | Create the `leafDID` component of the hypergraph. 
+mkLeafDID
+    :: (Ord n)
+    => DAG (O.Node n t) ()
+    -> M.Map n DID
+mkLeafDID dag = M.fromList
+    [ (x, i)
+    | i <- S.toList (DAG.setIDs dag)
+    , DAG.isLeaf i dag
+    , O.NonTerm x <- maybeToList (DAG.label i dag) ]
 
 
 --------------------------------------------------
@@ -1326,7 +1387,8 @@ recognizeFromAuto
 #ifdef DebugOn
     :: (SOrd t, SOrd n)
 #else
-    :: (Hashable t, Ord t, Hashable n, Ord n)
+    -- :: (Hashable t, Ord t, Hashable n, Ord n)
+    :: (Ord t, Ord n)
 #endif
     => Auto n t       -- ^ Grammar automaton
     -> n                    -- ^ The start symbol
@@ -1360,7 +1422,8 @@ earleyAuto
 #ifdef DebugOn
     :: (SOrd t, SOrd n)
 #else
-    :: (Hashable t, Ord t, Hashable n, Ord n)
+    -- :: (Hashable t, Ord t, Hashable n, Ord n)
+    :: (Ord t, Ord n)
 #endif
     => Auto n t         -- ^ Grammar automaton
     -> Input t          -- ^ Input sentence
@@ -1368,6 +1431,11 @@ earleyAuto
 earleyAuto auto input = do
     fst <$> RWS.execRWST loop input st0
   where
+--     init = forM_ (S.toList $ DAG.setIDs $ gramDAG auto) $ \i -> do
+--         lift $ do
+--             putStr (show i)
+--             putStr " => "
+--             print . DAG.label i $ gramDAG auto
     -- we put in the initial state all the states with the dot on
     -- the left of the body of the rule (-> left = []) on all
     -- positions of the input sentence.

@@ -16,8 +16,10 @@ import qualified Data.Hashable              as H
 
 
 -- | 'Ord' + 'Hashable'
-class (Ord a, H.Hashable a) => HOrd a where
-instance (Ord a, H.Hashable a) => HOrd a where
+-- class (Ord a, H.Hashable a) => HOrd a where
+-- instance (Ord a, H.Hashable a) => HOrd a where
+class (Ord a) => HOrd a where
+instance (Ord a) => HOrd a where
 
 
 -- | 'Show' + 'Ord'

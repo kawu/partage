@@ -16,8 +16,9 @@ import qualified Data.Set as S
 import qualified Data.MemoCombinators as Memo
 
 import qualified NLP.Partage.Earley as E
-import qualified NLP.Partage.Earley.Prob.AutoAP as A
-import qualified NLP.Partage.FactGram as F
+import qualified NLP.Partage.FactGram.DAG as DAG
+-- import qualified NLP.Partage.Earley.Prob.AutoAP as A
+-- import qualified NLP.Partage.FactGram as F
     -- (Rule, flattenWithSharing)
 -- import qualified NLP.Partage.FactGram.Weighted as W
 
@@ -30,21 +31,21 @@ testEarley = T.testTree "Earley"
     recFrom Nothing -- (Just parseFrom)
   where
     recFrom gram start input = do
-        flat <- compile gram
-        E.recognizeFrom flat start (E.fromList input)
+        let dag = DAG.mkGram gram
+        E.recognizeFrom dag start (E.fromList input)
 --     parseFrom gram start
 --         = fmap S.fromList
 --         . E.parse (compile gram) start
 --         . E.fromList
-    compile = F.flattenWithSharing
+--     compile = F.flattenWithSharing
 
 
--- | All the tests of the parsing algorithm.
-testAStar :: TestTree
-testAStar = T.testTree "A*"
-    recFrom Nothing
-  where
-    recFrom gram start
-        = A.recognizeFrom memoTerm (map (,1) gram) start
-        . A.fromList
-    memoTerm = Memo.list Memo.char
+-- -- | All the tests of the parsing algorithm.
+-- testAStar :: TestTree
+-- testAStar = T.testTree "A*"
+--     recFrom Nothing
+--   where
+--     recFrom gram start
+--         = A.recognizeFrom memoTerm (map (,1) gram) start
+--         . A.fromList
+--     memoTerm = Memo.list Memo.char

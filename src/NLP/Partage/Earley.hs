@@ -10,14 +10,14 @@ module NLP.Partage.Earley
 , fromSets
 -- ** With a factorized grammar
 -- $earley
-, recognize
+-- , recognize
 , recognizeFrom
-, parse
-, earley
+-- , parse
+-- , earley
 -- ** With automata precompiled
-, recognizeAuto
+-- , recognizeAuto
 , recognizeFromAuto
-, parseAuto
+-- , parseAuto
 , earleyAuto
 -- ** Automaton
 , Auto
