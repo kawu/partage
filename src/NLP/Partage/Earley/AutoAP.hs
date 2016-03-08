@@ -55,6 +55,7 @@ import qualified Control.Monad.RWS.Strict   as RWS
 import           Control.Category ((>>>), (.))
 
 import           Data.Function              (on)
+-- import           Data.Either                (isLeft)
 import           Data.Maybe     ( isJust, isNothing, mapMaybe
                                 , maybeToList )
 import qualified Data.Map.Strict            as M
@@ -163,9 +164,12 @@ $( makeLenses [''Active] )
 
 -- | Passive chart item : label + span.
 -- UPDATE: instead of a label, DAG node ID.
+-- TODO: remove the redundant 't' parameter
 data Passive n t = Passive {
       -- _label :: Lab n t
-      _dagID :: DID
+      _dagID :: Either n DID
+      -- ^ We store non-terminal 'n' for items representing
+      -- fully recognized elementary trees.
     , _spanP :: Span
     } deriving (Show, Eq, Ord)
 $( makeLenses [''Passive] )
@@ -179,6 +183,13 @@ regular = isNothing . getL gap
 -- | Does it represent auxiliary rules?
 auxiliary :: Span -> Bool
 auxiliary = isJust . getL gap
+
+
+-- | Does it represent a root?
+isRoot :: Either n DID -> Bool
+isRoot x = case x of
+    Left _  -> True
+    Right _ -> False
 
 
 -- | Print an active item.
@@ -211,7 +222,9 @@ printPassive :: (Show n, Show t) => Passive n t -> IO ()
 printPassive p = do
     putStr "("
     -- putStr . viewLab $ getL label p
-    putStr . show $ getL dagID p
+    putStr $ case getL dagID p of
+        Left rootNT -> show rootNT
+        Right did   -> show did
     putStr ", "
     printSpan $ getL spanP p
     putStrLn ")"
@@ -661,15 +674,23 @@ pushPassive p t = isProcessedP p >>= \b -> if b
 --     in  ((), s {waiting = waiting'})
 
 
--- | Add to the waiting queue all items induced from the given item.
+-- | Add to the waiting queue all items induced from
+-- the given active item.
 pushInduced :: (Ord t, Ord n) => Active -> Trav n t -> Earley n t ()
 pushInduced p t = do
+    dag <- RWS.gets (gramDAG . automat)
     hasElems (getL state p) >>= \b -> when b
         (pushActive p t)
     P.runListT $ do
-        x <- heads (getL state p)
+        did <- heads (getL state p)
         lift . flip pushPassive t $
-            Passive x (getL spanA p)
+            if not (DAG.isRoot did dag)
+                then Passive (Right did) (getL spanA p)
+                else check $ do
+                    x <- labNonTerm =<< DAG.label did dag
+                    return $ Passive (Left x) (getL spanA p)
+                where check (Just x) = x 
+                      check Nothing  = error "pushInduced: invalid DID"
 
 
 -- | Remove a state from the queue.
@@ -909,14 +930,19 @@ trySubst p = void $ P.runListT $ do
     leafMap <- RWS.gets (leafDID  . automat)
     -- now, we need to choose the DAG node to search for depending on
     -- whether the DAG node provided by `p' is a root or not
-    theDID <- if DAG.isRoot pDID dag then do
+    theDID <- case pDID of
         -- real substitution
-        leafNT <- some (nonTerm' =<< DAG.label pDID dag)
-        leafID <- some $ M.lookup leafNT leafMap
-        return leafID
-    else do
+        Left rootNT -> some $ M.lookup rootNT leafMap
         -- pseudo-substitution
-        return pDID
+        Right did -> return did
+--     theDID <- if DAG.isRoot pDID dag then do
+--         -- real substitution
+--         leafNT <- some (nonTerm' =<< DAG.label pDID dag)
+--         leafID <- some $ M.lookup leafNT leafMap
+--         return leafID
+--     else do
+--         -- pseudo-substitution
+--         return pDID
     -- find active items which end where `p' begins and which
     -- expect the DAG node provided by `p'
     q <- expectEnd theDID (getL beg pSpan)
@@ -960,9 +986,13 @@ tryAdjoinInit p = void $ P.runListT $ do
     -- make sure that the corresponding rule is either regular or
     -- intermediate auxiliary ((<=) used as implication here)
     -- guard $ auxiliary pSpan <= not (topLevel pLab)
-    guard $ auxiliary pSpan <= not (DAG.isRoot pDID dag)
+    -- guard $ auxiliary pSpan <= not (DAG.isRoot pDID dag)
+    guard $ auxiliary pSpan <= not (isRoot pDID)
     -- what is the symbol in the p's DAG node?
-    footNT <- some (nonTerm' =<< DAG.label pDID dag)
+    footNT <- some (nonTerm' pDID dag)
+--     footNT <- case pDID of
+--         Left rootNT -> return rootNT
+--         Right did   -> some (nonTerm' =<< DAG.label did dag)
     -- what is the corresponding foot DAG ID?
     footID <- some $ M.lookup footNT footMap 
     -- find all active items which expect a foot with the given
@@ -1011,14 +1041,18 @@ tryAdjoinCont p = void $ P.runListT $ do
     -- make sure the label is not top-level (internal spine
     -- non-terminal)
     -- guard . not $ topLevel pLab
-    guard . not $ DAG.isRoot pDID dag
+    -- guard . not $ DAG.isRoot pDID dag
+    -- guard . not $ isRoot pDID
+    did <- some $ case pDID of
+        Left rootNT -> Nothing
+        Right did   -> Just did
     -- make sure that `p' is an auxiliary item
     guard . auxiliary $ pSpan
     -- find all rules which expect a spine non-terminal provided
     -- by `p' and which end where `p' begins
-    q <- expectEnd pDID (pSpan ^. beg)
+    q <- expectEnd did (pSpan ^. beg)
     -- follow the spine non-terminal
-    j <- follow (q ^. state) pDID
+    j <- follow (q ^. state) did
     -- construct the resulting state; the span of the gap of the
     -- inner state `p' is copied to the outer state based on `q'
     let q' = setL state j
@@ -1057,13 +1091,13 @@ tryAdjoinTerm q = void $ P.runListT $ do
     dag <- RWS.gets (gramDAG . automat)
     -- make sure the label is top-level
     -- guard $ topLevel qLab
-    guard $ DAG.isRoot qDID dag
+    guard $ isRoot qDID
     -- make sure that it is an auxiliary item (by definition only
     -- auxiliary states have gaps)
     (gapBeg, gapEnd) <- some $ qSpan ^. gap
     -- take all passive items with a given span and a given
     -- root non-terminal (IDs irrelevant)
-    qNonTerm <- some (nonTerm' =<< DAG.label qDID dag)
+    qNonTerm <- some (nonTerm' qDID dag)
     -- p <- rootSpan (nonTerm qLab) (gapBeg, gapEnd)
     p <- rootSpan qNonTerm (gapBeg, gapEnd)
     let p' = setL (spanP >>> beg) (qSpan ^. beg)
@@ -1151,7 +1185,7 @@ parsedTrees hype start n
 
     fromPassiveTrav p (Subst qp qa) =
         [ T.Branch
-            (nonTerm (getL dagID p) hype)
+            (nonTerm (p ^. dagID) hype)
             (reverse $ t : ts)
         | ts <- fromActive qa
         , t  <- fromPassive qp ]
@@ -1472,7 +1506,7 @@ finalFrom
     :: (Ord n, Eq t)
     => n            -- ^ The start symbol
     -> Int          -- ^ The length of the input sentence
-    -> Hype n t    -- ^ Result of the earley computation
+    -> Hype n t     -- ^ Result of the earley computation
     -> [Passive n t]
 finalFrom start n Hype{..} =
     case M.lookup (0, start, n) donePassive of
@@ -1481,9 +1515,12 @@ finalFrom start n Hype{..} =
             [ p
             | p <- M.keys m
             -- , p ^. label == NonT start Nothing ]
-            , DAG.isRoot (p ^. dagID) dag
-            , DAG.label (p ^. dagID) dag
-                == Just (O.NonTerm start) ]
+            , case p ^. dagID of
+                Left rootNT -> rootNT == start
+                Right did   -> False ]
+            -- , DAG.isRoot (p ^. dagID) dag
+            -- , DAG.label (p ^. dagID) dag
+            --     == Just (O.NonTerm start) ]
     where dag = gramDAG automat
 
 
@@ -1521,7 +1558,8 @@ isRecognized input Hype{..} =
         , item ^. spanP ^. end == n
         , isNothing (item ^. spanP ^. gap)
         -- admit only *fully* recognized trees
-        , DAG.isRoot (item ^. dagID) (gramDAG automat) ]
+        , isRoot (item ^. dagID) ]
+        -- , DAG.isRoot (item ^. dagID) (gramDAG automat) ]
         -- , isRoot (item ^. label) ]
     agregate = S.unions . map M.keysSet . M.elems
     -- isRoot (NonT _ Nothing) = True
@@ -1555,21 +1593,40 @@ some :: Monad m => Maybe a -> P.ListT m a
 some = each . maybeToList
 
 
+-- -- | Take the non-terminal of the underlying DAG node.
+-- nonTerm :: Either n DID -> Hype n t -> n
+-- nonTerm i hype =
+--     case i of
+--         Left rootNT -> rootNT
+--         Right did   -> check $
+--             DAG.label did (gramDAG $ automat hype)
+--   where
+--     check Nothing  = error "nonTerm: not a non-terminal ID"
+--     check (Just x) = x
+
+
 -- | Take the non-terminal of the underlying DAG node.
-nonTerm :: DID -> Hype n t -> n
-nonTerm i hype = check $ do
-    x <- DAG.label i (gramDAG $ automat hype)
-    nonTerm' x
+nonTerm :: Either n DID -> Hype n t -> n
+nonTerm i =
+    check . nonTerm' i . gramDAG . automat
   where
     check Nothing  = error "nonTerm: not a non-terminal ID"
     check (Just x) = x
 
 
 -- | Take the non-terminal of the underlying DAG node.
-nonTerm' :: O.Node n t -> Maybe n
-nonTerm' (O.NonTerm y) = Just y
-nonTerm' (O.Foot y) = Just y
-nonTerm' _ = Nothing
+nonTerm' :: Either n DID -> DAG (O.Node n t) () -> Maybe n
+nonTerm' i dag = case i of
+    Left rootNT -> Just rootNT
+    Right did   -> labNonTerm =<< DAG.label did dag
+    -- Right did   -> labNonTerm . DAG.label did -- . gramDAG . automat
+
+
+-- | Take the non-terminal of the underlying DAG node.
+labNonTerm :: O.Node n t -> Maybe n
+labNonTerm (O.NonTerm y) = Just y
+labNonTerm (O.Foot y) = Just y
+labNonTerm _ = Nothing
 
 
 -- -- | Is the rule with the given head top-level?
