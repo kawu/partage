@@ -1,6 +1,6 @@
+{-# LANGUAGE Rank2Types      #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE Rank2Types #-}
-{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TupleSections   #-}
 
 
 module NLP.Partage.Earley.Tmp
@@ -15,7 +15,7 @@ module NLP.Partage.Earley.Tmp
 
 -- * Heuristic
 , estiCost1
-, estiCost2
+-- , estiCost2
 , estiCost3
 
 -- * Tmp
@@ -23,38 +23,23 @@ module NLP.Partage.Earley.Tmp
 ) where
 
 
-import qualified Control.Arrow as Arr
+import qualified Control.Arrow                 as Arr
 -- import           Data.Hashable (Hashable)
 -- import qualified Data.HashTable.IO          as H
-import qualified Data.List as L
-import qualified Data.Set as S
-import qualified Data.Map.Strict as M
-import qualified Data.MemoCombinators as Memo
+import qualified Data.List                     as L
+import qualified Data.Map.Strict               as M
+import qualified Data.MemoCombinators          as Memo
+import qualified Data.Set                      as S
 
-import           Data.DAWG.Ord (ID)
+import           Data.DAWG.Ord                 (ID)
 
-import qualified NLP.Partage.Tree.Other as O
-import qualified NLP.Partage.FactGram.Internal as I
+-- import qualified NLP.Partage.FactGram.Internal as I
+import qualified NLP.Partage.FactGram.DAG as D
 import qualified NLP.Partage.FactGram.Weighted as W
+import qualified NLP.Partage.Tree.Other        as O
 -- import qualified NLP.Partage.Auto.WeiTrie as W
-import qualified NLP.Partage.Auto as A
-import qualified NLP.Partage.Earley.AutoAP as E
-
-
--- type WeiFactGram n t = M.Map (Rule n t) Weight
-
-
--- -- | Perform the earley-style computation given the grammar and
--- -- the input sentence.
--- earley
---     :: (Hashable t, Ord t, Hashable n, Ord n)
---     => W.WeiFactGram n t            -- ^ The grammar (map from rules to weights)
---     -> W.DAG (O.Node n t) W.Weight  -- ^
---     -> E.Input t                    -- ^ Input sentence
---     -> IO (E.Hype n t)
--- earley gram input = do
---     auto <- mkAuto (D.fromGram gram)
---     earleyAuto auto input
+import qualified NLP.Partage.Auto              as A
+-- import qualified NLP.Partage.Earley.AutoAP     as E
 
 
 --------------------------------
@@ -134,29 +119,29 @@ estiCost1 memoElem termWei =
 --------------------------------
 
 
--- | Heuristic: lower bound estimate on the cost (weight) remaining
--- to fully parse the given input sentence.
-estiCost2
-    :: (Ord n, Ord t)
-    => Memo.Memo t                  -- ^ Memoization strategy for terminals
-    -> A.WeiGramAuto n t            -- ^ The weighted automaton
-    -> W.DAG (O.Node n t) W.Weight  -- ^ The corresponding grammar DAG
-    -> (Bag t -> W.Weight)          -- ^ `estiCost1`
-    -> ID                           -- ^ ID of the automaton node
-    -> Bag t                        -- ^ Bag of terminals
-    -> W.Weight
-estiCost2 memoElem A.WeiAuto{..} weiDag estiTerm =
-    esti
-  where
-    -- estiTerm = estiCost1 memoElem termWei
-    esti = Memo.memo2 Memo.integral (memoBag memoElem) esti'
-    esti' i bag = if null (edgesWei i)
-        then estiTerm bag
-        else minimum
-            [ w + wS + esti j (bag `bagDiff` bagS)
-            | (x, w, j) <- edgesWei i
-            , let (bagS, wS) = cost x ]
-    cost = labCost weiDag
+-- -- | Heuristic: lower bound estimate on the cost (weight) remaining
+-- -- to fully parse the given input sentence.
+-- estiCost2
+--     :: (Ord n, Ord t)
+--     => Memo.Memo t                  -- ^ Memoization strategy for terminals
+--     -> A.WeiGramAuto n t            -- ^ The weighted automaton
+--     -> D.DAG (O.Node n t) W.Weight  -- ^ The corresponding grammar DAG
+--     -> (Bag t -> W.Weight)          -- ^ `estiCost1`
+--     -> ID                           -- ^ ID of the automaton node
+--     -> Bag t                        -- ^ Bag of terminals
+--     -> W.Weight
+-- estiCost2 memoElem A.WeiAuto{..} weiDag estiTerm =
+--     esti
+--   where
+--     -- estiTerm = estiCost1 memoElem termWei
+--     esti = Memo.memo2 Memo.integral (memoBag memoElem) esti'
+--     esti' i bag = if null (edgesWei i)
+--         then estiTerm bag
+--         else minimum
+--             [ w + wS + esti j (bag `bagDiff` bagS)
+--             | (x, w, j) <- edgesWei i
+--             , let (bagS, wS) = cost x ]
+--     cost = labCost weiDag
 
 
 --------------------------------
@@ -170,7 +155,7 @@ estiCost3
     :: (Ord n, Ord t)
     => Memo.Memo t                  -- ^ Memoization strategy for terminals
     -> A.WeiGramAuto n t            -- ^ The weighted automaton
-    -> W.DAG (O.Node n t) W.Weight  -- ^ The corresponding grammar DAG
+    -> D.DAG (O.Node n t) W.Weight  -- ^ The corresponding grammar DAG
     -> (Bag t -> W.Weight)          -- ^ `estiCost1`
     -> ID                           -- ^ ID of the automaton node
     -> Bag t                        -- ^ Bag of terminals
@@ -195,39 +180,39 @@ estiCost3 memoElem weiAuto@A.WeiAuto{..} weiDag estiTerm =
 -- stored in leaves of the subtree.
 subCost
     :: (Ord n, Ord t, Num w)
-    => W.DAG (O.Node n t) w     -- ^ Grammar DAG
-    -> W.ID                     -- ^ ID of the DAG node
+    => D.DAG (O.Node n t) w     -- ^ Grammar DAG
+    -> D.DID                    -- ^ ID of the DAG node
     -> (Bag t, w)
 subCost dag =
     cost
   where
-    cost = Memo.integral cost'
-    cost' i = case W.label i dag of
-        Nothing -> error "subCost: incorrect ID"
-        Just v  -> case v of
-            O.Term t -> (pocket t, 0)
-            _  -> L.foldl' add2 (bagEmpty, 0)
-                [ Arr.second (+w) (cost j)
-                | (j, w) <- W.edges i dag ]
+    cost = Memo.wrap D.DID D.unDID Memo.integral cost'
+    cost' i = case labelValue i dag of
+      Nothing -> error "subCost: incorrect ID"
+      Just (x, v) -> case x of
+        O.Term t -> (pocket t, v)
+        _  -> L.foldl' add2 (bagEmpty, v)
+          [ Arr.second (+w) (cost j)
+          | (j, w) <- D.edges i dag ]
 
 
--- | Like `subCost` but works for a specific grammar label.
--- For non-internal nodes (roots or leaves) returns
--- `(bagEmpty, 0)`.
-labCost
-    :: (Ord n, Ord t, Num w)
-    => W.DAG (O.Node n t) w     -- ^ Grammar DAG
-    -> A.Edge (I.Lab n t)       -- ^ Automaton transition label
-    -> (Bag t, w)
--- TODO: can we move `x` before the equation sign?
-labCost dag = \x -> case x of
-    A.Body y -> case y of
-      I.NonT _ (Just i) -> cost i
-      I.AuxVert _ i     -> cost i
-      _                 -> (bagEmpty, 0)
-    A.Head _ -> (bagEmpty, 0)
-  where
-    cost = subCost dag
+-- -- | Like `subCost` but works for a specific grammar label.
+-- -- For non-internal nodes (roots or leaves) returns
+-- -- `(bagEmpty, 0)`.
+-- labCost
+--     :: (Ord n, Ord t, Num w)
+--     => D.DAG (O.Node n t) w     -- ^ Grammar DAG
+--     -> A.Edge D.DID             -- ^ Automaton transition label
+--     -> (Bag t, w)
+-- -- TODO: can we move `x` before the equation sign?
+-- labCost dag = \x -> case x of
+--     A.Body y -> case y of
+--       I.NonT _ (Just i) -> cost i
+--       I.AuxVert _ i     -> cost i
+--       _                 -> (bagEmpty, 0)
+--     A.Head _ -> (bagEmpty, 0)
+--   where
+--     cost = subCost dag
 
 
 --------------------------------
@@ -239,16 +224,15 @@ labCost dag = \x -> case x of
 -- for the individual super-trees surrounding the given DAG node.
 supCost
     :: (Ord n, Ord t, Num w, Ord w)
-    => W.DAG (O.Node n t) w     -- ^ Grammar DAG
-    -> W.ID                     -- ^ ID of the DAG node
+    => D.DAG (O.Node n t) w     -- ^ Grammar DAG
+    -> D.DID                    -- ^ ID of the DAG node
     -> M.Map (Bag t) w
 supCost dag =
     sup
   where
-    sup = Memo.integral sup'
+    sup = Memo.wrap D.DID D.unDID Memo.integral sup'
     sup' i
-      -- | W.isRoot i dag = M.empty
-      | W.isRoot i dag = M.singleton bagEmpty 0
+      | D.isRoot i dag = M.singleton bagEmpty 0
       | otherwise = M.fromListWith min
           [ (sup_j `add2` sub j) `sub2` sub i
           | j <- S.toList (W.parents i parMap)
@@ -265,26 +249,40 @@ supCost dag =
 -- | Compute the bags of terminals and the corresponding
 -- (minimal) weights which still need to be scanned before
 -- some full elementary tree is parsed starting from the
--- given DAG node.
+-- given automaton state.
+--
+-- Note that for final automaton states (at the moment it is
+-- guaranteed that such states are also leaves) the function
+-- returns the empty map, even though we could possibly compute
+-- and return 'sup' for such states.
 treeCost
     :: (Ord n, Ord t)
-    => W.DAG (O.Node n t) W.Weight  -- ^ Grammar DAG
+    => D.DAG (O.Node n t) W.Weight  -- ^ Grammar DAG
     -> A.WeiGramAuto n t            -- ^ The weighted automaton
-    -> ID                           -- ^ ID of the *automaton*(!) node
+    -> ID                           -- ^ ID of the *automaton* node
     -> M.Map (Bag t) W.Weight
 treeCost dag A.WeiAuto{..} =
   cost
   where
     cost = Memo.integral cost'
     cost' i =
-      if null (edgesWei i)
-      then sup i    -- WRONG!!!!
-      else M.fromListWith min
-           [ Arr.second (+w) (bag_x `add2` bag_j)
-           | (x, w, j) <- edgesWei i
-           , bag_j <- M.toList (cost j)
-           , let bag_x = sub x ]
-    sub = labCost dag
+      M.fromListWith min
+        [ Arr.second (+w) (bag_e `add2` bag_j)
+        | (e, w, j) <- edgesWei i
+        , bag_j <- M.toList (cost j)
+        , bag_e <- M.toList (edge e) ]
+    edge e = case e of
+      -- NOTE: Below, the very reason for which we need to store
+      -- identifiers in all edges: in particular, in edges
+      -- which represent roots of elementary trees.
+      -- Recall that in the previous solution, such head edges
+      -- did not contain information about the corresponding
+      -- DAG node (they had no index).
+      A.Head i -> sup i
+      A.Body i ->
+        let (k, v) = sub i
+        in M.singleton k v
+    sub = subCost dag
     sup = supCost dag
 
 
@@ -301,3 +299,11 @@ add2 (b1, w1) (b2, w2) = (bagAdd b1 b2, w1 + w2)
 -- | Substract two bags enriched with weights.
 sub2 :: (Ord a, Num w) => (Bag a, w) -> (Bag a, w) -> (Bag a, w)
 sub2 (b1, w1) (b2, w2) = (bagDiff b1 b2, w1 - w2)
+
+
+-- | Returns the label and the value of the node.
+labelValue :: D.DID -> D.DAG a b -> Maybe (a, b)
+labelValue i dag = do
+  x <- D.label i dag
+  y <- D.value i dag
+  return (x, y)

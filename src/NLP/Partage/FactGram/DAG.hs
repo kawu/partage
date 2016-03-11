@@ -1,4 +1,5 @@
 {-# LANGUAGE RecordWildCards    #-}
+{-# LANGUAGE DeriveFunctor#-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -10,16 +11,18 @@ module NLP.Partage.FactGram.DAG
 (
 -- * DAG
 -- ** Types
-  DAG
+  DAG (..)
+, Node(..)
 , DID(..)
 -- ** Utils
-, rootSet
 , setIDs
 , isRoot
 , isLeaf
 , edges
+, children
 , descendants
 , label
+, value
 , lookup
 , insert
 -- -- ** Parent Map
@@ -34,6 +37,12 @@ module NLP.Partage.FactGram.DAG
 , Rule(..)
 , dagFromForest
 , rulesFromDAG
+
+-- * Low-level internal
+-- (Use on your own responsibility)
+, DagSt(..)
+, runDagM
+, fromTree
 ) where
 
 
@@ -69,15 +78,16 @@ data DAG a b = DAG
     -- ^ The set of roots of the DAG
     , nodeMap :: M.Map DID (Node a b)
     -- ^ The set of nodes in the DAG
-    }
+    } deriving (Functor)
 
 
 -- | A single node of the `DAG`.
 data Node a b = Node
     { nodeLabel :: a
+    , nodeValue :: b
     , nodeEdges :: [(DID, b)]
     -- ^ Note that IDs on the `nodeEdges` list can be repeated.
-    } deriving (Show, Eq, Ord)
+    } deriving (Show, Eq, Ord, Functor)
 
 
 -- | Lookup the ID in the DAG.
@@ -94,6 +104,11 @@ insert i n dag = dag
 -- | Retrieve the label of the DAG node.
 label :: DID -> DAG a b -> Maybe a
 label i dag = nodeLabel <$> lookup i dag
+
+
+-- | Retrieve the weight of the DAG node.
+value :: DID -> DAG a b -> Maybe b
+value i dag = nodeValue <$> lookup i dag
 
 
 -- | Edges outgoing from the given node.
@@ -162,6 +177,8 @@ type DagM a b = E.State (DagSt a b)
 -- | State underlying `DagM`.
 -- Invariant: sets of IDs in `rootMap` and `normMap`
 -- are disjoint.
+--
+-- TODO: Does it make sense to allow b \= () here?
 data DagSt a b = DagSt
     { rootMap :: M.Map (Node a b) DID
     -- ^ Map for top-level nodes
@@ -181,6 +198,7 @@ fromTree topLevel t = do
     childrenIDs <- mapM (fromTree False) (R.subForest t)
     addNode topLevel $ Node
         { nodeLabel = R.rootLabel t
+        , nodeValue = ()
         , nodeEdges = zip childrenIDs $ repeat () }
 
 
@@ -223,17 +241,6 @@ newID = E.gets $ \DagSt{..} -> DID $ M.size rootMap + M.size normMap
 ----------------------
 
 
--- -- | Flatten the given weighted grammar.
--- flattenWithWeights
---     :: (Ord n, Ord t)
---     => [(O.SomeTree n t, Weight)]   -- ^ Weighted grammar
---     -> WeiFactGram n t
--- flattenWithWeights
---     = dagRules
---     . dagFromWeightedForest
---     . map (first O.encode)
-
-
 -- | A production rule, responsible for recognizing a specific
 -- (unique) non-trivial (of height @> 0@) subtree of an elementary
 -- grammar tree.  Due to potential subtree sharing, a single rule can
@@ -253,26 +260,6 @@ rulesFromDAG dag = S.fromList
     [ Rule i (children i dag)
     | i <- M.keys (nodeMap dag)
     , not (isLeaf i dag) ]
-
-
--- -- | A function which tells whether the given node is a spine node.
--- isSpine :: DAG (O.Node n t) w -> ID -> Bool
--- isSpine dag =
---     spine
---   where
---     spine = Memo.integral spine'
---     spine' i
---         | isFoot i dag = True
---         | otherwise    = or . map spine . children i $ dag
--- 
--- 
--- -- | Is it a foot node?
--- isFoot :: ID -> DAG (O.Node n t) w -> Bool
--- isFoot i dag = case lookup i dag of
---     Nothing -> False
---     Just n  -> case nodeLabel n of
---         O.Foot _  -> True
---         _         -> False
 
 
 ----------------------

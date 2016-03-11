@@ -42,7 +42,7 @@ library
 --         NLP.Partage.Core
         NLP.Partage.Tree
       , NLP.Partage.Tree.Other
-      , NLP.Partage.FactGram
+--       , NLP.Partage.FactGram
       , NLP.Partage.Gen
       , NLP.Partage.Auto
       , NLP.Partage.Auto.List
@@ -52,9 +52,10 @@ library
       -- , NLP.Partage.Auto.WeiTrie
       , NLP.Partage.Earley
       , NLP.Partage.FactGram.DAG
---       , NLP.Partage.FactGram.Weighted
+      , NLP.Partage.FactGram.Weighted
 --       , NLP.Partage.Earley.Prob.AutoAP
---       , NLP.Partage.Earley.Tmp
+      , NLP.Partage.Earley.Tmp
+      , NLP.Partage.Inject
 
 -- NOT FOR THIS VERIONS:
 --       , NLP.Partage.WRule
@@ -69,7 +70,7 @@ library
 
     other-modules:
         NLP.Partage.SOrd
-      , NLP.Partage.FactGram.Internal
+      -- , NLP.Partage.FactGram.Internal
       , NLP.Partage.FactGram.SubtreeSharing
       , NLP.Partage.Earley.AutoAP
 
