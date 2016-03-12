@@ -420,7 +420,6 @@ data Hype n t = Hype
     -- Invariant: the intersection of `done' and `waiting' states
     -- is empty.
     --
-    -- NOTE2: Don't understand the note below...
     -- NOTE: The only operation which requires active states to
     -- be put to the queue in the current algorithm is the scan
     -- operation.  So perhaps we could somehow bypass this
@@ -689,7 +688,7 @@ pushInduced p t = do
                 else check $ do
                     x <- labNonTerm =<< DAG.label did dag
                     return $ Passive (Left x) (getL spanA p)
-                where check (Just x) = x 
+                where check (Just x) = x
                       check Nothing  = error "pushInduced: invalid DID"
 
 
@@ -925,8 +924,7 @@ trySubst p = void $ P.runListT $ do
         pSpan = getL spanP p
     -- make sure that `p' represents regular rules
     guard . regular $ pSpan
-    -- the underlying dag grammar
-    dag <- RWS.gets (gramDAG . automat)
+    -- the underlying leaf map
     leafMap <- RWS.gets (leafDID  . automat)
     -- now, we need to choose the DAG node to search for depending on
     -- whether the DAG node provided by `p' is a root or not
@@ -935,14 +933,6 @@ trySubst p = void $ P.runListT $ do
         Left rootNT -> some $ M.lookup rootNT leafMap
         -- pseudo-substitution
         Right did -> return did
---     theDID <- if DAG.isRoot pDID dag then do
---         -- real substitution
---         leafNT <- some (nonTerm' =<< DAG.label pDID dag)
---         leafID <- some $ M.lookup leafNT leafMap
---         return leafID
---     else do
---         -- pseudo-substitution
---         return pDID
     -- find active items which end where `p' begins and which
     -- expect the DAG node provided by `p'
     q <- expectEnd theDID (getL beg pSpan)
@@ -1327,7 +1317,7 @@ data Auto n t = Auto
     -- set of automaton states from which this label goes out
     -- as a body transition.
     , termDID   :: M.Map t DID
-    -- ^ A map which assigns DAG IDs to the corresponding terminals. 
+    -- ^ A map which assigns DAG IDs to the corresponding terminals.
     -- Note that each grammar terminal is represented by exactly
     -- one grammar DAG node.
     , footDID   :: M.Map n DID
@@ -1368,7 +1358,7 @@ mkWithBody dag = M.fromListWith S.union
     | (i, A.Body x, _j) <- A.allEdges dag ]
 
 
--- | Create the `termDID` component of the hypergraph. 
+-- | Create the `termDID` component of the hypergraph.
 mkTermDID
     :: (Ord t)
     => DAG (O.Node n t) ()
@@ -1379,7 +1369,7 @@ mkTermDID dag = M.fromList
     , O.Term t <- maybeToList (DAG.label i dag) ]
 
 
--- | Create the `footDID` component of the hypergraph. 
+-- | Create the `footDID` component of the hypergraph.
 mkFootDID
     :: (Ord n)
     => DAG (O.Node n t) ()
@@ -1390,7 +1380,7 @@ mkFootDID dag = M.fromList
     , O.Foot x <- maybeToList (DAG.label i dag) ]
 
 
--- | Create the `leafDID` component of the hypergraph. 
+-- | Create the `leafDID` component of the hypergraph.
 mkLeafDID
     :: (Ord n)
     => DAG (O.Node n t) ()
@@ -1514,14 +1504,7 @@ finalFrom start n Hype{..} =
         Just m ->
             [ p
             | p <- M.keys m
-            -- , p ^. label == NonT start Nothing ]
-            , case p ^. dagID of
-                Left rootNT -> rootNT == start
-                Right did   -> False ]
-            -- , DAG.isRoot (p ^. dagID) dag
-            -- , DAG.label (p ^. dagID) dag
-            --     == Just (O.NonTerm start) ]
-    where dag = gramDAG automat
+            , p ^. dagID == Left start ]
 
 
 -- -- | Return the list of final passive chart items.

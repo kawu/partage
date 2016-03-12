@@ -1,5 +1,5 @@
+{-# LANGUAGE DeriveFunctor      #-}
 {-# LANGUAGE RecordWildCards    #-}
-{-# LANGUAGE DeriveFunctor#-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -18,6 +18,8 @@ module NLP.Partage.FactGram.DAG
 , setIDs
 , isRoot
 , isLeaf
+, isFoot
+, isSpine
 , edges
 , children
 , descendants
@@ -46,14 +48,15 @@ module NLP.Partage.FactGram.DAG
 ) where
 
 
-import           Prelude                       hiding (lookup)
-import qualified Control.Monad.State.Strict    as E
+import qualified Control.Monad.State.Strict as E
+import           Prelude                    hiding (lookup)
 
-import qualified Data.Map.Strict               as M
-import qualified Data.Set                      as S
-import qualified Data.Tree                     as R
+import qualified Data.Map.Strict            as M
+import qualified Data.MemoCombinators       as Memo
+import qualified Data.Set                   as S
+import qualified Data.Tree                  as R
 
-import qualified NLP.Partage.Tree.Other        as O
+import qualified NLP.Partage.Tree.Other     as O
 
 
 ----------------------
@@ -126,6 +129,27 @@ children i = map fst . edges i
 -- | Check whether the given node is a root.
 isRoot :: DID -> DAG a b -> Bool
 isRoot i dag = S.member i (rootSet dag)
+
+
+-- | A function which tells whether the given node is a spine node.
+-- Memoization turned on.
+isSpine :: DAG (O.Node n t) w -> DID -> Bool
+isSpine dag =
+    spine
+  where
+    spine = Memo.wrap DID unDID Memo.integral spine'
+    spine' i
+        | isFoot i dag = True
+        | otherwise    = or . map spine . children i $ dag
+
+
+-- | Is it a foot node?
+isFoot :: DID -> DAG (O.Node n t) w -> Bool
+isFoot i dag = case lookup i dag of
+    Nothing -> False
+    Just n  -> case nodeLabel n of
+        O.Foot _  -> True
+        _         -> False
 
 
 -- | Check whether the given node is a leaf.
@@ -278,12 +302,12 @@ data Gram n t = Gram
 
 
 -- | Construct `Gram` based on the given weighted grammar.
-mkGram :: (Ord n, Ord t) => [O.SomeTree n t] -> Gram n t
+mkGram :: (Ord n, Ord t) => [O.Tree n t] -> Gram n t
 mkGram ts = Gram
     { dagGram   = theDag
     , factGram  = rulesFromDAG theDag }
   where
-    theDag = dagFromForest . map O.encode $ ts
+    theDag = dagFromForest ts
 
 
 ----------------------

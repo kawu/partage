@@ -1,5 +1,5 @@
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE RecordWildCards  #-}
 
 
 -- | Prefix tree grammar representation: the set of rules is stored
@@ -11,21 +11,22 @@ module NLP.Partage.Auto.WeiTrie
 ) where
 
 
-import qualified Control.Arrow as Arr
-import           Control.Applicative ((<$>), (<*>), pure)
-import qualified Control.Monad.State.Strict as E
-import           Control.Exception (assert)
+import           Control.Applicative           (pure, (<$>), (<*>))
+import qualified Control.Arrow                 as Arr
+import           Control.Exception             (assert)
+import qualified Control.Monad.State.Strict    as E
 
-import           Data.Ord (comparing)
-import           Data.List (sortBy, foldl')
-import qualified Data.Set as S
-import qualified Data.Map.Strict as M
+import           Data.List                     (foldl', sortBy)
+import qualified Data.Map.Strict               as M
+import           Data.Ord                      (comparing)
+import qualified Data.Set                      as S
 
-import           Data.DAWG.Ord (ID)
+import           Data.DAWG.Ord                 (ID)
 
-import qualified NLP.Partage.Auto as A
-import           NLP.Partage.FactGram (Lab(..))
-import           NLP.Partage.FactGram.Weighted (Weight, WeiFactGram)
+import qualified NLP.Partage.Auto              as A
+-- import           NLP.Partage.FactGram          (Lab (..))
+import           NLP.Partage.FactGram.DAG      (DID, Rule)
+import           NLP.Partage.FactGram.Weighted (Weight)
 
 
 --------------------------------------------------
@@ -71,7 +72,7 @@ insert :: (Ord a, Num w)
     -> WeiTrie (A.Edge a) w
 insert (x@(A.Body _) : xs) totalWei (WeiTrie t) =
     WeiTrie $ case M.lookup x t of
-        Nothing -> 
+        Nothing ->
             -- we put the rest of the weight at this trie node
             M.insert x (totalWei, insert xs 0 empty) t
         Just (w, s) ->
@@ -113,9 +114,8 @@ check p (WeiTrie t) = and
 
 -- | Build trie from the given grammar.
 buildTrie
-    :: (Ord n, Ord t)
-    => WeiFactGram n t
-    -> WeiTrie (A.Edge (Lab n t)) Weight
+    :: M.Map Rule Weight
+    -> WeiTrie (A.Edge DID) Weight
 buildTrie gram = fromLang [(A.ruleSeq r, w) | (r, w) <- M.toList gram]
 
 
@@ -126,8 +126,7 @@ buildTrie gram = fromLang [(A.ruleSeq r, w) | (r, w) <- M.toList gram]
 
 -- | Abstract over the concrete implementation.
 shell
-    :: (Ord n, Ord t)
-    => WeiTrie (A.Edge (Lab n t)) Weight
+    :: WeiTrie (A.Edge DID) Weight
     -> A.WeiGramAuto n t
 shell d0 = A.WeiAuto
     { rootsWei  = S.singleton (rootID d)
@@ -138,8 +137,7 @@ shell d0 = A.WeiAuto
 
 -- | Build the trie-based representation of the given grammar.
 fromGram
-    :: (Ord n, Ord t)
-    => WeiFactGram n t
+    :: M.Map Rule Weight
     -> A.WeiGramAuto n t
 fromGram = shell . buildTrie
 
@@ -150,9 +148,9 @@ type Node a w = M.Map a (w, ID)
 
 -- | Alternative trie represetation with explicit node identifiers.
 data ITrie a w = ITrie
-    { rootID    :: ID
+    { rootID  :: ID
     -- ^ Root of the trie
-    , nodeMap   :: M.Map ID (Node a w)
+    , nodeMap :: M.Map ID (Node a w)
     }
 
 

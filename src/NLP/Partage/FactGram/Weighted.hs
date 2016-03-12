@@ -363,16 +363,16 @@ data Gram n t = Gram
 -- | Construct `Gram` based on the given weighted grammar.
 mkGram
     :: (Ord n, Ord t)
-    => [(O.SomeTree n t, Weight)]   -- ^ Weighted grammar
+    => [(O.Tree n t, Weight)]   -- ^ Weighted grammar
     -> Gram n t
 mkGram ts = Gram
     { dagGram   = fmap (const ()) dagGram_
     , factGram  = rulesMapFromDAG dagGram_
-    , termWei   = mkTermWei ts }
+    , termWei   = mkTermWei (map (first O.decode) ts) }
   where
     dagGram_
         = dagFromWeightedForest
-        . map (first O.encode)
+        -- . map (first O.encode)
         $ ts
 
 

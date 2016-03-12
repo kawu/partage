@@ -151,6 +151,9 @@ estiCost1 memoElem termWei =
 
 -- | Heuristic: lower bound estimate on the cost (weight) remaining
 -- to fully parse the given input sentence.
+--
+-- NOTE: This function works on any weithed automaton representations,
+-- but in reality it works correctly only on prefix trees!
 estiCost3
     :: (Ord n, Ord t)
     => Memo.Memo t                  -- ^ Memoization strategy for terminals
@@ -261,29 +264,49 @@ treeCost
     -> A.WeiGramAuto n t            -- ^ The weighted automaton
     -> ID                           -- ^ ID of the *automaton* node
     -> M.Map (Bag t) W.Weight
-treeCost dag A.WeiAuto{..} =
+treeCost dag wei@A.WeiAuto{..} =
   cost
   where
     cost = Memo.integral cost'
     cost' i =
-      M.fromListWith min
-        [ Arr.second (+w) (bag_e `add2` bag_j)
-        | (e, w, j) <- edgesWei i
-        , bag_j <- M.toList (cost j)
-        , bag_e <- M.toList (edge e) ]
+      if null (edgesWei i)
+         then sup (prevEdge i)
+         else M.fromListWith min
+              [ Arr.second (+w) (bag_e `add2` bag_j)
+              | (e, w, j) <- edgesWei i
+              , bag_j <- M.toList (cost j)
+              , bag_e <- M.toList (edge e) ]
+    -- find the index of the edge preceding the given state ID;
+    -- works under the assumption that the automaton is a trie and
+    -- that each final node has precisely one ingoing head edge.
+    -- NOTE: it's also the reason for which we need to store
+    -- identifiers in all edges: in particular, in edges
+    -- which represent roots of elementary trees.
+    -- Recall that in the previous solution, such head edges
+    -- did not contain information about the corresponding
+    -- DAG node (they had no index).
+    prevEdge ai = head [di | A.Head di <- S.toList (ing ai)]
     edge e = case e of
-      -- NOTE: Below, the very reason for which we need to store
-      -- identifiers in all edges: in particular, in edges
-      -- which represent roots of elementary trees.
-      -- Recall that in the previous solution, such head edges
-      -- did not contain information about the corresponding
-      -- DAG node (they had no index).
-      A.Head i -> sup i
+      A.Head _ -> M.singleton bagEmpty 0
       A.Body i ->
         let (k, v) = sub i
         in M.singleton k v
     sub = subCost dag
     sup = supCost dag
+    ing = ingoing wei
+
+
+-- | Build a map which, for a given automaton ID, returns
+-- the set of ingoing edges.
+ingoing :: A.WeiGramAuto n t -> ID -> S.Set (A.Edge D.DID)
+ingoing wei =
+  go
+  where
+    go i = maybe S.empty id (M.lookup i m)
+    auto = A.fromWei wei
+    m = M.fromListWith S.union
+      [ (j, S.singleton x)
+      | (_, x, j) <- A.allEdges auto ]
 
 
 --------------------------------
