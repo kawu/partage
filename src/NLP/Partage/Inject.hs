@@ -3,6 +3,7 @@
 
 module NLP.Partage.Inject
 ( injectWeights
+, weights
 ) where
 
 
@@ -25,10 +26,14 @@ injectWeights auto dag =
   dag {D.nodeMap = nodeMap}
   where
     nodeMap = M.fromList
-      [ (i, embed (weights (mkRule i) auto) n)
+      [ (i, mkNode i n)
       | (i, n) <- M.toList (D.nodeMap dag) ]
+    -- mkNode i n = 
+    mkNode i n
+      | D.isLeaf i dag =
+          n {D.nodeValue = 0, D.nodeEdges = []}
+      | otherwise = embed (weights (mkRule i) auto) n
     mkRule i = map A.Body (D.children i dag) ++ [A.Head i]
-    -- embed  :: [Weight] -> Node -> Node
     embed ws n = case reverse ws of
       [] -> error "embed: empty list"
       headW : bodyW -> n

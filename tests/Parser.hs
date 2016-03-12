@@ -16,6 +16,7 @@ import qualified Data.Set as S
 import qualified Data.MemoCombinators as Memo
 
 import qualified NLP.Partage.Earley as E
+import qualified NLP.Partage.Tree.Other as O
 import qualified NLP.Partage.FactGram.DAG as DAG
 import qualified NLP.Partage.Earley.Prob.AutoAP as A
 -- import qualified NLP.Partage.FactGram as F
@@ -31,14 +32,15 @@ testEarley = T.testTree "Earley"
     recFrom (Just parseFrom)
   where
     recFrom gram start input = do
-        let dag = DAG.mkGram gram
+        let dag = mkGram gram
         E.recognizeFrom dag start (E.fromList input)
     parseFrom gram start input = do
-        let dag = DAG.mkGram gram
+        let dag = mkGram gram
         fmap S.fromList
             . E.parse dag start
             . E.fromList
             $ input
+    mkGram = DAG.mkGram . map O.encode
 
 
 -- | All the tests of the parsing algorithm.
@@ -47,6 +49,7 @@ testAStar = T.testTree "A*"
     recFrom Nothing
   where
     recFrom gram start
-        = A.recognizeFrom memoTerm (map (,1) gram) start
+        = A.recognizeFrom memoTerm (map mkTree gram) start
         . A.fromList
     memoTerm = Memo.list Memo.char
+    mkTree t = (O.encode t, 1)
