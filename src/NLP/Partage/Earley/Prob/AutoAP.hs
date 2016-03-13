@@ -461,7 +461,8 @@ data Auto n t = Auto
 
 -- | Construct `Auto` based on the weighted grammar.
 mkAuto
-    :: (Hashable t, Ord t, Hashable n, Ord n)
+    -- :: (Hashable t, Ord t, Hashable n, Ord n)
+    :: (Ord t, Ord n)
     => W.Gram n t -> Auto n t
 mkAuto gram =
     let auto = Trie.fromGram (W.factGram gram)
@@ -925,17 +926,17 @@ estimateDistA :: (Ord n, SOrd t) => Active -> Earley n t Weight
 estimateDistA q = do
     tbag <- bagOfTerms (q ^. spanA)
     esti <- RWS.gets estiCost2
-#ifdef DebugOn
-    Auto{..} <- RWS.gets automat
-    lift $ do
-        putStr " #TC(0) " >> print ( Tmp.treeCost
-          dagGram gramAuto 3 )
-        putStr " #TBAG  " >> print tbag
-        putStr " #TCOST " >> print ( Tmp.treeCost
-          dagGram gramAuto (q ^. state) )
-        putStr " #STATE " >> print (q ^. state)
-        putStr " #ESTI  " >> print (esti (q ^. state) tbag)
-#endif
+-- #ifdef DebugOn
+--     Auto{..} <- RWS.gets automat
+--     lift $ do
+--         putStr " #TC(0) " >> print ( Tmp.treeCost
+--           gramDAG gramAuto 3 )
+--         putStr " #TBAG  " >> print tbag
+--         putStr " #TCOST " >> print ( Tmp.treeCost
+--           gramDAG gramAuto (q ^. state) )
+--         putStr " #STATE " >> print (q ^. state)
+--         putStr " #ESTI  " >> print (esti (q ^. state) tbag)
+-- #endif
     return $ esti (q ^. state) tbag
 
 
@@ -1066,37 +1067,40 @@ provideBeg x i = do
         , q ^. dagID == x ]
 
 
--- -- | Return all processed items which:
--- -- * are fully parsed (i.e. passive)
--- -- * provide a label with a given non-terminal,
--- -- * begin on the given position,
--- --
--- -- (Note the similarity to `provideBeg`)
--- provideBeg'
---     :: (Ord n, Ord t) => n -> Pos
---     -> P.ListT (Earley n t) (Passive n t, Weight)
--- provideBeg' x i = do
---     hype <- lift RWS.get
---     each
---         [ (q, priWeight e) | (q, e) <- listPassive hype
---         , q ^. spanP ^.beg == i
---         , nonTerm (q ^. label) == x ]
--- 
--- 
--- -- | Return all fully parsed items:
--- -- * top-level and representing auxiliary trees,
--- -- * modifying the given source non-terminal,
--- -- * with the given gap.
--- auxModifyGap
---     :: Ord n => n -> (Pos, Pos)
---     -> P.ListT (Earley n t) (Passive n t, Weight)
--- auxModifyGap x gapSpan = do
---     hype <- lift RWS.get
---     each
---         [ (q, priWeight e) | (q, e) <- listPassive hype
---         , q ^. spanP ^. gap == Just gapSpan
---         , topLevel (q ^. label)
---         , nonTerm  (q ^. label) == x ]
+-- | Return all processed items which:
+-- * are fully parsed (i.e. passive)
+-- * provide a label with a given non-terminal,
+-- * begin on the given position,
+--
+-- (Note the similarity to `provideBeg`)
+provideBeg'
+    :: (Ord n, Ord t) => n -> Pos
+    -> P.ListT (Earley n t) (Passive n t, Weight)
+provideBeg' x i = do
+    hype <- lift RWS.get
+    each
+        [ (q, priWeight e) | (q, e) <- listPassive hype
+        , q ^. spanP ^.beg == i
+        , nonTerm (q ^. dagID) hype == x ]
+
+
+-- | Return all fully parsed items:
+-- * top-level and representing auxiliary trees,
+-- * modifying the given source non-terminal,
+-- * with the given gap.
+auxModifyGap
+    :: Ord n => n -> (Pos, Pos)
+    -> P.ListT (Earley n t) (Passive n t, Weight)
+auxModifyGap x gapSpan = do
+    hype <- lift RWS.get
+    each
+        [ (q, priWeight e) | (q, e) <- listPassive hype
+        , q ^. spanP ^. gap == Just gapSpan
+        -- , topLevel (q ^. label)
+        -- , nonTerm  (q ^. label) == x ]
+        -- , isRoot (q ^. dagID)  <- this is reduntant given the
+        --                           constraint below
+        , q ^. dagID == Left x ]
 
 
 --------------------------------------------------
@@ -1280,7 +1284,7 @@ tryAdjoinInit p _cost = void $ P.runListT $ do
     -- symbol and which end where `p` begins
     footNT <- some (nonTerm' pDID dag)
     -- what is the corresponding foot DAG ID?
-    footID <- some $ M.lookup footNT footMap 
+    footID <- some $ M.lookup footNT footMap
     -- find all active items which expect a foot with the given
     -- symbol and which end where `p` begins
     (q, cost) <- expectEnd footID (pSpan ^. beg)
@@ -1337,9 +1341,9 @@ tryAdjoinInit' q cost = void $ P.runListT $ do
     qNT <- some $ do
         O.Foot x <- DAG.label qDID dag
         return x
-    -- Find all fully passive items which provide the given source
+    -- Find all passive items which provide the given source
     -- non-terminal and which begin where `q` ends.
-    (p, _cost) <- provideBeg (Left qNT) (q ^. spanA ^. end)
+    (p, _cost) <- provideBeg' qNT (q ^. spanA ^. end)
     let pDID = p ^. dagID
         pSpan = p ^. spanP
     -- The retrieved items must not be auxiliary top-level.
@@ -1526,48 +1530,52 @@ tryAdjoinTerm q cost = void $ P.runListT $ do
 #endif
 
 
--- -- | Reversed `tryAdjoinTerm`.
--- tryAdjoinTerm'
---     :: (SOrd t, SOrd n)
---     => Passive n t
---     -> Weight
---     -> Earley n t ()
--- tryAdjoinTerm' p cost = void $ P.runListT $ do
--- #ifdef DebugOn
---     begTime <- lift . lift $ Time.getCurrentTime
--- #endif
---     let pDID = p ^. dagID
---         pSpan = p ^. spanP
---     -- Ensure that `p` is auxiliary but not top-level
---     guard $ auxiliary pSpan <= not (isRoot pDID)
---     -- Retrieve all completed, top-level items representing auxiliary
---     -- trees which have a specific gap and modify a specific source
---     -- non-terminal.
---     (q, cost') <- auxModifyGap
---         (nonTerm $ p ^. label)
---         ( p ^. spanP ^. beg
---         , p ^. spanP ^. end )
---     let qSpan = q ^. spanP
---     -- Construct the resulting state:
---     let p' = setL (spanP >>> beg) (qSpan ^. beg)
---            . setL (spanP >>> end) (qSpan ^. end)
---            $ p
---     -- compute the estimated distance for the resulting state
---     estDist <- lift . estimateDistP $ p'
---     -- push the resulting state into the waiting queue
---     lift . pushPassive p'
---          . extWeight (addWeight cost cost') estDist
---          $ Adjoin q p
--- #ifdef DebugOn
---     lift . lift $ do
---         endTime <- Time.getCurrentTime
---         putStr "[C'] " >> printPassive p
---         putStr "  +  " >> printPassive q
---         putStr "  :  " >> printPassive p'
---         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
---         putStr " #W  " >> print (addWeight cost cost')
---         putStr " #E  " >> print estDist
--- #endif
+-- | Reversed `tryAdjoinTerm`.
+tryAdjoinTerm'
+    :: (SOrd t, SOrd n)
+    => Passive n t
+    -> Weight
+    -> Earley n t ()
+tryAdjoinTerm' p cost = void $ P.runListT $ do
+#ifdef DebugOn
+    begTime <- lift . lift $ Time.getCurrentTime
+#endif
+    let pDID = p ^. dagID
+        pSpan = p ^. spanP
+    -- the underlying dag grammar
+    dag <- RWS.gets (gramDAG . automat)
+    -- Ensure that `p` is auxiliary but not top-level
+    guard $ auxiliary pSpan <= not (isRoot pDID)
+    -- Retrieve the non-terminal in the p's root
+    pNT <- some $ nonTerm' pDID dag
+    -- Retrieve all completed, top-level items representing auxiliary
+    -- trees which have a specific gap and modify a specific source
+    -- non-terminal.
+    (q, cost') <- auxModifyGap pNT
+        -- (nonTerm $ p ^. label)
+        ( p ^. spanP ^. beg
+        , p ^. spanP ^. end )
+    let qSpan = q ^. spanP
+    -- Construct the resulting state:
+    let p' = setL (spanP >>> beg) (qSpan ^. beg)
+           . setL (spanP >>> end) (qSpan ^. end)
+           $ p
+    -- compute the estimated distance for the resulting state
+    estDist <- lift . estimateDistP $ p'
+    -- push the resulting state into the waiting queue
+    lift . pushPassive p'
+         . extWeight (addWeight cost cost') estDist
+         $ Adjoin q p
+#ifdef DebugOn
+    lift . lift $ do
+        endTime <- Time.getCurrentTime
+        putStr "[C'] " >> printPassive p
+        putStr "  +  " >> printPassive q
+        putStr "  :  " >> printPassive p'
+        putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
+        putStr " #W  " >> print (addWeight cost cost')
+        putStr " #E  " >> print estDist
+#endif
 
 
 --------------------------------------------------
@@ -1587,8 +1595,8 @@ step (ItemP p :-> e) = do
       [ trySubst
       , tryAdjoinInit
       , tryAdjoinCont
-      , tryAdjoinTerm ]
---      , tryAdjoinTerm' ]
+      , tryAdjoinTerm
+      , tryAdjoinTerm' ]
     savePassive p e -- $ prioTrav e
 step (ItemA p :-> e) = do
     -- mapM_ ($ p)
@@ -1722,7 +1730,8 @@ recognizeFrom
 #ifdef DebugOn
     :: (SOrd t, SOrd n)
 #else
-    :: (Hashable t, Ord t, Hashable n, Ord n)
+    -- :: (Hashable t, Ord t, Hashable n, Ord n)
+    :: (Ord t, Ord n)
 #endif
     => Memo.Memo t             -- ^ Memoization strategy for terminals
     -> [ ( O.Tree n t
@@ -1733,6 +1742,10 @@ recognizeFrom
 -- recognizeFrom memoTerm gram dag termWei start input = do
 recognizeFrom memoTerm gram start input = do
     let auto = mkAuto (W.mkGram gram)
+--     mapM_ print $ M.toList (DAG.nodeMap $ gramDAG auto)
+--     putStrLn "========="
+--     mapM_ print $ A.allEdges (A.fromWei $ gramAuto auto)
+--     putStrLn "========="
     recognizeFromAuto memoTerm auto start input
 
 
@@ -1792,7 +1805,8 @@ recognizeFromAuto
 #ifdef DebugOn
     :: (SOrd t, SOrd n)
 #else
-    :: (Hashable t, Ord t, Hashable n, Ord n)
+    -- :: (Hashable t, Ord t, Hashable n, Ord n)
+    :: (Ord t, Ord n)
 #endif
     => Memo.Memo t      -- ^ Memoization strategy for terminals
     -> Auto n t         -- ^ Grammar automaton
@@ -1828,7 +1842,8 @@ earleyAuto
 #ifdef DebugOn
     :: (SOrd t, SOrd n)
 #else
-    :: (Hashable t, Ord t, Hashable n, Ord n)
+    -- :: (Hashable t, Ord t, Hashable n, Ord n)
+    :: (Ord t, Ord n)
 #endif
     => Memo.Memo t      -- ^ Memoization strategy for terminals
     -> Auto n t         -- ^ Grammar automaton
