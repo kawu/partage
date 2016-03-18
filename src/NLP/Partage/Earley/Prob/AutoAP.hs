@@ -536,7 +536,7 @@ data Hype n t = Hype
     -- ^ The underlying automaton
 
     -- , minCosts  :: [Weight]
-    -- ^ Minimal weight of parsing individual terminals
+    -- -- ^ Minimal weight of parsing individual terminals
 
     , estiCost1  ::       Tmp.Bag t -> Weight
     , estiCost2  :: ID -> Tmp.Bag t -> Weight
@@ -1303,7 +1303,7 @@ tryAdjoinInit p _cost = void $ P.runListT $ do
     -- push the resulting state into the waiting queue
     lift . pushInduced q'
          . extWeight (addWeight cost tranCost) estDist
-         -- $ Foot q (nonTerm foot) tranCost
+         -- -- $ Foot q (nonTerm foot) tranCost
          $ Foot q p tranCost
 --     -- push the resulting state into the waiting queue
 --     lift $ pushInduced q' $ Foot q p -- -- $ nonTerm foot
@@ -1598,7 +1598,7 @@ step (ItemP p :-> e) = do
       , tryAdjoinCont
       , tryAdjoinTerm
       , tryAdjoinTerm' ]
-    savePassive p e -- $ prioTrav e
+    savePassive p e -- -- $ prioTrav e
 step (ItemA p :-> e) = do
     -- mapM_ ($ p)
     mapM_ (\f -> f p $ priWeight e)
@@ -1606,7 +1606,7 @@ step (ItemA p :-> e) = do
       , trySubst'
      , tryAdjoinInit'
      , tryAdjoinCont' ]
-    saveActive p e -- $ prioTrav e
+    saveActive p e -- -- $ prioTrav e
 
 
 ---------------------------
