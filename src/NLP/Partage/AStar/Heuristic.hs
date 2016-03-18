@@ -101,7 +101,12 @@ memoBag memoElem =
 -- | Distance estimation heuristic.
 data Esti t = Esti
   { termEsti :: Bag t -> D.Weight
-  , trieEsti :: ID -> Bag t -> D.Weight  }
+  , trieEsti :: ID -> Bag t -> D.Weight
+  -- , dagEsti  :: D.DID -> M.Map (Bag t) D.Weight
+  , dagEsti  :: D.DID -> Bag t -> D.Weight
+  -- ^ Bags of terminals and the corresponding (minimal) weights
+  -- for the individual super-trees surrounding the given DAG node.
+  }
 
 
 -- | Create `Esti` based on several basic pieces of information.
@@ -111,9 +116,15 @@ mkEsti
   -> I.Auto n t       -- ^ The underlying automaton
   -> Esti t
 mkEsti memoElem I.Auto{..} = Esti
-  { termEsti = termEsti'
-  , trieEsti = estiCost2 memoElem gramAuto gramDAG termEsti' }
-  where termEsti' = estiCost1 memoElem termWei
+  { termEsti = estiTerm
+  , trieEsti = estiCost2 memoElem gramAuto gramDAG estiTerm
+  , dagEsti  = estiNode }
+  where
+    estiTerm = estiCost1 memoElem termWei
+    estiNode i bag = minimum
+      [ estiTerm (bag `bagDiff` bag') + w
+      | (bag', w) <- M.toList (cost i) ]
+    cost = supCost gramDAG
 
 
 -- | Heuristic: lower bound estimate on the cost (weight) remaining

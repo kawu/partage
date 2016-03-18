@@ -244,6 +244,7 @@ printPassive p = do
 -- one could be derived.
 --
 -- TODO: Weight component can be extracted outside the Trav datatype.
+-- TODO: Remaining distance can be estimated in pushing/saving functions only?
 data Trav n t
     = Scan
         { _scanFrom :: Active
@@ -425,11 +426,6 @@ data Hype n t = Hype
     { automat   :: Auto n t
     -- ^ The underlying automaton
 
-    -- , minCosts  :: [Weight]
-    -- -- ^ Minimal weight of parsing individual terminals
-
-    -- , estiCost1  ::       H.Bag t -> Weight
-    -- , estiCost2  :: ID -> H.Bag t -> Weight
     , estiCost   :: H.Esti t
 
     -- , doneActive  :: M.Map (ID, Pos) (S.Set (Active n t))
@@ -756,30 +752,31 @@ pushInduced :: (SOrd t, SOrd n)
             => Active
             -> ExtWeight n t
             -> Earley n t ()
-pushInduced p new = do
+pushInduced q new = do
     dag <- RWS.gets (gramDAG . automat)
-    hasElems (getL state p) >>= \b -> when b
-        (pushActive p new)
+    hasElems (getL state q) >>= \b -> when b
+        (pushActive q new)
     P.runListT $ do
-        -- (headCost, x) <- heads (getL state p)
-        (headCost, did) <- heads (getL state p)
+        -- (headCost, x) <- heads (getL state q)
+        (headCost, did) <- heads (getL state q)
+        let p = if not (DAG.isRoot did dag)
+                then Passive (Right did) (getL spanA q)
+                else check $ do
+                    x <- labNonTerm =<< DAG.label did dag
+                    return $ Passive (Left x) (getL spanA q)
+                where check (Just x) = x
+                      check Nothing  = error "pushInduced: invalid DID"
+        estDist <- lift . estimateDistP $ p
         -- TODO: while "reading" the head, we increase the weight of
         -- the current parse and decrease the estimated weight at the
         -- same time
         let new' = new
                 { priWeight = priWeight new + headCost
-                -- TODO: we do the one below, because
-                -- estimation concerns also supertrees.
-                , estWeight = estWeight new - headCost }
-        lift . flip pushPassive new' $
-           -- Passive x (p ^. spanA)
-           if not (DAG.isRoot did dag)
-               then Passive (Right did) (getL spanA p)
-               else check $ do
-                   x <- labNonTerm =<< DAG.label did dag
-                   return $ Passive (Left x) (getL spanA p)
-               where check (Just x) = x
-                     check Nothing  = error "pushInduced: invalid DID"
+                , estWeight = estDist }
+                -- -- TODO: we do the one below, because
+                -- -- estimation concerns also supertrees.
+                -- , estWeight = estWeight new - headCost }
+        lift $ pushPassive p new'
 
 
 -- | Remove a state from the queue.
@@ -798,12 +795,15 @@ popItem = RWS.state $ \st -> case Q.minView (waiting st) of
 
 
 -- | Estimate the remaining distance for a passive item.
--- TODO: This is incorrect now!
+-- TODO: This is incorrect!
+-- UPDATE: Not anymore?
 estimateDistP :: (Ord t) => Passive n t -> Earley n t Weight
 estimateDistP p = do
-    tbag <- bagOfTerms (p ^. spanP)
-    esti <- RWS.gets (H.termEsti . estiCost)
-    return $ esti tbag
+  tbag <- bagOfTerms (p ^. spanP)
+  H.Esti{..} <- RWS.gets estiCost
+  return $ case p ^. dagID of
+    Left _  -> termEsti tbag
+    Right i -> dagEsti i tbag
 
 
 -- | Estimate the remaining distance for an active item.
@@ -989,7 +989,7 @@ tryScan p cost = void $ P.runListT $ do
     let q = setL state j
           . modL' (spanA >>> end) (+1)
           $ p
-    -- compute the estimated distance for the resulting state
+    -- compute the estimated distance for the resulting item
     -- estDist <- lift . estimateDist $ q ^. spanA
     estDist <- lift . estimateDistA $ q
     -- push the resulting state into the waiting queue
