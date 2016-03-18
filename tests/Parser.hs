@@ -18,10 +18,7 @@ import qualified Data.MemoCombinators as Memo
 import qualified NLP.Partage.Earley as E
 import qualified NLP.Partage.Tree.Other as O
 import qualified NLP.Partage.DAG as DAG
-import qualified NLP.Partage.Earley.Prob.AutoAP as A
--- import qualified NLP.Partage.FactGram as F
-    -- (Rule, flattenWithSharing)
--- import qualified NLP.Partage.FactGram.Weighted as W
+import qualified NLP.Partage.AStar as A
 
 import qualified TestSet as T
 

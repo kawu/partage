@@ -7,11 +7,11 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 
--- | Earley-style TAG parsing based on automata, with a distinction
+-- | A* Earley-style TAG parsing based on automata, with a distinction
 -- between active and passive items.
 
 
-module NLP.Partage.Earley.Prob.AutoAP
+module NLP.Partage.AStar
 (
 -- * Earley-style parsing
 -- ** Input
@@ -44,8 +44,8 @@ module NLP.Partage.Earley.Prob.AutoAP
 -- -- ** Printing
 -- , printHype
 
--- * Sentence position
-, Pos
+-- -- * Sentence position
+-- , Pos
 ) where
 
 
@@ -82,12 +82,11 @@ import           NLP.Partage.SOrd
 import qualified NLP.Partage.Tree       as T
 import qualified NLP.Partage.Tree.Other as O
 import qualified NLP.Partage.Auto as A
-import qualified NLP.Partage.Auto.WeiTrie as Trie
 
 import           NLP.Partage.DAG (Gram, DID, DAG, Weight)
 import qualified NLP.Partage.DAG as DAG
-import qualified NLP.Partage.Earley.Tmp as Tmp
--- import qualified NLP.Partage.Inject as Inj
+import           NLP.Partage.AStar.Auto (Auto(..), mkAuto)
+import qualified NLP.Partage.AStar.Heuristic as H
 
 -- For debugging purposes
 #ifdef DebugOn
@@ -417,113 +416,6 @@ printItem (ItemA p) = printActive p
 
 
 --------------------------------------------------
--- Local automaton type
---------------------------------------------------
-
-
--- | Local automaton type based on `A.GramAuto`.
-data Auto n t = Auto
-    { gramDAG   :: DAG (O.Node n t) Weight
-    -- ^ The underlying grammar DAG; the weights must be consistent
-    -- with what is in the `gramAuto`
-    , isSpine   :: DID -> Bool
-    -- ^ Is the given DAG node a spine node?
-    , gramAuto  :: A.WeiGramAuto n t
-    -- ^ The underlying grammar automaton
-    , withBody  :: M.Map DID (S.Set ID)
-    -- , withBody  :: H.CuckooHashTable (Lab n t) (S.Set ID)
-    -- ^ A data structure which, for each label, determines the
-    -- set of automaton states from which this label goes out
-    -- as a body transition.
-    , termWei   :: M.Map t Weight
-    -- ^ The lower bound estimates on reading terminal weights.
-    -- Based on the idea that weights of the elementary trees are
-    -- evenly distributed over its terminals.
-    , termDID   :: M.Map t DID
-    -- ^ A map which assigns DAG IDs to the corresponding terminals.
-    -- Note that each grammar terminal is represented by exactly
-    -- one grammar DAG node.
-    , footDID   :: M.Map n DID
-    -- ^ A map which assigns DAG IDs to the corresponding foot
-    -- non-terminals.  Note that each grammar foot non-terminal
-    -- is represented by exactly one grammar DAG node.
-    , leafDID   :: M.Map n DID
-    -- ^ A map which assigns DAG IDs to the corresponding leaf
-    -- non-terminals.  Note that each grammar foot non-terminal
-    -- is represented by exactly one grammar DAG node.
-    --
-    -- TODO: Consider using hashtables to reresent termDID and
-    -- footDID.
-    }
-
-
--- | Construct `Auto` based on the weighted grammar.
-mkAuto
-    -- :: (Hashable t, Ord t, Hashable n, Ord n)
-    :: (Ord t, Ord n)
-    => Gram n t -> Auto n t
-mkAuto gram =
-    let auto = Trie.fromGram (DAG.factGram gram)
-        -- dag0 = DAG.dagGram gram
-        dag = DAG.dagGram gram
-        -- here we need the DAG with injected weights because
-        -- afterwards we use it to compute heuristic's values
-        -- dag  = Inj.injectWeights auto dag0
-    in  Auto
-        { gramDAG  = dag
-        , isSpine  = DAG.isSpine dag
-        , gramAuto = auto
-        , withBody = mkWithBody auto
-        , termWei  = DAG.termWei gram
-        , termDID  = mkTermDID dag
-        , footDID  = mkFootDID dag
-        , leafDID  = mkLeafDID dag }
-
-
--- | Create the `withBody` component based on the automaton.
-mkWithBody
-    :: A.WeiGramAuto n t
-    -> M.Map DID (S.Set ID)
-mkWithBody dag = M.fromListWith S.union
-    [ (x, S.singleton i)
-    | (i, A.Body x, _j) <- A.allEdges (A.fromWei dag) ]
-
-
--- | Create the `termDID` component of the hypergraph.
-mkTermDID
-    :: (Ord t)
-    => DAG (O.Node n t) w
-    -> M.Map t DID
-mkTermDID dag = M.fromList
-    [ (t, i)
-    | i <- S.toList (DAG.nodeSet dag)
-    , O.Term t <- maybeToList (DAG.label i dag) ]
-
-
--- | Create the `footDID` component of the hypergraph.
-mkFootDID
-    :: (Ord n)
-    => DAG (O.Node n t) w
-    -> M.Map n DID
-mkFootDID dag = M.fromList
-    [ (x, i)
-    | i <- S.toList (DAG.nodeSet dag)
-    , O.Foot x <- maybeToList (DAG.label i dag) ]
-
-
--- | Create the `leafDID` component of the hypergraph.
-mkLeafDID
-    :: (Ord n)
-    => DAG (O.Node n t) w
-    -> M.Map n DID
-mkLeafDID dag = M.fromList
-    [ (x, i)
-    | i <- S.toList (DAG.nodeSet dag)
-    , DAG.isLeaf i dag
-    , O.NonTerm x <- maybeToList (DAG.label i dag) ]
-
-
---------------------------------------------------
 -- Earley monad
 --------------------------------------------------
 
@@ -536,8 +428,9 @@ data Hype n t = Hype
     -- , minCosts  :: [Weight]
     -- -- ^ Minimal weight of parsing individual terminals
 
-    , estiCost1  ::       Tmp.Bag t -> Weight
-    , estiCost2  :: ID -> Tmp.Bag t -> Weight
+    -- , estiCost1  ::       H.Bag t -> Weight
+    -- , estiCost2  :: ID -> H.Bag t -> Weight
+    , estiCost   :: H.Esti t
 
     -- , doneActive  :: M.Map (ID, Pos) (S.Set (Active n t))
     , doneActive  :: M.Map Pos (M.Map ID
@@ -562,22 +455,15 @@ data Hype n t = Hype
 -- | Make an initial `Hype` from a set of states.
 mkHype
     :: (HOrd n, HOrd t)
-    => (      Tmp.Bag t -> Weight)  -- ^ Heuristic
-    -> (ID -> Tmp.Bag t -> Weight)  -- ^ Heuristic
+    => H.Esti t
     -> Auto n t
-    -- -> M.Map Active Weight          -- ^ Initial active items
     -> Hype n t
--- mkHype initEst estiCost1 estiCost2 auto m = Hype
-mkHype estiCost1 estiCost2 auto = Hype
+mkHype esti auto = Hype
     { automat  = auto
-    , estiCost1 = estiCost1
-    , estiCost2 = estiCost2
+    , estiCost = esti
     , doneActive  = M.empty
     , donePassive = M.empty
     , waiting = Q.empty }
---     , waiting = Q.fromList
---         [ ItemA p :-> extWeight0 c initEst
---         | (p, c) <- M.toList m ] }
 
 
 -- | Earley parser monad.  Contains the input sentence (reader)
@@ -916,7 +802,7 @@ popItem = RWS.state $ \st -> case Q.minView (waiting st) of
 estimateDistP :: (Ord t) => Passive n t -> Earley n t Weight
 estimateDistP p = do
     tbag <- bagOfTerms (p ^. spanP)
-    esti <- RWS.gets estiCost1
+    esti <- RWS.gets (H.termEsti . estiCost)
     return $ esti tbag
 
 
@@ -924,15 +810,15 @@ estimateDistP p = do
 estimateDistA :: (Ord n, SOrd t) => Active -> Earley n t Weight
 estimateDistA q = do
     tbag <- bagOfTerms (q ^. spanA)
-    esti <- RWS.gets estiCost2
+    esti <- RWS.gets (H.trieEsti . estiCost)
     return $ esti (q ^. state) tbag
 -- #ifdef DebugOn
 --     Auto{..} <- RWS.gets automat
 --     lift $ do
---         putStr " #TC(0) " >> print ( Tmp.treeCost
+--         putStr " #TC(0) " >> print ( H.treeCost
 --           gramDAG gramAuto 3 )
 --         putStr " #TBAG  " >> print tbag
---         putStr " #TCOST " >> print ( Tmp.treeCost
+--         putStr " #TCOST " >> print ( H.treeCost
 --           gramDAG gramAuto (q ^. state) )
 --         putStr " #STATE " >> print (q ^. state)
 --         putStr " #ESTI  " >> print (esti (q ^. state) tbag)
@@ -941,40 +827,18 @@ estimateDistA q = do
 
 
 -- | Compute the bag of terminals for the given span.
-bagOfTerms :: (Ord t) => Span -> Earley n t (Tmp.Bag t)
+bagOfTerms :: (Ord t) => Span -> Earley n t (H.Bag t)
 bagOfTerms span = do
     n <- sentLen
     x <- estOn 0 (span ^. beg)
     y <- estOn (span ^. end) n
     z <- case span ^. gap of
-        Nothing -> return Tmp.bagEmpty
+        Nothing -> return H.bagEmpty
         Just (i, j) -> estOn i j
-    return $ x `Tmp.bagAdd` y `Tmp.bagAdd` z
+    return $ x `H.bagAdd` y `H.bagAdd` z
   where
     sentLen = length <$> RWS.asks inputSent
-    estOn i j = Tmp.bagFromList . over i j <$> RWS.asks inputSent
-
-
--- -- | Estimate the remaining distnance for an active item.
--- estimateDistA :: Active -> Earley n t Weight
--- estimateDistA q
---     = estimateDistSpan  (q ^. spanA)
---     -- + estimateDistState (q ^. state)
---
---
--- -- | Estimate the remaining distnance (the span component)
--- estimateDistSpan :: Span -> Earley n t Weight
--- estimateDistSpan span = do
---     n <- sentLen
---     x <- estOn 0 (span ^. beg)
---     y <- estOn (span ^. end) n
---     z <- case span ^. gap of
---         Nothing -> return zeroWeight
---         Just (i, j) -> estOn i j
---     return $ x + y + z
---   where
---     sentLen = length <$> RWS.asks inputSent
---     estOn i j = sumWeight . over i j <$> RWS.gets minCosts
+    estOn i j = H.bagFromList . over i j <$> RWS.asks inputSent
 
 
 ---------------------------------
@@ -1856,13 +1720,14 @@ earleyAuto memoTerm auto input = do
     -- n = V.length (inputSent input)
     n = length (inputSent input)
     -- empty hypergraph
-    st0 = mkHype esti1 esti2 auto
+    st0 = mkHype esti auto
     -- the heuristic
-    esti1 = Tmp.estiCost1 memoTerm (termWei auto)
-    esti2 = Tmp.estiCost3 memoTerm
-                (gramAuto auto)
-                (gramDAG auto)
-                esti1
+    esti = H.mkEsti memoTerm auto
+--     esti1 = H.estiCost1 memoTerm (termWei auto)
+--     esti2 = H.estiCost3 memoTerm
+--               (gramAuto auto)
+--               (gramDAG auto)
+--               esti1
     -- initialize hypergraph with initial active items
     init = P.runListT $ do
         root <- each . S.toList

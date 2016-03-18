@@ -6,14 +6,14 @@
 -- | A* heuristic.
 --
 -- Note that, while the heuristic is built from a weighted automaton, it actually
--- requires that it contains no reentrancies, i.e. that the automaton is, in fact,
--- a trie.
+-- requires that the automaton contains no reentrancies, i.e. that the automaton
+-- is, in fact, a trie.
 --
--- While the module functions could work directly on tries in theory, it is easier
+-- While, in theory, the module functions could work directly on tries, it is easier
 -- to assume the same automaton abstraction as in the parsing module.
 
 
-module NLP.Partage.Earley.Tmp
+module NLP.Partage.AStar.Heuristic
 (
 -- * Bag
   Bag
@@ -24,12 +24,8 @@ module NLP.Partage.Earley.Tmp
 , bagFromList
 
 -- * Heuristic
-, estiCost1
--- , estiCost2
-, estiCost3
-
--- * Tmp
-, treeCost
+, Esti(..)
+, mkEsti
 ) where
 
 
@@ -43,11 +39,9 @@ import qualified Data.Set                 as S
 
 import           Data.DAWG.Ord            (ID)
 
--- import qualified NLP.Partage.FactGram.Internal as I
 import qualified NLP.Partage.DAG as D
--- import qualified NLP.Partage.FactGram.Weighted as W
 import qualified NLP.Partage.Tree.Other   as O
--- import qualified NLP.Partage.Auto.WeiTrie as W
+import qualified NLP.Partage.AStar.Auto   as I
 import qualified NLP.Partage.Auto         as A
 -- import qualified NLP.Partage.Earley.AutoAP     as E
 
@@ -104,6 +98,24 @@ memoBag memoElem =
 --------------------------------
 
 
+-- | Distance estimation heuristic.
+data Esti t = Esti
+  { termEsti :: Bag t -> D.Weight
+  , trieEsti :: ID -> Bag t -> D.Weight  }
+
+
+-- | Create `Esti` based on several basic pieces of information.
+mkEsti
+  :: (Ord t, Ord n)
+  => Memo.Memo t      -- ^ Memoization strategy for terminals
+  -> I.Auto n t       -- ^ The underlying automaton
+  -> Esti t
+mkEsti memoElem I.Auto{..} = Esti
+  { termEsti = termEsti'
+  , trieEsti = estiCost2 memoElem gramAuto gramDAG termEsti' }
+  where termEsti' = estiCost1 memoElem termWei
+
+
 -- | Heuristic: lower bound estimate on the cost (weight) remaining
 -- to fully parse the given input sentence.
 estiCost1
@@ -129,42 +141,12 @@ estiCost1 memoElem termWei =
 --------------------------------
 
 
--- -- | Heuristic: lower bound estimate on the cost (weight) remaining
--- -- to fully parse the given input sentence.
--- estiCost2
---     :: (Ord n, Ord t)
---     => Memo.Memo t                  -- ^ Memoization strategy for terminals
---     -> A.WeiGramAuto n t            -- ^ The weighted automaton
---     -> D.DAG (O.Node n t) D.Weight  -- ^ The corresponding grammar DAG
---     -> (Bag t -> D.Weight)          -- ^ `estiCost1`
---     -> ID                           -- ^ ID of the automaton node
---     -> Bag t                        -- ^ Bag of terminals
---     -> D.Weight
--- estiCost2 memoElem A.WeiAuto{..} weiDag estiTerm =
---     esti
---   where
---     -- estiTerm = estiCost1 memoElem termWei
---     esti = Memo.memo2 Memo.integral (memoBag memoElem) esti'
---     esti' i bag = if null (edgesWei i)
---         then estiTerm bag
---         else minimum
---             [ w + wS + esti j (bag `bagDiff` bagS)
---             | (x, w, j) <- edgesWei i
---             , let (bagS, wS) = cost x ]
---     cost = labCost weiDag
-
-
---------------------------------
--- Heuristic, part 3
---------------------------------
-
-
 -- | Heuristic: lower bound estimate on the cost (weight) remaining
 -- to fully parse the given input sentence.
 --
 -- NOTE: This function works on any weithed automaton representations,
 -- but in reality it works correctly only on prefix trees!
-estiCost3
+estiCost2
     :: (Ord n, Ord t)
     => Memo.Memo t                  -- ^ Memoization strategy for terminals
     -> A.WeiGramAuto n t            -- ^ The weighted automaton
@@ -173,7 +155,7 @@ estiCost3
     -> ID                           -- ^ ID of the automaton node
     -> Bag t                        -- ^ Bag of terminals
     -> D.Weight
-estiCost3 memoElem weiAuto@A.WeiAuto{..} weiDag estiTerm =
+estiCost2 memoElem weiAuto@A.WeiAuto{..} weiDag estiTerm =
     esti
   where
     esti = Memo.memo2 Memo.integral (memoBag memoElem) esti'
@@ -207,25 +189,6 @@ subCost dag =
         _  -> L.foldl' add2 (bagEmpty, v)
           [ Arr.second (+w) (cost j)
           | (j, w) <- D.edges i dag ]
-
-
--- -- | Like `subCost` but works for a specific grammar label.
--- -- For non-internal nodes (roots or leaves) returns
--- -- `(bagEmpty, 0)`.
--- labCost
---     :: (Ord n, Ord t, Num w)
---     => D.DAG (O.Node n t) w     -- ^ Grammar DAG
---     -> A.Edge D.DID             -- ^ Automaton transition label
---     -> (Bag t, w)
--- -- TODO: can we move `x` before the equation sign?
--- labCost dag = \x -> case x of
---     A.Body y -> case y of
---       I.NonT _ (Just i) -> cost i
---       I.AuxVert _ i     -> cost i
---       _                 -> (bagEmpty, 0)
---     A.Head _ -> (bagEmpty, 0)
---   where
---     cost = subCost dag
 
 
 --------------------------------

@@ -53,6 +53,7 @@ library
     exposed-modules:
         NLP.Partage.Tree
       , NLP.Partage.Tree.Other
+      , NLP.Partage.DAG
       , NLP.Partage.Gen
       , NLP.Partage.Auto
       , NLP.Partage.Auto.List
@@ -61,13 +62,13 @@ library
       , NLP.Partage.Auto.Set
       , NLP.Partage.Auto.WeiTrie
       , NLP.Partage.Earley
-      , NLP.Partage.DAG
-      , NLP.Partage.Earley.Prob.AutoAP
-      , NLP.Partage.Earley.Tmp
+      , NLP.Partage.AStar
 
     other-modules:
         NLP.Partage.SOrd
       , NLP.Partage.Earley.AutoAP
+      , NLP.Partage.AStar.Auto
+      , NLP.Partage.AStar.Heuristic
 
     ghc-options: -Wall
     -- cpp-options: -DDebugOn

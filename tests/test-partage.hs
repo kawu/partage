@@ -6,7 +6,6 @@ import qualified NLP.Partage.DAG as D
 import           NLP.Partage.DAG (DID(..))
 import qualified NLP.Partage.Auto.WeiTrie as WeiTrie
 import qualified NLP.Partage.Auto as A
--- import qualified NLP.Partage.FactGram.Weighted  as W
 
 
 t1 = R.Node (O.NonTerm "S")

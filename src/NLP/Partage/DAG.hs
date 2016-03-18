@@ -37,7 +37,7 @@ module NLP.Partage.DAG
 -- , Node(..)
 -- , lookup
 -- , insert
--- ** Parent Map
+-- ** Parent map
 -- $parent-map
 , ParentMap
 , parentMap
@@ -58,8 +58,8 @@ module NLP.Partage.DAG
 , dagFromWeightedForest
 , rulesMapFromDAG
 
--- * Low-level internal
--- (Use on your own responsibility)
+-- -- * Low-level internal
+-- -- (Use on your own responsibility)
 -- , DagSt(..)
 -- , runDagM
 -- , fromTree
