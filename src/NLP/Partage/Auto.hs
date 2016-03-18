@@ -1,5 +1,5 @@
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE RecordWildCards  #-}
 
 
 -- | Abstract implementation of an automaton (or a set of automata,
@@ -42,10 +42,8 @@ import qualified Control.Monad.State.Strict as E
 
 import qualified Data.Set                   as S
 
-import           Data.DAWG.Ord (ID)
-import           NLP.Partage.FactGram.DAG (DID(..), Rule(..))
--- import qualified NLP.Partage.FactGram.DAG as DAG
-import           NLP.Partage.FactGram.Weighted (Weight)
+import           Data.DAWG.Ord              (ID)
+import           NLP.Partage.FactGram.DAG   (DID (..), Rule (..), Weight)
 
 
 -- | A datatype used to distinguish head non-terminals from body
@@ -66,11 +64,11 @@ ruleSeq Rule{..} = map Body bodyR ++ [Head headR]
 -- Multiple roots are allowed in order to account for
 -- list implementation of an automaton.
 data Auto a = Auto
-    { roots     :: S.Set ID
+    { roots  :: S.Set ID
     -- ^ Set of automata roots
-    , follow    :: ID -> a -> Maybe ID
+    , follow :: ID -> a -> Maybe ID
     -- ^ Follow a transition with the given symbol from the given node
-    , edges     :: ID -> [(a, ID)]
+    , edges  :: ID -> [(a, ID)]
     -- ^ List of outgoing edges (transitions)
     }
 

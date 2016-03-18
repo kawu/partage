@@ -28,7 +28,7 @@ injectWeights auto dag =
     nodeMap = M.fromList
       [ (i, mkNode i n)
       | (i, n) <- M.toList (D.nodeMap dag) ]
-    -- mkNode i n = 
+    -- mkNode i n =
     mkNode i n
       | D.isLeaf i dag =
           n {D.nodeValue = 0, D.nodeEdges = []}

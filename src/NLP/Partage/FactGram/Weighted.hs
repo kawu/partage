@@ -88,7 +88,7 @@ dagFromWeightedForest forestWeights =
 -- it's equal to @0@.
 weighDAG
     :: DAG a ()         -- ^ The DAG
-    -> M.Map DID Weight  -- ^ Weights assigned to DAG roots
+    -> M.Map DID Weight -- ^ Weights assigned to DAG roots
     -> DAG a Weight     -- ^ Weighted DAG
 weighDAG dag rootWeightMap =
     flip E.execState dagw0 $
@@ -334,11 +334,6 @@ rulesMapFromDAG dag = M.fromList
 --     Just n  -> case nodeLabel n of
 --         O.Foot _  -> True
 --         _         -> False
-
-
- ----------------------
- -- Weights' injection
- ----------------------
 
 
 ----------------------

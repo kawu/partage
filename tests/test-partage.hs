@@ -24,11 +24,11 @@ t2 = R.Node (O.NonTerm "NP")
     [R.Node (O.Term "John") []]
   ]
 
-g = W.mkGram [(t1, 1), (t2, 2)]
+g = D.mkGram [(t1, 1), (t2, 2)]
 
 
-dag = W.dagGram g
-wei = WeiTrie.fromGram (W.factGram g)
+dag = D.dagGram g
+wei = WeiTrie.fromGram (D.factGram g)
 dag' = Inj.injectWeights wei dag
 
 

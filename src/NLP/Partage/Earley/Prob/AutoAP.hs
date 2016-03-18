@@ -84,12 +84,12 @@ import qualified NLP.Partage.Tree.Other as O
 import qualified NLP.Partage.Auto as A
 import qualified NLP.Partage.Auto.WeiTrie as Trie
 
-import           NLP.Partage.FactGram.DAG (Gram(..), DID(..), DAG)
+import           NLP.Partage.FactGram.DAG (Gram, DID, DAG, Weight)
 import qualified NLP.Partage.FactGram.DAG as DAG
-import           NLP.Partage.FactGram.Weighted (Weight)
-import qualified NLP.Partage.FactGram.Weighted as W
+-- import           NLP.Partage.FactGram.Weighted (Weight)
+-- import qualified NLP.Partage.FactGram.Weighted as W
 import qualified NLP.Partage.Earley.Tmp as Tmp
-import qualified NLP.Partage.Inject as Inj
+-- import qualified NLP.Partage.Inject as Inj
 
 -- For debugging purposes
 #ifdef DebugOn
@@ -463,22 +463,23 @@ data Auto n t = Auto
 mkAuto
     -- :: (Hashable t, Ord t, Hashable n, Ord n)
     :: (Ord t, Ord n)
-    => W.Gram n t -> Auto n t
+    => Gram n t -> Auto n t
 mkAuto gram =
-    let auto = Trie.fromGram (W.factGram gram)
-        dag0 = W.dagGram gram
+    let auto = Trie.fromGram (DAG.factGram gram)
+        -- dag0 = DAG.dagGram gram
+        dag = DAG.dagGram gram
         -- here we need the DAG with injected weights because
         -- afterwards we use it to compute heuristic's values
-        dag  = Inj.injectWeights auto dag0
+        -- dag  = Inj.injectWeights auto dag0
     in  Auto
         { gramDAG  = dag
         , isSpine  = DAG.isSpine dag
         , gramAuto = auto
         , withBody = mkWithBody auto
-        , termWei  = W.termWei gram
-        , termDID  = mkTermDID dag0
-        , footDID  = mkFootDID dag0
-        , leafDID  = mkLeafDID dag0 }
+        , termWei  = DAG.termWei gram
+        , termDID  = mkTermDID dag
+        , footDID  = mkFootDID dag
+        , leafDID  = mkLeafDID dag }
 
 
 -- | Create the `withBody` component based on the automaton.
@@ -493,7 +494,7 @@ mkWithBody dag = M.fromListWith S.union
 -- | Create the `termDID` component of the hypergraph.
 mkTermDID
     :: (Ord t)
-    => DAG (O.Node n t) ()
+    => DAG (O.Node n t) w
     -> M.Map t DID
 mkTermDID dag = M.fromList
     [ (t, i)
@@ -504,7 +505,7 @@ mkTermDID dag = M.fromList
 -- | Create the `footDID` component of the hypergraph.
 mkFootDID
     :: (Ord n)
-    => DAG (O.Node n t) ()
+    => DAG (O.Node n t) w
     -> M.Map n DID
 mkFootDID dag = M.fromList
     [ (x, i)
@@ -515,7 +516,7 @@ mkFootDID dag = M.fromList
 -- | Create the `leafDID` component of the hypergraph.
 mkLeafDID
     :: (Ord n)
-    => DAG (O.Node n t) ()
+    => DAG (O.Node n t) w
     -> M.Map n DID
 mkLeafDID dag = M.fromList
     [ (x, i)
@@ -1741,7 +1742,7 @@ recognizeFrom
     -> IO Bool
 -- recognizeFrom memoTerm gram dag termWei start input = do
 recognizeFrom memoTerm gram start input = do
-    let auto = mkAuto (W.mkGram gram)
+    let auto = mkAuto (DAG.mkGram gram)
 --     mapM_ print $ M.toList (DAG.nodeMap $ gramDAG auto)
 --     putStrLn "========="
 --     mapM_ print $ A.allEdges (A.fromWei $ gramAuto auto)

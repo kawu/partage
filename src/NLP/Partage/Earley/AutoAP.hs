@@ -1027,15 +1027,15 @@ tryAdjoinCont p = void $ P.runListT $ do
     let pDID = p ^. dagID
         pSpan = p ^. spanP
     -- the underlying dag grammar
-    dag <- RWS.gets (gramDAG . automat)
+    -- dag <- RWS.gets (gramDAG . automat)
     -- make sure the label is not top-level (internal spine
     -- non-terminal)
     -- guard . not $ topLevel pLab
     -- guard . not $ DAG.isRoot pDID dag
     -- guard . not $ isRoot pDID
     did <- some $ case pDID of
-        Left rootNT -> Nothing
-        Right did   -> Just did
+        Left _rootNT -> Nothing
+        Right did -> Just did
     -- make sure that `p' is an auxiliary item
     guard . auxiliary $ pSpan
     -- find all rules which expect a spine non-terminal provided
@@ -1240,7 +1240,8 @@ recognize
     -> Input t            -- ^ Input sentence
     -> IO Bool
 recognize DAG.Gram{..} input = do
-    let auto = mkAuto dagGram (D.fromGram factGram)
+    let gram = D.fromGram (M.keysSet factGram)
+        auto = mkAuto dagGram gram
     recognizeAuto auto input
 
 
@@ -1260,7 +1261,9 @@ recognizeFrom
     -> Input t              -- ^ Input sentence
     -> IO Bool
 recognizeFrom DAG.Gram{..} start input = do
-    let auto = mkAuto dagGram (D.fromGram factGram)
+    -- let auto = mkAuto dagGram (D.fromGram factGram)
+    let gram = D.fromGram (M.keysSet factGram)
+        auto = mkAuto dagGram gram
     recognizeFromAuto auto start input
 
 
@@ -1277,8 +1280,8 @@ parse
     -> Input t              -- ^ Input sentence
     -> IO [T.Tree n t]
 parse DAG.Gram{..} start input = do
-    -- auto <- mkAuto (D.fromGram gram)
-    let auto = mkAuto dagGram (D.fromGram factGram)
+    let gram = D.fromGram (M.keysSet factGram)
+        auto = mkAuto dagGram gram
     parseAuto auto start input
 
 
@@ -1295,8 +1298,8 @@ earley
     -> Input t              -- ^ Input sentence
     -> IO (Hype n t)
 earley DAG.Gram{..} input = do
-    -- auto <- mkAuto (D.fromGram gram)
-    let auto = mkAuto dagGram (D.fromGram factGram)
+    let gram = D.fromGram (M.keysSet factGram)
+        auto = mkAuto dagGram gram
     earleyAuto auto input
 
 
@@ -1338,17 +1341,18 @@ data Auto n t = Auto
 mkAuto
     -- :: (Hashable t, Ord t, Hashable n, Ord n)
     :: (Ord t, Ord n)
-    => DAG (O.Node n t) ()
+    => DAG (O.Node n t) w
     -> A.GramAuto
     -> Auto n t
     -- -> IO Auto
 mkAuto dag auto = Auto
-    { gramDAG  = dag
+    { gramDAG  = dag'
     , gramAuto = auto
     , withBody = mkWithBody auto
-    , termDID  = mkTermDID dag
-    , footDID  = mkFootDID dag
-    , leafDID  = mkLeafDID dag }
+    , termDID  = mkTermDID dag'
+    , footDID  = mkFootDID dag'
+    , leafDID  = mkLeafDID dag' }
+    where dag' = fmap (const ()) dag
 
 
 -- | Create the `withBody` component based on the automaton.

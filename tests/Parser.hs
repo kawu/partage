@@ -40,7 +40,8 @@ testEarley = T.testTree "Earley"
             . E.parse dag start
             . E.fromList
             $ input
-    mkGram = DAG.mkGram . map O.encode
+    mkGram = DAG.mkGram . map mkTree
+    mkTree t = (O.encode t, 1)
 
 
 -- | All the tests of the parsing algorithm.

@@ -23,22 +23,22 @@ module NLP.Partage.Earley.Tmp
 ) where
 
 
-import qualified Control.Arrow                 as Arr
+import qualified Control.Arrow            as Arr
 -- import           Data.Hashable (Hashable)
 -- import qualified Data.HashTable.IO          as H
-import qualified Data.List                     as L
-import qualified Data.Map.Strict               as M
-import qualified Data.MemoCombinators          as Memo
-import qualified Data.Set                      as S
+import qualified Data.List                as L
+import qualified Data.Map.Strict          as M
+import qualified Data.MemoCombinators     as Memo
+import qualified Data.Set                 as S
 
-import           Data.DAWG.Ord                 (ID)
+import           Data.DAWG.Ord            (ID)
 
 -- import qualified NLP.Partage.FactGram.Internal as I
 import qualified NLP.Partage.FactGram.DAG as D
-import qualified NLP.Partage.FactGram.Weighted as W
-import qualified NLP.Partage.Tree.Other        as O
+-- import qualified NLP.Partage.FactGram.Weighted as W
+import qualified NLP.Partage.Tree.Other   as O
 -- import qualified NLP.Partage.Auto.WeiTrie as W
-import qualified NLP.Partage.Auto              as A
+import qualified NLP.Partage.Auto         as A
 -- import qualified NLP.Partage.Earley.AutoAP     as E
 
 
@@ -99,10 +99,10 @@ memoBag memoElem =
 estiCost1
     :: (Ord t)
     => Memo.Memo t      -- ^ Memoization strategy for terminals
-    -> M.Map t W.Weight -- ^ The lower bound estimates
+    -> M.Map t D.Weight -- ^ The lower bound estimates
                         --   on terminal weights
     -> Bag t            -- ^ Bag of terminals
-    -> W.Weight
+    -> D.Weight
 estiCost1 memoElem termWei =
     esti
   where
@@ -125,11 +125,11 @@ estiCost1 memoElem termWei =
 --     :: (Ord n, Ord t)
 --     => Memo.Memo t                  -- ^ Memoization strategy for terminals
 --     -> A.WeiGramAuto n t            -- ^ The weighted automaton
---     -> D.DAG (O.Node n t) W.Weight  -- ^ The corresponding grammar DAG
---     -> (Bag t -> W.Weight)          -- ^ `estiCost1`
+--     -> D.DAG (O.Node n t) D.Weight  -- ^ The corresponding grammar DAG
+--     -> (Bag t -> D.Weight)          -- ^ `estiCost1`
 --     -> ID                           -- ^ ID of the automaton node
 --     -> Bag t                        -- ^ Bag of terminals
---     -> W.Weight
+--     -> D.Weight
 -- estiCost2 memoElem A.WeiAuto{..} weiDag estiTerm =
 --     esti
 --   where
@@ -158,11 +158,11 @@ estiCost3
     :: (Ord n, Ord t)
     => Memo.Memo t                  -- ^ Memoization strategy for terminals
     -> A.WeiGramAuto n t            -- ^ The weighted automaton
-    -> D.DAG (O.Node n t) W.Weight  -- ^ The corresponding grammar DAG
-    -> (Bag t -> W.Weight)          -- ^ `estiCost1`
+    -> D.DAG (O.Node n t) D.Weight  -- ^ The corresponding grammar DAG
+    -> (Bag t -> D.Weight)          -- ^ `estiCost1`
     -> ID                           -- ^ ID of the automaton node
     -> Bag t                        -- ^ Bag of terminals
-    -> W.Weight
+    -> D.Weight
 estiCost3 memoElem weiAuto@A.WeiAuto{..} weiDag estiTerm =
     esti
   where
@@ -238,10 +238,10 @@ supCost dag =
       | D.isRoot i dag = M.singleton bagEmpty 0
       | otherwise = M.fromListWith min
           [ (sup_j `add2` sub j) `sub2` sub i
-          | j <- S.toList (W.parents i parMap)
+          | j <- S.toList (D.parents i parMap)
           , sup_j <- M.toList (sup j) ]
     sub = subCost dag
-    parMap = W.parentMap dag
+    parMap = D.parentMap dag
 
 
 --------------------------------
@@ -260,10 +260,10 @@ supCost dag =
 -- and return 'sup' for such states.
 treeCost
     :: (Ord n, Ord t)
-    => D.DAG (O.Node n t) W.Weight  -- ^ Grammar DAG
+    => D.DAG (O.Node n t) D.Weight  -- ^ Grammar DAG
     -> A.WeiGramAuto n t            -- ^ The weighted automaton
     -> ID                           -- ^ ID of the *automaton* node
-    -> M.Map (Bag t) W.Weight
+    -> M.Map (Bag t) D.Weight
 treeCost dag wei@A.WeiAuto{..} =
   cost
   where

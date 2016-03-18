@@ -25,8 +25,7 @@ import           Data.DAWG.Ord                 (ID)
 
 import qualified NLP.Partage.Auto              as A
 -- import           NLP.Partage.FactGram          (Lab (..))
-import           NLP.Partage.FactGram.DAG      (DID, Rule)
-import           NLP.Partage.FactGram.Weighted (Weight)
+import           NLP.Partage.FactGram.DAG      (DID, Rule, Weight)
 
 
 --------------------------------------------------
