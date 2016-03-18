@@ -3,6 +3,16 @@
 {-# LANGUAGE TupleSections   #-}
 
 
+-- | A* heuristic.
+--
+-- Note that, while the heuristic is built from a weighted automaton, it actually
+-- requires that it contains no reentrancies, i.e. that the automaton is, in fact,
+-- a trie.
+--
+-- While the module functions could work directly on tries in theory, it is easier
+-- to assume the same automaton abstraction as in the parsing module.
+
+
 module NLP.Partage.Earley.Tmp
 (
 -- * Bag
