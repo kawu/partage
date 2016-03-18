@@ -4,31 +4,41 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 
--- | TAG conversion into a DAG.
+-- | DAG representation of TAG grammars.
+--
+-- The input TAG can be seen as a set of elementary (initial and auxiliary)
+-- grammar trees.  This module provides an alternative, more compact representation
+-- in which common subtrees are shared amongst the corresponding elementary trees.
+-- In this representation the grammar takes for form of a directed acyclic graph (DAG)
+-- which allows to represent sharing in a natural way.
 
 
 module NLP.Partage.FactGram.DAG
 (
 -- * DAG
--- ** Types
-  DAG (..)
-, Node(..)
+  DAG
 , DID(..)
 , Weight
--- ** Utils
-, setIDs
+-- ** Identifiers
+, rootSet
+, nodeSet
+-- ** Predicates
 , isRoot
 , isLeaf
 , isFoot
 , isSpine
+-- ** Querying
+, label
+, value
 , edges
 , children
 , descendants
-, label
-, value
-, lookup
-, insert
+-- -- ** Nodes
+-- , Node(..)
+-- , lookup
+-- , insert
 -- ** Parent Map
+-- $parent-map
 , ParentMap
 , parentMap
 , parents
@@ -38,6 +48,7 @@ module NLP.Partage.FactGram.DAG
 , mkGram
 
 -- * Conversion
+-- $rule
 -- ** Rule
 , Rule(..)
 -- ** Plain
@@ -73,12 +84,11 @@ import qualified NLP.Partage.Tree.Other     as O
 ----------------------
 
 
--- | Weight assigned to a given edge in the DAG.
+-- | Weight assigned to a given node or edge in the DAG.
 type Weight = Double
 
 
--- | Node identifier in the `DAG`.  Invariant: non-negative
--- (see `newID`).
+-- | `DAG` node identifier.
 newtype DID = DID { unDID :: Int }
     deriving (Show, Eq, Ord)
 
@@ -87,8 +97,8 @@ newtype DID = DID { unDID :: Int }
 -- subtrees are shared, i.e. a subtree common to several trees is
 -- represented by a single subgraph in the DAG.
 --
--- Type @a@ represents values of DAG nodes, type @b@ -- values of
--- DAG edges.
+-- Type @a@ represents values stored in DAG nodes, type @b@ --
+-- values kept in DAG edges.
 data DAG a b = DAG
     { rootSet :: S.Set DID
     -- ^ The set of roots of the DAG
@@ -111,10 +121,10 @@ lookup :: DID -> DAG a b -> Maybe (Node a b)
 lookup i dag = M.lookup i (nodeMap dag)
 
 
--- | Insert the node to the DAG.
-insert :: DID -> Node a b -> DAG a b -> DAG a b
-insert i n dag = dag
-    {nodeMap = M.insert i n (nodeMap dag)}
+-- -- | Insert the node to the DAG.
+-- insert :: DID -> Node a b -> DAG a b -> DAG a b
+-- insert i n dag = dag
+--     {nodeMap = M.insert i n (nodeMap dag)}
 
 
 -- | Retrieve the label of the DAG node.
@@ -145,7 +155,8 @@ isRoot i dag = S.member i (rootSet dag)
 
 
 -- | A function which tells whether the given node is a spine node.
--- Memoization turned on.
+-- The function employs memoization once it is supplied with its first
+-- argument (the grammar DAG).
 isSpine :: DAG (O.Node n t) w -> DID -> Bool
 isSpine dag =
     spine
@@ -178,9 +189,9 @@ descendants i dag = S.unions
     | j <- children i dag ]
 
 
--- | The set of all IDs in the DAG.
-setIDs :: DAG a b -> S.Set DID
-setIDs dag = S.fromList
+-- | The set of all node IDs in the DAG.
+nodeSet :: DAG a b -> S.Set DID
+nodeSet dag = S.fromList
     [ i
     | r <- S.toList (rootSet dag)
     , i <- r : S.toList (descendants r dag) ]
@@ -278,8 +289,9 @@ newID = E.gets $ \DagSt{..} -> DID $ M.size rootMap + M.size normMap
 ----------------------
 
 
--- | Transform the given weighted grammar into a `DAG`.
--- Common subtrees are shared in the resulting `DAG`.
+-- | Transform the given weighted grammar into a `DAG`.  Common subtrees are
+-- shared in the resulting `DAG`, while weights are assigned to the DAG roots
+-- corresponding to the individual elementary trees.
 dagFromWeightedForest
     :: (Ord a)
     => [(R.Tree a, Weight)]
@@ -327,6 +339,16 @@ weighDAG dag rootWeightMap = DAG
 ----------------------
 
 
+{- $rule
+  The Earley-style TAG parser (see `NLP.Partage.Earley`) assumes that
+  the grammar is represented by a set of flat production grammar rules.
+  Each rule serves to recognize a specific subtree of some elementary grammar
+  tree.  Since common subtrees are shared in the DAG representation of the grammar,
+  single rule can actually serve to recognize a specific subtree common to many
+  different elementary trees.
+-}
+
+
 -- | A production rule, responsible for recognizing a specific
 -- (unique) non-trivial (of height @> 0@) subtree of an elementary
 -- grammar tree.  Due to potential subtree sharing, a single rule can
@@ -348,7 +370,7 @@ rulesFromDAG dag = S.fromList
     , not (isLeaf i dag) ]
 
 
--- | Extract rules from the grammar DAG.
+-- | Extract rules and the corresponding weights from the weighted grammar DAG.
 rulesMapFromDAG :: DAG a Weight -> M.Map Rule Weight
 rulesMapFromDAG dag = M.fromList
     [ let (is, ws) = unzip (edges i dag)
@@ -363,6 +385,11 @@ rulesMapFromDAG dag = M.fromList
 ----------------------
 
 
+{- $parent-map
+  A `ParentMap` is a map from node IDs to the IDs of their parents.
+-}
+
+
 -- | A map from nodes to their parent IDs.
 type ParentMap = M.Map DID (S.Set DID)
 
@@ -373,7 +400,7 @@ type ParentMap = M.Map DID (S.Set DID)
 parentMap :: DAG a b -> ParentMap
 parentMap dag = M.fromListWith S.union
     [ (j, S.singleton i)
-    | i <- S.toList (setIDs dag)
+    | i <- S.toList (nodeSet dag)
     -- below we don't care about the order of children
     , j <- setNub $ children i dag ]
 
@@ -389,18 +416,21 @@ parents i = maybe S.empty id . M.lookup i
 ----------------------
 
 
--- | The datatype which contains the grammar in its different forms
--- needed for parsing.  The main component is the `dagGram` DAG, the
--- other two can be derived from it.
+-- | A datatype which contains the grammar in its various forms
+-- needed for parsing.  The main component is the `dagGram` DAG, from
+-- which the other two elements (`factGram` and `termWei`) can be derived.
 data Gram n t = Gram
     { dagGram  :: DAG (O.Node n t) Weight
-    -- ^ Grammar as a DAG (with subtree sharing)
+    -- ^ Grammar as a DAG.
     , factGram :: M.Map Rule Weight
-    -- ^ Factorized (flattened) form of the grammar
+    -- ^ Grammar as a set of production rules, with a weight assigned
+    -- to each rule.
     , termWei  :: M.Map t Weight
     -- ^ The lower bound estimates on reading terminal weights.
-    -- Based on the idea that weights of the elementary trees are
-    -- evenly distributed over its terminals.
+    -- Based on the idea that weights of the elementary trees can
+    -- be evenly distributed over their terminals which, in turn,
+    -- can serve to compute the lower bound estimates on the cost of
+    -- parsing the remaining part of an input sentence.
     }
 
 

@@ -498,7 +498,7 @@ mkTermDID
     -> M.Map t DID
 mkTermDID dag = M.fromList
     [ (t, i)
-    | i <- S.toList (DAG.setIDs dag)
+    | i <- S.toList (DAG.nodeSet dag)
     , O.Term t <- maybeToList (DAG.label i dag) ]
 
 
@@ -509,7 +509,7 @@ mkFootDID
     -> M.Map n DID
 mkFootDID dag = M.fromList
     [ (x, i)
-    | i <- S.toList (DAG.setIDs dag)
+    | i <- S.toList (DAG.nodeSet dag)
     , O.Foot x <- maybeToList (DAG.label i dag) ]
 
 
@@ -520,8 +520,8 @@ mkLeafDID
     -> M.Map n DID
 mkLeafDID dag = M.fromList
     [ (x, i)
-    | i <- S.toList (DAG.setIDs dag)
-    , DAG.isLeaf i dag
+    | i <- S.toList (DAG.nodeSet dag)
+    , DAG.isLeaf i dg
     , O.NonTerm x <- maybeToList (DAG.label i dag) ]
 
 

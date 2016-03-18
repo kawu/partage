@@ -32,9 +32,6 @@ module NLP.Partage.Earley
 , hyperEdgesNum
 -- ** Printing
 , printHype
-
--- * Sentence position
-, Pos
 ) where
 
 

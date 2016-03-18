@@ -1369,7 +1369,7 @@ mkTermDID
     -> M.Map t DID
 mkTermDID dag = M.fromList
     [ (t, i)
-    | i <- S.toList (DAG.setIDs dag)
+    | i <- S.toList (DAG.nodeSet dag)
     , O.Term t <- maybeToList (DAG.label i dag) ]
 
 
@@ -1380,7 +1380,7 @@ mkFootDID
     -> M.Map n DID
 mkFootDID dag = M.fromList
     [ (x, i)
-    | i <- S.toList (DAG.setIDs dag)
+    | i <- S.toList (DAG.nodeSet dag)
     , O.Foot x <- maybeToList (DAG.label i dag) ]
 
 
@@ -1391,7 +1391,7 @@ mkLeafDID
     -> M.Map n DID
 mkLeafDID dag = M.fromList
     [ (x, i)
-    | i <- S.toList (DAG.setIDs dag)
+    | i <- S.toList (DAG.nodeSet dag)
     , DAG.isLeaf i dag
     , O.NonTerm x <- maybeToList (DAG.label i dag) ]
 
@@ -1466,7 +1466,7 @@ earleyAuto
 earleyAuto auto input = do
     fst <$> RWS.execRWST loop input st0
   where
---     init = forM_ (S.toList $ DAG.setIDs $ gramDAG auto) $ \i -> do
+--     init = forM_ (S.toList $ DAG.nodeSet $ gramDAG auto) $ \i -> do
 --         lift $ do
 --             putStr (show i)
 --             putStr " => "
