@@ -927,6 +927,7 @@ estimateDistA :: (Ord n, SOrd t) => Active -> Earley n t Weight
 estimateDistA q = do
     tbag <- bagOfTerms (q ^. spanA)
     esti <- RWS.gets estiCost2
+    return $ esti (q ^. state) tbag
 -- #ifdef DebugOn
 --     Auto{..} <- RWS.gets automat
 --     lift $ do
@@ -938,7 +939,7 @@ estimateDistA q = do
 --         putStr " #STATE " >> print (q ^. state)
 --         putStr " #ESTI  " >> print (esti (q ^. state) tbag)
 -- #endif
-    return $ esti (q ^. state) tbag
+--     return $ esti (q ^. state) tbag
 
 
 -- | Compute the bag of terminals for the given span.
