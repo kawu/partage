@@ -25,6 +25,7 @@ category:           Natural Language Processing
 homepage:           https://github.com/kawu/partage
 build-type:         Simple
 
+
 library
     default-language:
         Haskell2010
@@ -50,7 +51,6 @@ library
       , time                >= 1.5      && < 1.7
 
     exposed-modules:
---         NLP.Partage.Core
         NLP.Partage.Tree
       , NLP.Partage.Tree.Other
 --       , NLP.Partage.FactGram
@@ -63,26 +63,11 @@ library
       , NLP.Partage.Auto.WeiTrie
       , NLP.Partage.Earley
       , NLP.Partage.FactGram.DAG
-      -- , NLP.Partage.FactGram.Weighted
       , NLP.Partage.Earley.Prob.AutoAP
       , NLP.Partage.Earley.Tmp
-      -- , NLP.Partage.Inject
-
--- NOT FOR THIS VERIONS:
---       , NLP.Partage.WRule
---       , NLP.Partage.Earley.Auto
---       , NLP.Partage.Earley.Basic
---       , NLP.Partage.Earley.Pred
---       , NLP.Partage.Earley.TreeGen
---       , NLP.Partage.Earley.Prob.SymInf
---       , NLP.Partage.Earley.Prob.Dijkstra
---       , NLP.Partage.Earley.Prob.AStar
---       , NLP.Partage.Earley.New
 
     other-modules:
         NLP.Partage.SOrd
-      -- , NLP.Partage.FactGram.Internal
-      , NLP.Partage.FactGram.SubtreeSharing
       , NLP.Partage.Earley.AutoAP
 
     ghc-options: -Wall
