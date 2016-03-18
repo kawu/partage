@@ -28,8 +28,7 @@ import qualified Data.Map.Strict as M
 import           Data.DAWG.Ord (ID)
 
 import qualified NLP.Partage.Auto as A
-import           NLP.Partage.FactGram.DAG (DID(..), Rule(..))
--- import           NLP.Partage.FactGram (FactGram, Lab(..), Rule(..))
+import           NLP.Partage.DAG (DID(..), Rule(..))
 
 
 -- | A single list.

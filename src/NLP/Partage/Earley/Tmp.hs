@@ -44,7 +44,7 @@ import qualified Data.Set                 as S
 import           Data.DAWG.Ord            (ID)
 
 -- import qualified NLP.Partage.FactGram.Internal as I
-import qualified NLP.Partage.FactGram.DAG as D
+import qualified NLP.Partage.DAG as D
 -- import qualified NLP.Partage.FactGram.Weighted as W
 import qualified NLP.Partage.Tree.Other   as O
 -- import qualified NLP.Partage.Auto.WeiTrie as W

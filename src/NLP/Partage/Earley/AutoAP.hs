@@ -76,11 +76,8 @@ import           Data.DAWG.Ord (ID)
 -- import qualified Data.DAWG.Ord.Dynamic      as D
 
 import           NLP.Partage.SOrd
--- import           NLP.Partage.FactGram (FactGram)
-import           NLP.Partage.FactGram.DAG (Gram(..), DID(..), DAG)
-import qualified NLP.Partage.FactGram.DAG as DAG
--- import           NLP.Partage.FactGram.Internal
---                                 ( Lab(..), viewLab )
+import           NLP.Partage.DAG (Gram(..), DID(..), DAG)
+import qualified NLP.Partage.DAG as DAG
 import qualified NLP.Partage.Auto as A
 import qualified NLP.Partage.Auto.DAWG  as D
 import qualified NLP.Partage.Tree.Other as O

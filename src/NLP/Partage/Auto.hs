@@ -45,7 +45,7 @@ import qualified Control.Monad.State.Strict as E
 import qualified Data.Set                   as S
 
 import           Data.DAWG.Ord              (ID)
-import           NLP.Partage.FactGram.DAG   (DID (..), Rule (..), Weight)
+import           NLP.Partage.DAG            (DID (..), Rule (..), Weight)
 
 
 -- | A datatype used to distinguish head non-terminals from body

@@ -84,10 +84,8 @@ import qualified NLP.Partage.Tree.Other as O
 import qualified NLP.Partage.Auto as A
 import qualified NLP.Partage.Auto.WeiTrie as Trie
 
-import           NLP.Partage.FactGram.DAG (Gram, DID, DAG, Weight)
-import qualified NLP.Partage.FactGram.DAG as DAG
--- import           NLP.Partage.FactGram.Weighted (Weight)
--- import qualified NLP.Partage.FactGram.Weighted as W
+import           NLP.Partage.DAG (Gram, DID, DAG, Weight)
+import qualified NLP.Partage.DAG as DAG
 import qualified NLP.Partage.Earley.Tmp as Tmp
 -- import qualified NLP.Partage.Inject as Inj
 
@@ -521,7 +519,7 @@ mkLeafDID
 mkLeafDID dag = M.fromList
     [ (x, i)
     | i <- S.toList (DAG.nodeSet dag)
-    , DAG.isLeaf i dg
+    , DAG.isLeaf i dag
     , O.NonTerm x <- maybeToList (DAG.label i dag) ]
 
 

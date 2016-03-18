@@ -13,7 +13,7 @@
 -- which allows to represent sharing in a natural way.
 
 
-module NLP.Partage.FactGram.DAG
+module NLP.Partage.DAG
 (
 -- * DAG
   DAG

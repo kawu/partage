@@ -2,8 +2,8 @@ import qualified Data.Map.Strict as M
 
 import qualified Data.Tree as R
 import qualified NLP.Partage.Tree.Other as O
-import qualified NLP.Partage.FactGram.DAG as D
-import           NLP.Partage.FactGram.DAG (DID(..))
+import qualified NLP.Partage.DAG as D
+import           NLP.Partage.DAG (DID(..))
 import qualified NLP.Partage.Auto.WeiTrie as WeiTrie
 import qualified NLP.Partage.Auto as A
 -- import qualified NLP.Partage.FactGram.Weighted  as W
@@ -31,8 +31,8 @@ wei = WeiTrie.fromGram (D.factGram g)
 
 
 main = do
-  mapM_ print $ M.toList (D.nodeMap dag)
-  putStrLn "========="
+  -- mapM_ print $ M.toList (D.nodeMap dag)
+  -- putStrLn "========="
   mapM_ print $ A.allEdges $ A.fromWei wei
 
   -- mapM_ print $ D.setIDs dag'
