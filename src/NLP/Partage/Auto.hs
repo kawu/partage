@@ -35,9 +35,11 @@ module NLP.Partage.Auto
 -- * Utilities
 , allIDs
 , allEdges
+, weights
 ) where
 
 
+import           Control.Monad              (msum)
 import qualified Control.Monad.State.Strict as E
 
 import qualified Data.Set                   as S
@@ -123,10 +125,25 @@ data WeiAuto a = WeiAuto
     }
 
 
+-- | Retrieve the weights of the given path in the automaton.
+weights :: [a] -> WeiAuto a -> [Weight]
+weights path WeiAuto{..} =
+  check "weights: no such path" $ msum
+    [ go i path
+    | i <- S.toList rootsWei ]
+  where
+    go i (x : xs) = do
+      (w, j) <- followWei i x
+      ws <- go j xs
+      return (w : ws)
+    go _ [] = Just []
+
+
 -- | Weighted automaton type specialized to represent grammar rules.
 type WeiGramAuto n t = WeiAuto (Edge DID)
 
 
+-- | Retrieve the weights of the given path in the automaton.
 -- | Convert the weighted automaton to a regular one.
 fromWei :: WeiAuto a -> Auto a
 fromWei WeiAuto{..} = Auto
@@ -150,3 +167,14 @@ toWei Auto{..} = WeiAuto
     , edgesWei = \i ->
         [(x, 0, j) | (x, j) <- edges i]
     }
+
+
+--------------------------------------------------
+-- Utils
+--------------------------------------------------
+
+
+-- | Error messange on Nothing.
+check :: String -> Maybe a -> a
+check e Nothing  = error e
+check _ (Just x) = x

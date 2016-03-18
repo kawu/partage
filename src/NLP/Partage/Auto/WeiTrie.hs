@@ -42,25 +42,35 @@ empty :: WeiTrie a w
 empty = WeiTrie M.empty
 
 
--- -- | Insert the (word, weight) pair into the trie.  The weight will
--- -- be stored in the last, `A.Head` component.  The function works
--- -- correctly provided that the trie has its weights in head
--- -- components only.
+-- -- | Insert the (word, weight) pair into the trie.
+-- -- The function can lead to negative weights on some edges.
 -- insert :: (Ord a, Num w)
---     => ([A.Edge a], w)
+--     => [A.Edge a] -> w
 --     -> WeiTrie (A.Edge a) w
 --     -> WeiTrie (A.Edge a) w
--- insert (x@(A.Body _) : xs, w) (WeiTrie t) =
---     let s = fromMaybe empty (snd <$> M.lookup x t)
---     in  WeiTrie $ M.insert x (0, insert (xs, w) s) t
--- insert (x@(A.Head _) : [], w) (WeiTrie t) =
+-- insert (x@(A.Body _) : xs) totalWei (WeiTrie t) =
+--     WeiTrie $ case M.lookup x t of
+--         Nothing ->
+--             -- we put the rest of the weight at this trie node
+--             M.insert x (totalWei, insert xs 0 empty) t
+--         Just (w, s) ->
+--             -- we cannot change the weight at this trie node;
+--             -- it would change weights of the some already
+--             -- inserted rules
+--             M.insert x (w, insert xs (totalWei - w) s) t
+-- insert (x@(A.Head _) : []) w (WeiTrie t) =
 --     WeiTrie $ M.insert x (w, empty) t
--- insert _ _ = error "insert: the unthinkable happened!"
-
-
--- -- | Build trie from the weighted language.
--- fromLang :: (Ord a, Num w) => [([A.Edge a], w)] -> WeiTrie (A.Edge a) w
--- fromLang = foldl' (flip insert) empty
+-- insert _ _ _ = error "insert: the unthinkable happened!"
+--
+--
+-- -- | Build trie from the weighted language.  The rules are added to
+-- -- the trie w.r.t. the increasing order of their weights.
+-- fromLang :: (Ord a, Ord w, Num w) => [([A.Edge a], w)] -> WeiTrie (A.Edge a) w
+-- fromLang = assertPositive .
+--     let ins t (xs, w) = insert xs w t
+--     in  foldl' ins empty . sortBy (comparing snd)
+--   where
+--     assertPositive t = flip assert t $ check (\_ w -> w >= 0) t
 
 
 -- | Insert the (word, weight) pair into the trie.
@@ -72,24 +82,24 @@ insert :: (Ord a, Num w)
 insert (x@(A.Body _) : xs) totalWei (WeiTrie t) =
     WeiTrie $ case M.lookup x t of
         Nothing ->
-            -- we put the rest of the weight at this trie node
-            M.insert x (totalWei, insert xs 0 empty) t
+            M.insert x (0, insert xs totalWei empty) t
         Just (w, s) ->
             -- we cannot change the weight at this trie node;
             -- it would change weights of the some already
-            -- inserted rules
+            -- inserted rules; but actually, the way it works
+            -- now, `w` should be equal to 0 here.
             M.insert x (w, insert xs (totalWei - w) s) t
 insert (x@(A.Head _) : []) w (WeiTrie t) =
     WeiTrie $ M.insert x (w, empty) t
 insert _ _ _ = error "insert: the unthinkable happened!"
 
 
--- | Build trie from the weighted language.  The rules are added to
--- the trie w.r.t. the increasing order of their weights.
+-- | Build a trie from a weighted language.  Weights will be placed
+-- in the final, head edges.
 fromLang :: (Ord a, Ord w, Num w) => [([A.Edge a], w)] -> WeiTrie (A.Edge a) w
 fromLang = assertPositive .
     let ins t (xs, w) = insert xs w t
-    in  foldl' ins empty . sortBy (comparing snd)
+    in  foldl' ins empty
   where
     assertPositive t = flip assert t $ check (\_ w -> w >= 0) t
 

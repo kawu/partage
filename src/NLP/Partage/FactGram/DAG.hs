@@ -352,7 +352,8 @@ rulesFromDAG dag = S.fromList
 rulesMapFromDAG :: DAG a Weight -> M.Map Rule Weight
 rulesMapFromDAG dag = M.fromList
     [ let (is, ws) = unzip (edges i dag)
-      in  (Rule i is, sum ws)
+          w = maybe 0 id (value i dag)
+      in  (Rule i is, w + sum ws)
     | i <- M.keys (nodeMap dag)
     , not (isLeaf i dag) ]
 
