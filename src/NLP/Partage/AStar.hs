@@ -244,7 +244,6 @@ printPassive p = do
 -- one could be derived.
 --
 -- TODO: Weight component can be extracted outside the Trav datatype.
--- TODO: Remaining distance can be estimated in pushing/saving functions only?
 data Trav n t
     = Scan
         { _scanFrom :: Active
@@ -711,18 +710,27 @@ savePassive p ts =
 -- | Add the active item to the waiting queue.  Check first if it
 -- is not already in the set of processed (`done') states.
 pushActive :: (SOrd t, SOrd n)
-           => Active -> ExtWeight n t -> Earley n t ()
-pushActive p new = track p new >> isProcessedA p >>= \b -> if b
+           => Active
+           -- -> ExtWeight n t
+           -> Weight           -- ^ Weight of reaching the new item
+           -> Maybe (Trav n t) -- ^ Traversal leading to the new item (if any)
+           -> Earley n t ()
+pushActive p newWeight newTrav = do
+  estDist <- estimateDistA p
+  let new = case newTrav of
+        Just trav -> extWeight  newWeight estDist trav
+        Nothing   -> extWeight0 newWeight estDist
+  track estDist >> isProcessedA p >>= \b -> if b
     then saveActive p new
-    else modify' $ \s -> s {waiting = newWait (waiting s)}
+    else modify' $ \s -> s {waiting = newWait new (waiting s)}
   where
-    newWait = Q.insertWith joinExtWeight (ItemA p) new
+    newWait = Q.insertWith joinExtWeight (ItemA p)
 #ifdef DebugOn
-    track q new = lift $ do
-        putStr ">A>  " >> printActive q
-        putStr " :>  " >> print (((,) <$> priWeight <*> estWeight) new)
+    track estWeight = lift $ do
+        putStr ">A>  " >> printActive p
+        putStr " :>  " >> print (newWeight, estWeight)
 #else
-    track p new = return ()
+    track _ = return ()
 #endif
 
 
@@ -730,34 +738,39 @@ pushActive p new = track p new >> isProcessedA p >>= \b -> if b
 -- is not already in the set of processed (`done') states.
 pushPassive :: (SOrd t, SOrd n)
             => Passive n t
-            -> ExtWeight n t
+            -- -> ExtWeight n t
+            -> Weight        -- ^ Weight of reaching the new item
+            -> Trav n t      -- ^ Traversal leading to the new item
             -> Earley n t ()
-pushPassive p new = track p new >> isProcessedP p >>= \b -> if b
+pushPassive p newWeight newTrav = do
+  estDist <- estimateDistP p
+  let new = extWeight newWeight estDist newTrav
+  track estDist >> isProcessedP p >>= \b -> if b
     then savePassive p new
-    else modify' $ \s -> s {waiting = newWait (waiting s)}
+    else modify' $ \s -> s {waiting = newWait new (waiting s)}
   where
-    -- newPrio = ExtPrio (prioP p) (S.singleton t)
-    newWait = Q.insertWith joinExtWeight (ItemP p) new
+    newWait = Q.insertWith joinExtWeight (ItemP p)
 #ifdef DebugOn
-    track p new = lift $ do
+    track estWeight = lift $ do
         putStr ">P>  " >> printPassive p
-        putStr " :>  " >> print (((,) <$> priWeight <*> estWeight) new)
+        putStr " :>  " >> print (newWeight, estWeight)
 #else
-    track p new = return ()
+    track _ = return ()
 #endif
 
 
 -- | Add to the waiting queue all items induced from the given item.
-pushInduced :: (SOrd t, SOrd n)
-            => Active
-            -> ExtWeight n t
-            -> Earley n t ()
-pushInduced q new = do
+pushInduced
+  :: (SOrd t, SOrd n)
+  => Active
+  -> Weight        -- ^ Weight of reaching the new item
+  -> Trav n t      -- ^ Traversal leading to the new item
+  -> Earley n t ()
+pushInduced q newWeight newTrav = do
     dag <- RWS.gets (gramDAG . automat)
-    hasElems (getL state q) >>= \b -> when b
-        (pushActive q new)
+    hasElems (getL state q) >>= \b ->
+      when b (pushActive q newWeight $ Just newTrav)
     P.runListT $ do
-        -- (headCost, x) <- heads (getL state q)
         (headCost, did) <- heads (getL state q)
         let p = if not (DAG.isRoot did dag)
                 then Passive (Right did) (getL spanA q)
@@ -766,17 +779,13 @@ pushInduced q new = do
                     return $ Passive (Left x) (getL spanA q)
                 where check (Just x) = x
                       check Nothing  = error "pushInduced: invalid DID"
-        estDist <- lift . estimateDistP $ p
-        -- TODO: while "reading" the head, we increase the weight of
-        -- the current parse and decrease the estimated weight at the
-        -- same time
-        let new' = new
-                { priWeight = priWeight new + headCost
-                , estWeight = estDist }
-                -- -- TODO: we do the one below, because
-                -- -- estimation concerns also supertrees.
-                -- , estWeight = estWeight new - headCost }
-        lift $ pushPassive p new'
+        -- estDist <- lift (estimateDistP p)
+        -- let ext  = new priWeight
+        -- let ext' = ext
+        --         { priWeight = priWeight new + headCost
+        --         , estWeight = estDist }
+        -- lift $ pushPassive p ext'
+        lift $ pushPassive p (newWeight + headCost) newTrav
 
 
 -- | Remove a state from the queue.
@@ -985,17 +994,16 @@ tryScan p cost = void $ P.runListT $ do
     -- given automaton state
     (termCost, j) <- followTerm (getL state p) c
     -- construct the resultant active item
-    -- let q = p {state = j, end = end p + 1}
     let q = setL state j
           . modL' (spanA >>> end) (+1)
           $ p
     -- compute the estimated distance for the resulting item
-    -- estDist <- lift . estimateDist $ q ^. spanA
-    estDist <- lift . estimateDistA $ q
+    -- estDist <- lift . estimateDistA $ q
     -- push the resulting state into the waiting queue
-    lift . pushInduced q
-         . extWeight (addWeight cost termCost) estDist
-         $ Scan p c termCost
+    lift $ pushInduced q
+             (addWeight cost termCost)
+             (Scan p c termCost)
+         -- . extWeight (addWeight cost termCost) estDist
 #ifdef DebugOn
     -- print logging information
     lift . lift $ do
@@ -1004,7 +1012,7 @@ tryScan p cost = void $ P.runListT $ do
         putStr "  :  " >> printActive q
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
         putStr " #W  " >> print (addWeight cost termCost)
-        putStr " #E  " >> print estDist
+        -- putStr " #E  " >> print estDist
 #endif
 
 
@@ -1048,11 +1056,11 @@ trySubst p cost = void $ P.runListT $ do
            . setL (spanA >>> end) (pSpan ^. end)
            $ q
     -- compute the estimated distance for the resulting state
-    estDist <- lift . estimateDistA $ q'
+    -- estDist <- lift . estimateDistA $ q'
     -- push the resulting state into the waiting queue
-    lift . pushInduced q'
-         . extWeight (sumWeight [cost, cost', tranCost]) estDist
-         $ Subst p q tranCost
+    lift $ pushInduced q'
+             (sumWeight [cost, cost', tranCost])
+             (Subst p q tranCost)
 #ifdef DebugOn
     -- print logging information
     lift . lift $ do
@@ -1062,7 +1070,7 @@ trySubst p cost = void $ P.runListT $ do
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
         putStr " #W  " >> print (sumWeight [cost, cost', tranCost])
-        putStr " #E  " >> print estDist
+        -- putStr " #E  " >> print estDist
 #endif
 
 
@@ -1101,11 +1109,11 @@ trySubst' q cost = void $ P.runListT $ do
            . setL (end . spanA) (pSpan ^. end)
            $ q
     -- compute the estimated distance for the resulting state
-    estDist <- lift . estimateDistA $ q'
+    -- estDist <- lift . estimateDistA $ q'
     -- push the resulting state into the waiting queue
-    lift . pushInduced q'
-         . extWeight (sumWeight [cost, cost', tranCost]) estDist
-         $ Subst p q tranCost
+    lift $ pushInduced q'
+             (sumWeight [cost, cost', tranCost])
+             (Subst p q tranCost)
 #ifdef DebugOn
     -- print logging information
     lift . lift $ do
@@ -1115,7 +1123,7 @@ trySubst' q cost = void $ P.runListT $ do
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
         putStr " #W  " >> print (sumWeight [cost, cost', tranCost])
-        putStr " #E  " >> print estDist
+        -- putStr " #E  " >> print estDist
 #endif
 
 
@@ -1162,12 +1170,11 @@ tryAdjoinInit p _cost = void $ P.runListT $ do
                 , pSpan ^. end ))
            $ q
     -- compute the estimated distance for the resulting state
-    estDist <- lift . estimateDistA $ q'
+    -- estDist <- lift . estimateDistA $ q'
     -- push the resulting state into the waiting queue
-    lift . pushInduced q'
-         . extWeight (addWeight cost tranCost) estDist
-         -- -- $ Foot q (nonTerm foot) tranCost
-         $ Foot q p tranCost
+    lift $ pushInduced q'
+             (addWeight cost tranCost)
+             (Foot q p tranCost)
 --     -- push the resulting state into the waiting queue
 --     lift $ pushInduced q' $ Foot q p -- -- $ nonTerm foot
 #ifdef DebugOn
@@ -1179,7 +1186,7 @@ tryAdjoinInit p _cost = void $ P.runListT $ do
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
         putStr " #W  " >> print (addWeight cost tranCost)
-        putStr " #E  " >> print estDist
+        -- putStr " #E  " >> print estDist
 #endif
 
 
@@ -1219,11 +1226,11 @@ tryAdjoinInit' q cost = void $ P.runListT $ do
                 , pSpan ^. end ))
            $ q
     -- compute the estimated distance for the resulting state
-    estDist <- lift . estimateDistA $ q'
+    -- estDist <- lift . estimateDistA $ q'
     -- push the resulting state into the waiting queue
-    lift . pushInduced q'
-         . extWeight (addWeight cost tranCost) estDist
-         $ Foot q p tranCost
+    lift $ pushInduced q'
+             (addWeight cost tranCost)
+             (Foot q p tranCost)
 #ifdef DebugOn
     -- print logging information
     lift . lift $ do
@@ -1233,7 +1240,7 @@ tryAdjoinInit' q cost = void $ P.runListT $ do
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
         putStr " #W  " >> print (addWeight cost tranCost)
-        putStr " #E  " >> print estDist
+        -- putStr " #E  " >> print estDist
 #endif
 
 
@@ -1276,11 +1283,11 @@ tryAdjoinCont p cost = void $ P.runListT $ do
            . setL (spanA >>> gap) (pSpan ^. gap)
            $ q
     -- compute the estimated distance for the resulting state
-    estDist <- lift . estimateDistA $ q'
+    -- estDist <- lift . estimateDistA $ q'
     -- push the resulting state into the waiting queue
-    lift . pushInduced q'
-         . extWeight (sumWeight [cost, cost', tranCost]) estDist
-         $ Subst p q tranCost
+    lift $ pushInduced q'
+             (sumWeight [cost, cost', tranCost])
+             (Subst p q tranCost)
 --     -- push the resulting state into the waiting queue
 --     lift $ pushInduced q' $ Subst p q
 #ifdef DebugOn
@@ -1292,7 +1299,7 @@ tryAdjoinCont p cost = void $ P.runListT $ do
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
         putStr " #W  " >> print (sumWeight [cost, cost', tranCost])
-        putStr " #E  " >> print estDist
+        -- putStr " #E  " >> print estDist
 #endif
 
 
@@ -1325,11 +1332,11 @@ tryAdjoinCont' q cost = void $ P.runListT $ do
            . setL (spanA >>> gap) (pSpan ^. gap)
            $ q
     -- compute the estimated distance for the resulting state
-    estDist <- lift . estimateDistA $ q'
+    -- estDist <- lift . estimateDistA $ q'
     -- push the resulting state into the waiting queue
-    lift . pushInduced q'
-         . extWeight (sumWeight [cost, cost', tranCost]) estDist
-         $ Subst p q tranCost
+    lift $ pushInduced q'
+             (sumWeight [cost, cost', tranCost])
+             (Subst p q tranCost)
 #ifdef DebugOn
     -- logging info
     lift . lift $ do
@@ -1339,7 +1346,7 @@ tryAdjoinCont' q cost = void $ P.runListT $ do
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
         putStr " #W  " >> print (sumWeight [cost, cost', tranCost])
-        putStr " #E  " >> print estDist
+        -- putStr " #E  " >> print estDist
 #endif
 
 
@@ -1377,11 +1384,11 @@ tryAdjoinTerm q cost = void $ P.runListT $ do
            $ p
     -- lift $ pushPassive p' $ Adjoin q p
     -- compute the estimated distance for the resulting state
-    estDist <- lift . estimateDistP $ p'
+    -- estDist <- lift . estimateDistP $ p'
     -- push the resulting state into the waiting queue
-    lift . pushPassive p'
-         . extWeight (addWeight cost cost') estDist
-         $ Adjoin q p
+    lift $ pushPassive p'
+             (addWeight cost cost')
+             (Adjoin q p)
 #ifdef Debug
     lift . lift $ do
         endTime <- Time.getCurrentTime
@@ -1390,7 +1397,7 @@ tryAdjoinTerm q cost = void $ P.runListT $ do
         putStr "  :  " >> printPassive p'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
         putStr " #W  " >> print (addWeight cost cost')
-        putStr " #E  " >> print estDist
+        -- putStr " #E  " >> print estDist
 #endif
 
 
@@ -1425,11 +1432,11 @@ tryAdjoinTerm' p cost = void $ P.runListT $ do
            . setL (spanP >>> end) (qSpan ^. end)
            $ p
     -- compute the estimated distance for the resulting state
-    estDist <- lift . estimateDistP $ p'
+    -- estDist <- lift . estimateDistP $ p'
     -- push the resulting state into the waiting queue
-    lift . pushPassive p'
-         . extWeight (addWeight cost cost') estDist
-         $ Adjoin q p
+    lift $ pushPassive p'
+             (addWeight cost cost')
+             (Adjoin q p)
 #ifdef DebugOn
     lift . lift $ do
         endTime <- Time.getCurrentTime
@@ -1438,7 +1445,7 @@ tryAdjoinTerm' p cost = void $ P.runListT $ do
         putStr "  :  " >> printPassive p'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
         putStr " #W  " >> print (addWeight cost cost')
-        putStr " #E  " >> print estDist
+        -- putStr " #E  " >> print estDist
 #endif
 
 
@@ -1467,8 +1474,8 @@ step (ItemA p :-> e) = do
     mapM_ (\f -> f p $ priWeight e)
       [ tryScan
       , trySubst'
-     , tryAdjoinInit'
-     , tryAdjoinCont' ]
+      , tryAdjoinInit'
+      , tryAdjoinCont' ]
     saveActive p e -- -- $ prioTrav e
 
 
@@ -1739,8 +1746,9 @@ earleyAuto memoTerm auto input = do
                 , _end   = i
                 , _gap   = Nothing }
         lift $ do
-            estDist <- estimateDistA q
-            pushActive q $ extWeight0 zeroWeight estDist
+            -- estDist <- estimateDistA q
+            -- pushActive q $ extWeight0 zeroWeight estDist
+            pushActive q zeroWeight Nothing
     -- the computation is performed as long as the waiting queue
     -- is non-empty.
     loop = popItem >>= \mp -> case mp of
