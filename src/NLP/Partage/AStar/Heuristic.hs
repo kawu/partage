@@ -72,12 +72,26 @@ bagAdd = M.unionWith (+)
 
 -- | Difference between the two bags:
 -- `bagDiff b1 b2` = b1 \ b2
+--
+-- Note that this function doesn't check if `b2` is a subset of `b1`,
+-- which you sould ensure yourself (using e.g. `bagSubset`).
+-- Otherwise, the function fails with error.
 bagDiff :: (Ord a) => Bag a -> Bag a -> Bag a
 bagDiff =
     let x `minus` y
             | x > y     = Just (x - y)
-            | otherwise = Nothing
+            | x == y    = Nothing
+            | otherwise = error "bagDiff: not a subset"
      in M.differenceWith minus
+
+
+-- | Check whether the first argument is a sub-multiset of the second one.
+bagSubset :: (Ord a) => Bag a -> Bag a -> Bool
+bagSubset =
+  let m `check` n
+        | m <= n    = True
+        | otherwise = False
+   in M.isSubmapOfBy check
 
 
 -- | Create a bag form a list of objects.
@@ -121,9 +135,10 @@ mkEsti memoElem I.Auto{..} = Esti
   , dagEsti  = estiNode }
   where
     estiTerm = estiCost1 memoElem termWei
-    estiNode i bag = minimum
+    estiNode i bag = minimumInf
       [ estiTerm (bag `bagDiff` bag') + w
-      | (bag', w) <- M.toList (cost i) ]
+      | (bag', w) <- M.toList (cost i)
+      , bag' `bagSubset` bag ]
     cost = supCost gramDAG
 
 
@@ -170,10 +185,11 @@ estiCost2 memoElem weiAuto@A.WeiAuto{..} weiDag estiTerm =
     esti
   where
     esti = Memo.memo2 Memo.integral (memoBag memoElem) esti'
-    esti' i bag = minimum
+    esti' i bag = minimumInf
       [ estiTerm (bag `bagDiff` bag') + w
-      | (bag', w) <- M.toList (cost i) ]
-    cost = treeCost weiDag weiAuto
+      | (bag', w) <- M.toList (cost i)
+      , bag' `bagSubset` bag ]
+    cost = trieCost weiDag weiAuto
 
 
 --------------------------------
@@ -222,6 +238,10 @@ supCost dag =
       | D.isRoot i dag = M.singleton bagEmpty 0
       | otherwise = M.fromListWith min
           [ (sup_j `add2` sub j) `sub2` sub i
+          -- above, we can be sure that (sub i) is a subset
+          -- of (sup_j `add2` sub j); note that, otherwise,
+          -- the `sub2` operation would be unsafe, given that
+          -- it relies on the `bagDiff` function
           | j <- S.toList (D.parents i parMap)
           , sup_j <- M.toList (sup j) ]
     sub = subCost dag
@@ -242,13 +262,13 @@ supCost dag =
 -- guaranteed that such states are also leaves) the function
 -- returns the empty map, even though we could possibly compute
 -- and return 'sup' for such states.
-treeCost
+trieCost
     :: (Ord n, Ord t)
     => D.DAG (O.Node n t) D.Weight  -- ^ Grammar DAG
     -> A.WeiGramAuto n t            -- ^ The weighted automaton
     -> ID                           -- ^ ID of the *automaton* node
     -> M.Map (Bag t) D.Weight
-treeCost dag wei@A.WeiAuto{..} =
+trieCost dag wei@A.WeiAuto{..} =
   cost
   where
     cost = Memo.integral cost'
@@ -314,3 +334,14 @@ labelValue i dag = do
   x <- D.label i dag
   y <- D.value i dag
   return (x, y)
+
+
+-- | Infinite value.
+infinity :: Double
+infinity = read "Infinity"
+
+
+-- | Mininum in the list or the infinite value for empty list.
+minimumInf :: [Double] -> Double
+minimumInf [] = infinity
+minimumInf xs = minimum xs
