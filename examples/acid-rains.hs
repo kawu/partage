@@ -27,12 +27,16 @@ foot x = T.Node (O.Foot x) []
 -- | A sample TAG grammar.
 trees =
   [ node "NP" [node "N" [term "acid"]]
-  , node "S"
-    [ leaf "NP"
-    , node "VP" [node "V" [term "rains"]] ]
+  , node "NP" [node "N" [term "rains"]]
   , node "NP"
     [ node "N" [term "acid"]
     , node "N" [term "rains"] ]
+  , node "N"
+    [ node "A" [term "acid"]
+    , foot "N" ]
+  , node "S"
+    [ leaf "NP"
+    , node "VP" [node "V" [term "rains"]] ]
   ]
 
 
