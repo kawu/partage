@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE RecordWildCards   #-}
+{-# LANGUAGE TupleSections     #-}
 
 
 -- | The module collects the sample grammars used for testing and
@@ -22,16 +22,18 @@ module TestSet
 )  where
 
 
-import           Control.Applicative ((<$>), (<*>))
+import           Control.Applicative    ((<$>), (<*>))
+import           Control.Arrow          (first)
 
-import qualified Data.Set as S
-import qualified Data.Map.Strict as M
+import qualified Data.Map.Strict        as M
+import qualified Data.Set               as S
 
-import           Test.Tasty (TestTree, testGroup, withResource)
-import           Test.HUnit (Assertion, (@?=))
-import           Test.Tasty.HUnit (testCase)
+import           Test.HUnit             (Assertion, (@?=))
+import           Test.Tasty             (TestTree, testGroup, withResource)
+import           Test.Tasty.HUnit       (testCase)
 
-import           NLP.Partage.Tree (Tree (..), AuxTree (..))
+import           NLP.Partage.DAG        (Weight)
+import           NLP.Partage.Tree       (AuxTree (..), Tree (..))
 import qualified NLP.Partage.Tree.Other as O
 
 
@@ -64,11 +66,11 @@ type Other = O.SomeTree String String
 -- | A single test case.
 data Test = Test {
     -- | Starting symbol
-      startSym  :: String
+      startSym :: String
     -- | The sentence to parse (list of words)
-    , testSent  :: [String]
+    , testSent :: [String]
     -- | The expected recognition result
-    , testRes   :: TestRes
+    , testRes  :: TestRes
     } deriving (Show, Eq, Ord)
 
 
@@ -142,8 +144,8 @@ mouse = Branch "NP"
 
 
 -- | Compile the first grammar.
-mkGram1 :: [Other]
-mkGram1 = -- flattenWithSharing $
+mkGram1 :: [(Other, Weight)]
+mkGram1 = map (,1) $
     map Left [tom, sleeps, caught, a, mouse] ++
     map Right [almost, quickly]
 
@@ -227,8 +229,8 @@ beta2 = AuxTree (Branch "X"
     ) [1,0]
 
 
-mkGram2 :: [Other]
-mkGram2 = -- flattenWithSharing $
+mkGram2 :: [(Other, Weight)]
+mkGram2 = map (,1) $
     map Left [alpha] ++
     map Right [beta1, beta2]
 
@@ -259,8 +261,8 @@ gram2Tests =
 ---------------------------------------------------------------------
 
 
-mkGram3 :: [Other] -- IO Gram
-mkGram3 = -- flattenWithSharing $
+mkGram3 :: [(Other, Weight)]
+mkGram3 = map (,1) $
     map Left [sent] ++
     map Right [xtree]
   where
@@ -285,15 +287,48 @@ gram3Tests =
 
 
 ---------------------------------------------------------------------
+-- Grammar 4
+---------------------------------------------------------------------
+
+
+mkGram4 :: [(Other, Weight)]
+mkGram4 =
+    map (first Left) [(ztree, 1), (stree, 10)] ++
+    map (first Right) [(atree, 5)]
+  where
+    stree = Branch "S"
+        [ Branch "A"
+          [ Branch "B"
+            [Leaf "a"] ] ]
+    ztree = Branch "Z"
+        [ Branch "Z" []
+        , Branch "A"
+            [Leaf "a"] ]
+    atree = AuxTree (Branch "A"
+        [ Leaf "x"
+        , Branch "A" []
+        , Leaf "y" ]
+        ) [1]
+
+
+-- | The purpose of this test is to test the inversed root adjoin
+-- inference operation.
+gram4Tests :: [Test]
+gram4Tests =
+    [ Test "S" (words "x a y") Yes ]
+
+
+---------------------------------------------------------------------
 -- Resources
 ---------------------------------------------------------------------
 
 
 -- | Compiled grammars.
 data Res = Res
-    { gram1 :: [Other]
-    , gram2 :: [Other]
-    , gram3 :: [Other] }
+    { gram1 :: [(Other, Weight)]
+    , gram2 :: [(Other, Weight)]
+    , gram3 :: [(Other, Weight)]
+    , gram4 :: [(Other, Weight)] }
 
 
 -- | Construct the shared resource (i.e. the grammars) used in
@@ -301,7 +336,7 @@ data Res = Res
 -- mkGrams :: IO Res
 mkGrams :: Res
 mkGrams =
-    Res mkGram1 mkGram2 mkGram3
+    Res mkGram1 mkGram2 mkGram3 mkGram4
 
 
 ---------------------------------------------------------------------
@@ -313,9 +348,9 @@ mkGrams =
 testTree
     :: String
         -- ^ Name of the tested module
-    -> ([Other] -> String -> [String] -> IO Bool)
+    -> ([(Other, Weight)] -> String -> [String] -> IO Bool)
         -- ^ Recognition function
-    -> Maybe ([Other] -> String -> [String] -> IO (S.Set Tr))
+    -> Maybe ([(Other, Weight)] -> String -> [String] -> IO (S.Set Tr))
         -- ^ Parsing function (optional)
     -> TestTree
 testTree modName reco parse =
@@ -323,13 +358,14 @@ testTree modName reco parse =
     \resIO -> testGroup modName $
         map (testIt resIO gram1) gram1Tests ++
         map (testIt resIO gram2) gram2Tests ++
-        map (testIt resIO gram3) gram3Tests
+        map (testIt resIO gram3) gram3Tests ++
+        map (testIt resIO gram4) gram4Tests
   where
     testIt resIO getGram test = testCase (show test) $ do
         gram <- getGram <$> resIO
         doTest gram test
 
-    doTest gram test@Test{..} = case (parse, testRes) of
+    doTest gram Test{..} = case (parse, testRes) of
         (Nothing, _) ->
             reco gram startSym testSent @@?= simplify testRes
         (Just pa, Trees ts) ->

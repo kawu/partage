@@ -38,7 +38,7 @@ testEarley = T.testTree "Earley"
             . E.fromList
             $ input
     mkGram = DAG.mkGram . map mkTree
-    mkTree t = (O.encode t, 1)
+    mkTree (t, w) = (O.encode t, w)
 
 
 -- | All the tests of the parsing algorithm.
@@ -50,4 +50,4 @@ testAStar = T.testTree "A*"
         = A.recognizeFrom memoTerm (map mkTree gram) start
         . A.fromList
     memoTerm = Memo.list Memo.char
-    mkTree t = (O.encode t, 1)
+    mkTree (t, w) = (O.encode t, w)
