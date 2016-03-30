@@ -434,8 +434,15 @@ data Hype n t = Hype
     -- ^ Processed active items partitioned w.r.t ending
     -- positions and state IDs.
 
-    , donePassive :: M.Map (Pos, n, Pos)
-        (M.Map (Passive n t) (ExtWeight n t))
+    -- , donePassive :: M.Map (Pos, n, Pos)
+    --    (M.Map (Passive n t) (ExtWeight n t))
+    , donePassive ::
+        M.Map Pos         -- beginning position
+        ( M.Map n         -- non-terminal
+          ( M.Map Pos     -- ending position
+            ( M.Map (Passive n t) (ExtWeight n t) )
+          )
+        )
     -- ^ Processed passive items.
 
     , waiting     :: Q.PSQ (Item n t) (ExtWeight n t)
@@ -660,11 +667,10 @@ passiveTrav
     => Passive n t -> Hype n t
     -> Maybe (ExtWeight n t)
 passiveTrav p hype =
-    ( M.lookup
-        ( p ^. spanP ^. beg
-        , nonTerm (p ^. dagID) hype
-        , p ^. spanP ^. end ) >=> M.lookup p )
-    ( donePassive hype )
+    M.lookup (p ^. spanP ^. beg) (donePassive hype) >>=
+    M.lookup (nonTerm (p ^. dagID) hype) >>=
+    M.lookup (p ^. spanP ^. end) >>=
+    M.lookup p
 
 
 -- | Check if the state is not already processed.
@@ -690,14 +696,30 @@ savePassive
 savePassive p ts =
     RWS.state $ \s -> ((), s {donePassive = newDone s})
   where
+--     newDone hype =
+--         M.insertWith
+--             ( M.unionWith joinExtWeight )
+--             ( p ^. spanP ^. beg
+--             , nonTerm (p ^. dagID) hype
+--             , p ^. spanP ^. end )
+--             ( M.singleton p ts )
+--             ( donePassive hype )
     newDone hype =
         M.insertWith
-            ( M.unionWith joinExtWeight )
-            ( p ^. spanP ^. beg
-            , nonTerm (p ^. dagID) hype
-            , p ^. spanP ^. end )
-            ( M.singleton p ts )
-            ( donePassive hype )
+          ( M.unionWith
+            ( M.unionWith
+              ( M.unionWith joinExtWeight )
+            )
+          )
+          ( p ^. spanP ^. beg )
+          ( M.singleton
+            ( nonTerm (p ^. dagID) hype )
+            ( M.singleton
+              ( p ^. spanP ^. end )
+              ( M.singleton p ts )
+            )
+          )
+          ( donePassive hype )
 
 
 --------------------
@@ -914,28 +936,10 @@ rootSpan
 rootSpan x (i, j) = do
     Hype{..} <- lift RWS.get
     -- listValues (i, x, j) donePassive
-    each $ case M.lookup (i, x, j) donePassive of
+    -- each $ case M.lookup (i, x, j) donePassive of
+    each $ case M.lookup i donePassive >>= M.lookup x >>= M.lookup j of
         Nothing -> []
         Just m -> map (Arr.second priWeight) (M.toList m)
-
-
--- | List all processed passive items.
-listPassive :: Hype n t -> [(Passive n t, ExtWeight n t)]
-listPassive = (M.elems >=> M.toList) . donePassive
-
-
--- | Return all processed passive items which:
--- * provide a given label,
--- * begin on the given position.
-provideBeg
-    :: (Ord n, Ord t) => Either n DID -> Pos
-    -> P.ListT (Earley n t) (Passive n t, Weight)
-provideBeg x i = do
-    hype <- lift RWS.get
-    each
-        [ (q, priWeight e) | (q, e) <- listPassive hype
-        , q ^. spanP ^. beg == i
-        , q ^. dagID == x ]
 
 
 -- | Return all processed items which:
@@ -951,11 +955,27 @@ provideBeg'
     :: (Ord n, Ord t) => n -> Pos
     -> P.ListT (Earley n t) (Passive n t, Weight)
 provideBeg' x i = do
+    Hype{..} <- lift RWS.get
+    each $ case M.lookup i donePassive >>= M.lookup x of
+        Nothing -> []
+        Just m ->
+          map
+            (Arr.second priWeight)
+            ((M.elems >=> M.toList) m)
+
+
+-- | Return all processed passive items which:
+-- * provide a given label,
+-- * begin on the given position.
+provideBeg
+    :: (Ord n, Ord t) => Either n DID -> Pos
+    -> P.ListT (Earley n t) (Passive n t, Weight)
+provideBeg x i = do
     hype <- lift RWS.get
     each
         [ (q, priWeight e) | (q, e) <- listPassive hype
-        , q ^. spanP ^.beg == i
-        , nonTerm (q ^. dagID) hype == x ]
+        , q ^. spanP ^. beg == i
+        , q ^. dagID == x ]
 
 
 -- | Return all fully parsed items:
@@ -975,6 +995,11 @@ auxModifyGap x gapSpan = do
         -- , isRoot (q ^. dagID)  <- this is reduntant given the
         --                           constraint below
         , q ^. dagID == Left x ]
+
+
+-- | List all processed passive items.
+listPassive :: Hype n t -> [(Passive n t, ExtWeight n t)]
+listPassive = (M.elems >=> M.elems >=> M.elems >=> M.toList) . donePassive
 
 
 --------------------------------------------------
@@ -1775,7 +1800,8 @@ finalFrom
     -> Hype n t     -- ^ Result of the earley computation
     -> [Passive n t]
 finalFrom start n Hype{..} =
-    case M.lookup (0, start, n) donePassive of
+    -- case M.lookup (0, start, n) donePassive of
+    case M.lookup 0 donePassive >>= M.lookup start >>= M.lookup n of
         Nothing -> []
         Just m ->
             [ p
