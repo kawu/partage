@@ -434,9 +434,7 @@ data Hype n t = Hype
     -- ^ Processed active items partitioned w.r.t ending
     -- positions and state IDs.
 
-    -- , donePassive :: S.Set (Passive n t)
     , donePassive :: M.Map (Pos, n, Pos)
-        -- (M.Map (Passive n t) (S.Set (Trav n t)))
         (M.Map (Passive n t) (ExtWeight n t))
     -- ^ Processed passive items.
 
@@ -804,8 +802,6 @@ popItem = RWS.state $ \st -> case Q.minView (waiting st) of
 
 
 -- | Estimate the remaining distance for a passive item.
--- TODO: This is incorrect!
--- UPDATE: Not anymore?
 estimateDistP :: (Ord t) => Passive n t -> Earley n t Weight
 estimateDistP p = do
   tbag <- bagOfTerms (p ^. spanP)
@@ -910,6 +906,8 @@ expectEnd did i = do
 -- * the given root non-terminal value (but not top-level
 --   auxiliary)
 -- * the given span
+--
+-- TODO: is it finally checked that it is not top-level auxiliary?
 rootSpan
     :: Ord n => n -> (Pos, Pos)
     -> P.ListT (Earley n t) (Passive n t, Weight)
@@ -941,11 +939,14 @@ provideBeg x i = do
 
 
 -- | Return all processed items which:
--- * are fully parsed (i.e. passive)
+-- * are fully matched (i.e. passive)
 -- * provide a label with a given non-terminal,
 -- * begin on the given position,
 --
 -- (Note the similarity to `provideBeg`)
+--
+-- TODO: The result should not be top-level auxiliary.
+-- See `tryAdjoinInit'` and `tryAdjoinInit`.
 provideBeg'
     :: (Ord n, Ord t) => n -> Pos
     -> P.ListT (Earley n t) (Passive n t, Weight)
@@ -1134,6 +1135,7 @@ trySubst' q cost = void $ P.runListT $ do
 
 -- | `tryAdjoinInit p q':
 -- * `p' is a completed state (regular or auxiliary)
+--     ; if `p` auxiliary, then not top-level
 -- * `q' not completed and expects a *real* foot
 tryAdjoinInit
     :: (SOrd n, SOrd t)
@@ -1194,6 +1196,7 @@ tryAdjoinInit p _cost = void $ P.runListT $ do
 -- expects a real foot.
 -- * `q' not completed and expects a *real* foot
 -- * `p' is a completed state (regular or auxiliary)
+--     ; if `p` auxiliary, then not top-level
 tryAdjoinInit'
     :: (SOrd n, SOrd t)
     => Active
@@ -1355,8 +1358,8 @@ tryAdjoinCont' q cost = void $ P.runListT $ do
 --------------------------------------------------
 
 
--- | Adjoin a fully-parsed auxiliary state `p` to a partially parsed
--- tree represented by a fully parsed rule/state `q`.
+-- | Adjoin a fully-parsed auxiliary tree represented by `q` to
+-- a partially parsed tree represented by a passive item `p`.
 tryAdjoinTerm
     :: (SOrd t, SOrd n)
     => Passive n t
@@ -1370,13 +1373,16 @@ tryAdjoinTerm q cost = void $ P.runListT $ do
         qSpan = q ^. spanP
     -- the underlying dag grammar
     dag <- RWS.gets (gramDAG . automat)
-    -- make sure the label is top-level
+    -- make sure the label is top-level, i.e. that
+    -- `qDID` represents a fully parsed (auxiliary) tree
     guard $ isRoot qDID
     -- make sure that it is an auxiliary item (by definition only
     -- auxiliary states have gaps)
     (gapBeg, gapEnd) <- each $ maybeToList $ qSpan ^. gap
     -- take all passive items with a given span and a given
-    -- root non-terminal (IDs irrelevant)
+    -- root non-terminal (IDs irrelevant); it must not be
+    -- a top-level auxiliary item (which should be guaranteed
+    -- by `rootSpan`)
     qNonTerm <- some (nonTerm' qDID dag)
     (p, cost') <- rootSpan qNonTerm (gapBeg, gapEnd)
     let p' = setL (spanP >>> beg) (qSpan ^. beg)
