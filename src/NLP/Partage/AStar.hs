@@ -1389,7 +1389,7 @@ tryAdjoinTerm q cost = void $ P.runListT $ do
     lift $ pushPassive p'
              (addWeight cost cost')
              (Adjoin q p)
-#ifdef Debug
+#ifdef DebugOn
     lift . lift $ do
         endTime <- Time.getCurrentTime
         putStr "[C]  " >> printPassive q
