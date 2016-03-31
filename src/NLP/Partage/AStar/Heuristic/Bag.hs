@@ -1,4 +1,7 @@
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections   #-}
+{-# LANGUAGE Rank2Types      #-}
+
 
 
 module NLP.Partage.AStar.Heuristic.Bag
