@@ -86,9 +86,9 @@ import qualified NLP.Partage.Auto as A
 import           NLP.Partage.DAG (Gram, DID, DAG, Weight)
 import qualified NLP.Partage.DAG as DAG
 import           NLP.Partage.AStar.Auto (Auto(..), mkAuto)
+-- import qualified NLP.Partage.AStar.Heuristic.Base as H
 -- import qualified NLP.Partage.AStar.Heuristic.Dummy as H
-import qualified NLP.Partage.AStar.Heuristic.Base as H
--- import qualified NLP.Partage.AStar.Heuristic as H
+import qualified NLP.Partage.AStar.Heuristic as H
 
 -- For debugging purposes
 #ifdef DebugOn
@@ -427,7 +427,7 @@ data Hype n t = Hype
     { automat   :: Auto n t
     -- ^ The underlying automaton
 
-    , estiCost   :: H.Esti t
+    -- , estiCost   :: H.Esti t
 
     -- , doneActive  :: M.Map (ID, Pos) (S.Set (Active n t))
     , doneActive  :: M.Map Pos (M.Map ID
@@ -477,12 +477,12 @@ data Hype n t = Hype
 -- | Make an initial `Hype` from a set of states.
 mkHype
     :: (HOrd n, HOrd t)
-    => H.Esti t
-    -> Auto n t
+    -- => H.Esti t
+    => Auto n t
     -> Hype n t
-mkHype esti auto = Hype
+mkHype auto = Hype
     { automat  = auto
-    , estiCost = esti
+    -- , estiCost = esti
     , doneActive  = M.empty
     , donePassiveIni = M.empty
     , donePassiveAuxTop = M.empty
@@ -874,7 +874,7 @@ popItem = RWS.state $ \st -> case Q.minView (waiting st) of
 estimateDistP :: (Ord t) => Passive n t -> Earley n t Weight
 estimateDistP p = do
   tbag <- bagOfTerms (p ^. spanP)
-  H.Esti{..} <- RWS.gets estiCost
+  H.Esti{..} <- RWS.gets (estiCost . automat)
   return $ case p ^. dagID of
     Left _  -> termEsti tbag
     Right i -> dagEsti i tbag
@@ -884,7 +884,7 @@ estimateDistP p = do
 estimateDistA :: (Ord n, SOrd t) => Active -> Earley n t Weight
 estimateDistA q = do
     tbag <- bagOfTerms (q ^. spanA)
-    esti <- RWS.gets (H.trieEsti . estiCost)
+    esti <- RWS.gets (H.trieEsti . estiCost . automat)
     return $ esti (q ^. state) tbag
 -- #ifdef DebugOn
 --     Auto{..} <- RWS.gets automat
@@ -1766,12 +1766,12 @@ recognizeFrom
     -> IO Bool
 -- recognizeFrom memoTerm gram dag termWei start input = do
 recognizeFrom memoTerm gram start input = do
-    let auto = mkAuto (DAG.mkGram gram)
+    let auto = mkAuto memoTerm (DAG.mkGram gram)
 --     mapM_ print $ M.toList (DAG.nodeMap $ gramDAG auto)
 --     putStrLn "========="
 --     mapM_ print $ A.allEdges (A.fromWei $ gramAuto auto)
 --     putStrLn "========="
-    recognizeFromAuto memoTerm auto start input
+    recognizeFromAuto auto start input
 
 
 -- -- | Parse the given sentence and return the set of parsed trees.
@@ -1833,13 +1833,12 @@ recognizeFromAuto
     -- :: (Hashable t, Ord t, Hashable n, Ord n)
     :: (Ord t, Ord n)
 #endif
-    => Memo.Memo t      -- ^ Memoization strategy for terminals
-    -> Auto n t         -- ^ Grammar automaton
+    => Auto n t         -- ^ Grammar automaton
     -> n                -- ^ The start symbol
     -> Input t          -- ^ Input sentence
     -> IO Bool
-recognizeFromAuto memoTerm auto start input = do
-    hype <- earleyAuto memoTerm auto input
+recognizeFromAuto auto start input = do
+    hype <- earleyAuto auto input
     -- let n = V.length (inputSent input)
     let n = length (inputSent input)
     return $ (not.null) (finalFrom start n hype)
@@ -1870,20 +1869,20 @@ earleyAuto
     -- :: (Hashable t, Ord t, Hashable n, Ord n)
     :: (Ord t, Ord n)
 #endif
-    => Memo.Memo t      -- ^ Memoization strategy for terminals
-    -> Auto n t         -- ^ Grammar automaton
+    => Auto n t         -- ^ Grammar automaton
     -> Input t          -- ^ Input sentence
     -> IO (Hype n t)
-earleyAuto memoTerm auto input = do
+earleyAuto auto input = do
     fst <$> RWS.execRWST (init >> loop) input st0
   where
     -- input length
     -- n = V.length (inputSent input)
     n = length (inputSent input)
     -- empty hypergraph
-    st0 = mkHype esti auto
+    -- st0 = mkHype esti auto
+    st0 = mkHype auto
     -- the heuristic
-    esti = H.mkEsti memoTerm auto
+--     esti = H.mkEsti memoTerm auto
 --     esti1 = H.estiCost1 memoTerm (termWei auto)
 --     esti2 = H.estiCost3 memoTerm
 --               (gramAuto auto)

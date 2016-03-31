@@ -38,7 +38,7 @@ import qualified Data.Set                        as S
 
 import           Data.DAWG.Ord                   (ID)
 
-import qualified NLP.Partage.AStar.Auto          as I
+-- import qualified NLP.Partage.AStar.Auto          as I
 import           NLP.Partage.AStar.Heuristic.Bag
 import qualified NLP.Partage.Auto                as A
 import qualified NLP.Partage.DAG                 as D
@@ -65,45 +65,88 @@ data Esti t = Esti
 -- | Create `Esti` based on several basic pieces of information.
 mkEsti
   :: (Ord t, Ord n)
-  => Memo.Memo t      -- ^ Memoization strategy for terminals
-  -> I.Auto n t       -- ^ The underlying automaton
+  => Memo.Memo t        -- ^ Memoization strategy for terminals
+  -> D.Gram n t         -- ^ The underlying grammar
+  -> A.WeiGramAuto n t  -- ^ The underlying automaton
   -> Esti t
-mkEsti memoElem I.Auto{..} = Esti
+mkEsti _memoElem D.Gram{..} autoGram = Esti
   { termEsti = estiTerm
-  , trieEsti = estiCost2 memoElem gramAuto gramDAG estiTerm
+  , trieEsti = estiCost2 autoGram dagGram estiTerm
   , dagEsti  = estiNode }
   where
-    estiTerm = estiCost1 memoElem termWei
+    -- estiTerm = estiCost1 memoElem termWei
+    estiTerm = estiCost1 termWei
     estiNode i bag = minimumInf
       [ estiTerm (bag `bagDiff` bag') + w
       | (bag', w) <- M.toList (cost i)
       , bag' `bagSubset` bag ]
-    cost = supCost gramDAG
+    cost = supCost dagGram
+
+
+-- -- | Heuristic: lower bound estimate on the cost (weight) remaining
+-- -- to fully parse the given input sentence.
+-- estiCost1
+--     :: (Ord t)
+--     => Memo.Memo t      -- ^ Memoization strategy for terminals
+--     -> M.Map t D.Weight -- ^ The lower bound estimates
+--                         --   on terminal weights
+--     -> Bag t            -- ^ Bag of terminals
+--     -> D.Weight
+-- estiCost1 memoElem termWei =
+--     esti
+--   where
+--     esti = memoBag memoElem esti'
+--     esti' bag = sum
+--         [ maybe 0
+--             (* fromIntegral n)
+--             (M.lookup t termWei)
+--         | (t, n) <- M.toList bag ]
 
 
 -- | Heuristic: lower bound estimate on the cost (weight) remaining
 -- to fully parse the given input sentence.
 estiCost1
     :: (Ord t)
-    => Memo.Memo t      -- ^ Memoization strategy for terminals
-    -> M.Map t D.Weight -- ^ The lower bound estimates
+    => M.Map t D.Weight -- ^ The lower bound estimates
                         --   on terminal weights
     -> Bag t            -- ^ Bag of terminals
     -> D.Weight
-estiCost1 memoElem termWei =
-    esti
-  where
-    esti = memoBag memoElem esti'
-    esti' bag = sum
-        [ maybe 0
-            (* fromIntegral n)
-            (M.lookup t termWei)
-        | (t, n) <- M.toList bag ]
+estiCost1 termWei bag =
+  sum
+    [ maybe 0
+        (* fromIntegral n)
+        (M.lookup t termWei)
+    | (t, n) <- M.toList bag ]
 
 
 --------------------------------
 -- Heuristic, part 2
 --------------------------------
+
+
+-- -- | Heuristic: lower bound estimate on the cost (weight) remaining
+-- -- to fully parse the given input sentence.
+-- --
+-- -- NOTE: This function works on any weithed automaton representations,
+-- -- but in reality it works correctly only on prefix trees!
+-- estiCost2
+--     :: (Ord n, Ord t)
+--     => Memo.Memo t                  -- ^ Memoization strategy for terminals
+--     -> A.WeiGramAuto n t            -- ^ The weighted automaton
+--     -> D.DAG (O.Node n t) D.Weight  -- ^ The corresponding grammar DAG
+--     -> (Bag t -> D.Weight)          -- ^ `estiCost1`
+--     -> ID                           -- ^ ID of the automaton node
+--     -> Bag t                        -- ^ Bag of terminals
+--     -> D.Weight
+-- estiCost2 memoElem weiAuto@A.WeiAuto{..} weiDag estiTerm =
+--     esti
+--   where
+--     esti = Memo.memo2 Memo.integral (memoBag memoElem) esti'
+--     esti' i bag = minimumInf
+--       [ estiTerm (bag `bagDiff` bag') + w
+--       | (bag', w) <- M.toList (cost i)
+--       , bag' `bagSubset` bag ]
+--     cost = trieCost weiDag weiAuto
 
 
 -- | Heuristic: lower bound estimate on the cost (weight) remaining
@@ -113,18 +156,16 @@ estiCost1 memoElem termWei =
 -- but in reality it works correctly only on prefix trees!
 estiCost2
     :: (Ord n, Ord t)
-    => Memo.Memo t                  -- ^ Memoization strategy for terminals
-    -> A.WeiGramAuto n t            -- ^ The weighted automaton
+    => A.WeiGramAuto n t            -- ^ The weighted automaton
     -> D.DAG (O.Node n t) D.Weight  -- ^ The corresponding grammar DAG
     -> (Bag t -> D.Weight)          -- ^ `estiCost1`
     -> ID                           -- ^ ID of the automaton node
     -> Bag t                        -- ^ Bag of terminals
     -> D.Weight
-estiCost2 memoElem weiAuto@A.WeiAuto{..} weiDag estiTerm =
+estiCost2 weiAuto@A.WeiAuto{..} weiDag estiTerm =
     esti
   where
-    esti = Memo.memo2 Memo.integral (memoBag memoElem) esti'
-    esti' i bag = minimumInf
+    esti i bag = minimumInf
       [ estiTerm (bag `bagDiff` bag') + w
       | (bag', w) <- M.toList (cost i)
       , bag' `bagSubset` bag ]

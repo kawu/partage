@@ -4,6 +4,8 @@
 
 -- | A* base heuristic, independent from the currently parsed
 -- elementary tree (of trees).
+--
+-- WARNING: this heuristic is actually not correct!
 
 
 module NLP.Partage.AStar.Heuristic.Base
@@ -20,8 +22,8 @@ import qualified Data.MemoCombinators            as Memo
 
 import           Data.DAWG.Ord                   (ID)
 
-import qualified NLP.Partage.AStar.Auto          as I
 import           NLP.Partage.AStar.Heuristic.Bag
+import qualified NLP.Partage.Auto                as A
 import qualified NLP.Partage.DAG                 as D
 
 
@@ -40,9 +42,10 @@ data Esti t = Esti
 mkEsti
   :: (Ord t, Ord n)
   => Memo.Memo t      -- ^ Memoization strategy for terminals
-  -> I.Auto n t       -- ^ The underlying automaton
+  -> D.Gram n t         -- ^ The underlying grammar
+  -> A.WeiGramAuto n t  -- ^ The underlying automaton
   -> Esti t
-mkEsti _memoElem I.Auto{..} = Esti
+mkEsti _memoElem D.Gram{..} _autoGram = Esti
   { termEsti = estiTerm termWei
   , trieEsti = const (estiTerm termWei)
   , dagEsti  = const (estiTerm termWei) }

@@ -1,3 +1,6 @@
+{-# LANGUAGE Rank2Types      #-}
+
+
 -- | Internal automaton data type which, aparat from the automaton itself,
 -- contains several other components needed for parsing.
 
@@ -8,17 +11,20 @@ module NLP.Partage.AStar.Auto
 ) where
 
 
-import           Data.DAWG.Ord            (ID)
-import qualified Data.Map.Strict          as M
-import           Data.Maybe               (maybeToList)
-import qualified Data.Set                 as S
+import           Data.DAWG.Ord               (ID)
+import qualified Data.Map.Strict             as M
+import           Data.Maybe                  (maybeToList)
+import qualified Data.MemoCombinators        as Memo
+import qualified Data.Set                    as S
 
-import qualified NLP.Partage.Auto         as A
+import qualified NLP.Partage.Auto            as A
 
-import qualified NLP.Partage.Auto.WeiTrie as Trie
-import           NLP.Partage.DAG          (DAG, DID, Gram, Weight)
-import qualified NLP.Partage.DAG          as DAG
-import qualified NLP.Partage.Tree.Other   as O
+import qualified NLP.Partage.AStar.Heuristic as H
+-- import qualified NLP.Partage.AStar.Heuristic.Base as H
+import qualified NLP.Partage.Auto.WeiTrie    as Trie
+import           NLP.Partage.DAG             (DAG, DID, Gram, Weight)
+import qualified NLP.Partage.DAG             as DAG
+import qualified NLP.Partage.Tree.Other      as O
 
 
 --------------------------------------------------
@@ -40,7 +46,7 @@ data Auto n t = Auto
     -- ^ A data structure which, for each label, determines the
     -- set of automaton states from which this label goes out
     -- as a body transition.
-    , termWei  :: M.Map t Weight
+    -- , termWei  :: M.Map t Weight
     -- ^ The lower bound estimates on reading terminal weights.
     -- Based on the idea that weights of the elementary trees are
     -- evenly distributed over its terminals.
@@ -56,6 +62,8 @@ data Auto n t = Auto
     -- ^ A map which assigns DAG IDs to the corresponding leaf
     -- non-terminals.  Note that each grammar foot non-terminal
     -- is represented by exactly one grammar DAG node.
+    , estiCost :: H.Esti t
+    -- ^ Heuristic estimations.
     --
     -- TODO: Consider using hashtables to reresent termDID and
     -- footDID.
@@ -64,10 +72,12 @@ data Auto n t = Auto
 
 -- | Construct `Auto` based on the weighted grammar.
 mkAuto
-    -- :: (Hashable t, Ord t, Hashable n, Ord n)
-    :: (Ord t, Ord n)
-    => Gram n t -> Auto n t
-mkAuto gram =
+  -- :: (Hashable t, Ord t, Hashable n, Ord n)
+  :: (Ord t, Ord n)
+  => Memo.Memo t        -- ^ Memoization strategy for terminals
+  -> Gram n t
+  -> Auto n t
+mkAuto memoTerm gram =
     let auto = Trie.fromGram (DAG.factGram gram)
         -- dag0 = DAG.dagGram gram
         dag = DAG.dagGram gram
@@ -79,10 +89,11 @@ mkAuto gram =
         , isSpine  = DAG.isSpine dag
         , gramAuto = auto
         , withBody = mkWithBody auto
-        , termWei  = DAG.termWei gram
+        -- , termWei  = DAG.termWei gram
         , termDID  = mkTermDID dag
         , footDID  = mkFootDID dag
-        , leafDID  = mkLeafDID dag }
+        , leafDID  = mkLeafDID dag
+        , estiCost = H.mkEsti memoTerm gram auto }
 
 
 -- | Create the `withBody` component based on the automaton.
