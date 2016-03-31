@@ -69,6 +69,8 @@ library
       , NLP.Partage.Earley.AutoAP
       , NLP.Partage.AStar.Auto
       , NLP.Partage.AStar.Heuristic
+      , NLP.Partage.AStar.Heuristic.Bag
+      , NLP.Partage.AStar.Heuristic.Dummy
 
     ghc-options: -Wall
     cpp-options: -DDebugOn

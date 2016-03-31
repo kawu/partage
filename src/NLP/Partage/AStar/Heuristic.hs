@@ -1,6 +1,5 @@
-{-# LANGUAGE Rank2Types      #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE TupleSections   #-}
+{-# LANGUAGE Rank2Types      #-}
 
 
 -- | A* heuristic.
@@ -29,82 +28,22 @@ module NLP.Partage.AStar.Heuristic
 ) where
 
 
-import qualified Control.Arrow            as Arr
+import qualified Control.Arrow                   as Arr
 -- import           Data.Hashable (Hashable)
 -- import qualified Data.HashTable.IO          as H
-import qualified Data.List                as L
-import qualified Data.Map.Strict          as M
-import qualified Data.MemoCombinators     as Memo
-import qualified Data.Set                 as S
+import qualified Data.List                       as L
+import qualified Data.Map.Strict                 as M
+import qualified Data.MemoCombinators            as Memo
+import qualified Data.Set                        as S
 
-import           Data.DAWG.Ord            (ID)
+import           Data.DAWG.Ord                   (ID)
 
-import qualified NLP.Partage.DAG as D
-import qualified NLP.Partage.Tree.Other   as O
-import qualified NLP.Partage.AStar.Auto   as I
-import qualified NLP.Partage.Auto         as A
+import qualified NLP.Partage.AStar.Auto          as I
+import           NLP.Partage.AStar.Heuristic.Bag
+import qualified NLP.Partage.Auto                as A
+import qualified NLP.Partage.DAG                 as D
+import qualified NLP.Partage.Tree.Other          as O
 -- import qualified NLP.Partage.Earley.AutoAP     as E
-
-
---------------------------------
--- Bag of words
---------------------------------
-
-
--- | Bag of elements (or multiset).
-type Bag a = M.Map a Int
-
-
--- | Empty bag.
-bagEmpty :: Bag a
-bagEmpty = M.empty
-
-
--- | Single element bag.
-pocket :: (Ord a) => a -> Bag a
-pocket x = M.singleton x 1
-
-
--- | Add two bags.
-bagAdd :: (Ord a) => Bag a -> Bag a -> Bag a
-bagAdd = M.unionWith (+)
-
-
--- | Difference between the two bags:
--- `bagDiff b1 b2` = b1 \ b2
---
--- Note that this function doesn't check if `b2` is a subset of `b1`,
--- which you sould ensure yourself (using e.g. `bagSubset`).
--- Otherwise, the function fails with error.
-bagDiff :: (Ord a) => Bag a -> Bag a -> Bag a
-bagDiff =
-    let x `minus` y
-            | x > y     = Just (x - y)
-            | x == y    = Nothing
-            | otherwise = error "bagDiff: not a subset"
-     in M.differenceWith minus
-
-
--- | Check whether the first argument is a sub-multiset of the second one.
-bagSubset :: (Ord a) => Bag a -> Bag a -> Bool
-bagSubset =
-  let m `check` n
-        | m <= n    = True
-        | otherwise = False
-   in M.isSubmapOfBy check
-
-
--- | Create a bag form a list of objects.
-bagFromList :: (Ord a) => [a] -> Bag a
-bagFromList = M.fromListWith (+) . map (,1)
-
-
--- | Memoization combinator.
-memoBag :: (Ord a) => Memo.Memo a -> Memo.Memo (Bag a)
-memoBag memoElem =
-    let memoList = Memo.list $ Memo.pair
-            memoElem Memo.integral
-    in  Memo.wrap M.fromAscList M.toAscList memoList
 
 
 --------------------------------

@@ -62,15 +62,15 @@ import           Data.Function              (on)
 import           Data.Maybe     ( isJust, isNothing, mapMaybe
                                 , maybeToList, fromJust )
 import qualified Data.Map.Strict            as M
-import           Data.Ord       ( comparing )
-import           Data.List      ( sortBy )
+-- import           Data.Ord       ( comparing )
+-- import           Data.List      ( sortBy )
 import qualified Data.Set                   as S
 import qualified Data.PSQueue               as Q
 import           Data.PSQueue (Binding(..))
 import           Data.Lens.Light
-import qualified Data.Vector                as V
-import           Data.Hashable (Hashable)
-import qualified Data.HashTable.IO          as H
+-- import qualified Data.Vector                as V
+-- import           Data.Hashable (Hashable)
+-- import qualified Data.HashTable.IO          as H
 import qualified Data.MemoCombinators as Memo
 
 import qualified Pipes                      as P
@@ -86,7 +86,8 @@ import qualified NLP.Partage.Auto as A
 import           NLP.Partage.DAG (Gram, DID, DAG, Weight)
 import qualified NLP.Partage.DAG as DAG
 import           NLP.Partage.AStar.Auto (Auto(..), mkAuto)
-import qualified NLP.Partage.AStar.Heuristic as H
+import qualified NLP.Partage.AStar.Heuristic.Dummy as H
+-- import qualified NLP.Partage.AStar.Heuristic as H
 
 -- For debugging purposes
 #ifdef DebugOn
@@ -2038,10 +2039,10 @@ lookup4
   -> M.Map a (M.Map b (M.Map c (M.Map d e)))
   -> Maybe e
 lookup4 x y z p =
-  ( M.lookup x >=>
-    M.lookup y >=>
-    M.lookup z >=>
-    M.lookup p )
+  M.lookup x >=>
+  M.lookup y >=>
+  M.lookup z >=>
+  M.lookup p
 
 
 -- | Insert a 4-element key and the corresponding value in the map.

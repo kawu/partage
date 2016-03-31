@@ -32,7 +32,7 @@ trees =
     [ node "N" [term "acid"]
     , node "N" [term "rains"] ]
   , node "N"
-    [ node "A" [term "acid"]
+    [ node "N" [term "acid"]
     , foot "N" ]
   , node "S"
     [ leaf "NP"
