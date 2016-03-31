@@ -1019,6 +1019,7 @@ rootSpan x (i, j) = do
 --
 -- TODO: The result is not top-level auxiliary.
 -- See `tryAdjoinInit'` and `tryAdjoinInit`.
+-- TODO: Remove the todo above.
 provideBeg'
     :: (Ord n, Ord t) => n -> Pos
     -> P.ListT (Earley n t) (Passive n t, Weight)
@@ -1039,18 +1040,77 @@ provideBeg' x i = do
             ((M.elems >=> M.toList) m)
 
 
--- | Return all processed passive items which:
+-- | Return all initial passive items which:
 -- * provide a given label,
 -- * begin on the given position.
-provideBeg
+--
+-- TODO: Should be optimized.
+provideBegIni
     :: (Ord n, Ord t) => Either n DID -> Pos
     -> P.ListT (Earley n t) (Passive n t, Weight)
-provideBeg x i = do
-    hype <- lift RWS.get
-    each
-        [ (q, priWeight e) | (q, e) <- listPassive hype
-        , q ^. spanP ^. beg == i
-        , q ^. dagID == x ]
+provideBegIni x i = do
+    hype@Hype{..} <- lift RWS.get
+    P.Select $ do
+      let n = nonTerm x hype
+      P.each $ case M.lookup i donePassiveIni >>= M.lookup n of
+        Nothing -> []
+        Just m ->
+          [ (q, priWeight e)
+          | (q, e) <- (M.elems >=> M.toList) m
+          , q ^. dagID == x ]
+
+
+-- | Return all auxiliary passive items which:
+-- * provide a given DAG label,
+-- * begin on the given position.
+--
+-- TODO: Should be optimized.
+provideBegAux
+    :: (Ord n, Ord t) => DID -> Pos
+    -> P.ListT (Earley n t) (Passive n t, Weight)
+provideBegAux x i = do
+    hype@Hype{..} <- lift RWS.get
+    let n = nonTerm (Right x) hype
+    each $ case M.lookup i donePassiveAuxNoTop >>= M.lookup n of
+      Nothing -> []
+      Just m ->
+        [ (q, priWeight e)
+        | (q, e) <- (M.elems >=> M.toList) m
+        , q ^. dagID == Right x ]
+
+
+-- -- | Return all processed passive items which:
+-- -- * provide a given label,
+-- -- * begin on the given position.
+-- provideBeg
+--     :: (Ord n, Ord t) => Either n DID -> Pos
+--     -> P.ListT (Earley n t) (Passive n t, Weight)
+-- provideBeg x i = do
+--     hype@Hype{..} <- lift RWS.get
+--     P.Select $ do
+--       let n = nonTerm x hype
+--       P.each $ case M.lookup i donePassiveIni >>= M.lookup n of
+--         Nothing -> []
+--         Just m ->
+-- --           map
+-- --             (Arr.second priWeight)
+-- --             ((M.elems >=> M.toList) m)
+--           [ (q, priWeight e)
+--           | (q, e) <- (M.elems >=> M.toList) m
+--           -- , q ^. spanP ^. beg == i
+--           , q ^. dagID == x ]
+-- --     hype <- lift RWS.get
+-- --     each
+-- --         [ (q, priWeight e) | (q, e) <- listPassive hype
+-- --         , q ^. spanP ^. beg == i
+-- --         , q ^. dagID == x ]
+--       P.each $ case M.lookup i donePassiveAuxNoTop >>= M.lookup n of
+--         Nothing -> []
+--         Just m ->
+--           [ (q, priWeight e)
+--           | (q, e) <- (M.elems >=> M.toList) m
+--           -- , q ^. spanP ^. beg == i
+--           , q ^. dagID == x ]
 
 
 -- | Return all fully parsed items:
@@ -1208,7 +1268,7 @@ trySubst' q cost = void $ P.runListT $ do
               else return (Right qDID)
     -- Find processed items which begin where `q` ends and which
     -- provide the non-terminal expected by `q`.
-    (p, cost') <- provideBeg qNT (q ^. spanA ^. end)
+    (p, cost') <- provideBegIni qNT (q ^. spanA ^. end)
     let pSpan = p ^. spanP
     -- construct the resultant state
     let q' = setL state j
@@ -1431,7 +1491,7 @@ tryAdjoinCont' q cost = void $ P.runListT $ do
     guard $ spine qDID && not (DAG.isLeaf qDID dag)
     -- Find all fully parsed items which provide the given label
     -- and which begin where `q` ends.
-    (p, cost') <- provideBeg (Right qDID) (q ^. spanA ^. end)
+    (p, cost') <- provideBegAux qDID (q ^. spanA ^. end)
     let pSpan = p ^. spanP
     -- construct the resulting state; the span of the gap of the
     -- inner state `p' is copied to the outer state based on `q'
