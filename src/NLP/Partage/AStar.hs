@@ -987,8 +987,6 @@ rootSpan x (i, j) = do
       P.each $ case M.lookup i donePassiveAuxNoTop >>= M.lookup x >>= M.lookup j of
         Nothing -> []
         Just m -> map (Arr.second priWeight) (M.toList m)
-          -- [ (p, priWeight e)
-          -- | (p, e) <- M.toList m ]
 
 
 -- | Return all processed items which:
