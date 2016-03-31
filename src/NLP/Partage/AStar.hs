@@ -687,21 +687,33 @@ passiveTrav
     => Passive n t -> Hype n t
     -> Maybe (ExtWeight n t)
 passiveTrav p hype
-  | regular (p ^. spanP) =
-    M.lookup (p ^. spanP ^. beg) (donePassiveIni hype) >>=
-    M.lookup (nonTerm (p ^. dagID) hype) >>=
-    M.lookup (p ^. spanP ^. end) >>=
-    M.lookup p
-  | isRoot (p ^. dagID) =
-    M.lookup (fst . fromJust $ p ^. spanP ^. gap) (donePassiveAuxTop hype) >>=
-    M.lookup (nonTerm (p ^. dagID) hype) >>=
-    M.lookup (snd . fromJust $ p ^. spanP ^. gap) >>=
-    M.lookup p
-  | otherwise =
-    M.lookup (p ^. spanP ^. beg) (donePassiveAuxNoTop hype) >>=
-    M.lookup (nonTerm (p ^. dagID) hype) >>=
-    M.lookup (p ^. spanP ^. end) >>=
-    M.lookup p
+  | regular (p ^. spanP) = lookup4
+      (p ^. spanP ^. beg)
+      (nonTerm (p ^. dagID) hype)
+      (p ^. spanP ^. end)
+      p (donePassiveIni hype)
+--     M.lookup (p ^. spanP ^. beg) (donePassiveIni hype) >>=
+--     M.lookup (nonTerm (p ^. dagID) hype) >>=
+--     M.lookup (p ^. spanP ^. end) >>=
+--     M.lookup p
+  | isRoot (p ^. dagID) = lookup4
+      (fst . fromJust $ p ^. spanP ^. gap)
+      (nonTerm (p ^. dagID) hype)
+      (snd . fromJust $ p ^. spanP ^. gap)
+      p (donePassiveAuxTop hype)
+--     M.lookup (fst . fromJust $ p ^. spanP ^. gap) (donePassiveAuxTop hype) >>=
+--     M.lookup (nonTerm (p ^. dagID) hype) >>=
+--     M.lookup (snd . fromJust $ p ^. spanP ^. gap) >>=
+--     M.lookup p
+  | otherwise = lookup4
+      (p ^. spanP ^. beg)
+      (nonTerm (p ^. dagID) hype)
+      (p ^. spanP ^. end)
+      p (donePassiveAuxNoTop hype)
+--     M.lookup (p ^. spanP ^. beg) (donePassiveAuxNoTop hype) >>=
+--     M.lookup (nonTerm (p ^. dagID) hype) >>=
+--     M.lookup (p ^. spanP ^. end) >>=
+--     M.lookup p
 
 
 -- | Check if the state is not already processed.
@@ -727,65 +739,27 @@ savePassive
 savePassive p ts
   | regular (p ^. spanP) =
       let newDone hype =
-           M.insertWith
-             ( M.unionWith
-               ( M.unionWith
-                 ( M.unionWith joinExtWeight )
-               )
-             )
-             ( p ^. spanP ^. beg )
-             ( M.singleton
-               ( nonTerm (p ^. dagID) hype )
-               ( M.singleton
-                 ( p ^. spanP ^. end )
-                 ( M.singleton p ts )
-               )
-             )
-             ( donePassiveIni hype )
+           insertWith4 joinExtWeight
+             (p ^. spanP ^. beg)
+             (nonTerm (p ^. dagID) hype)
+             (p ^. spanP ^. end)
+             p ts (donePassiveIni hype)
       in RWS.state $ \s -> ((), s {donePassiveIni = newDone s})
-    --     newDone hype =
-    --         M.insertWith
-    --             ( M.unionWith joinExtWeight )
-    --             ( p ^. spanP ^. beg
-    --             , nonTerm (p ^. dagID) hype
-    --             , p ^. spanP ^. end )
-    --             ( M.singleton p ts )
-    --             ( donePassive hype )
   | isRoot (p ^. dagID) =
        let newDone hype =
-            M.insertWith
-              ( M.unionWith
-                ( M.unionWith
-                  ( M.unionWith joinExtWeight )
-                )
-              )
-              ( fst . fromJust $ p ^. spanP ^. gap )
-              ( M.singleton
-                ( nonTerm (p ^. dagID) hype )
-                ( M.singleton
-                  ( snd . fromJust $ p ^. spanP ^. gap )
-                  ( M.singleton p ts )
-                )
-              )
-              ( donePassiveAuxTop hype )
+             insertWith4 joinExtWeight
+               (fst . fromJust $ p ^. spanP ^. gap)
+               (nonTerm (p ^. dagID) hype)
+               (snd . fromJust $ p ^. spanP ^. gap)
+               p ts (donePassiveAuxTop hype)
        in RWS.state $ \s -> ((), s {donePassiveAuxTop = newDone s})
   | otherwise =
        let newDone hype =
-            M.insertWith
-              ( M.unionWith
-                ( M.unionWith
-                  ( M.unionWith joinExtWeight )
-                )
-              )
-              ( p ^. spanP ^. beg )
-              ( M.singleton
-                ( nonTerm (p ^. dagID) hype )
-                ( M.singleton
-                  ( p ^. spanP ^. end )
-                  ( M.singleton p ts )
-                )
-              )
-              ( donePassiveAuxNoTop hype )
+             insertWith4 joinExtWeight
+               (p ^. spanP ^. beg)
+               (nonTerm (p ^. dagID) hype)
+               (p ^. spanP ^. end)
+               p ts (donePassiveAuxNoTop hype)
        in RWS.state $ \s -> ((), s {donePassiveAuxNoTop = newDone s})
 
 
@@ -2050,3 +2024,46 @@ labNonTerm :: O.Node n t -> Maybe n
 labNonTerm (O.NonTerm y) = Just y
 labNonTerm (O.Foot y) = Just y
 labNonTerm _ = Nothing
+
+
+--------------------------------------------------
+-- 4-key map operations
+--------------------------------------------------
+
+
+-- | Lookup a 4-element key in the map.
+lookup4
+  :: (Ord a, Ord b, Ord c, Ord d)
+  => a -> b -> c -> d
+  -> M.Map a (M.Map b (M.Map c (M.Map d e)))
+  -> Maybe e
+lookup4 x y z p =
+  ( M.lookup x >=>
+    M.lookup y >=>
+    M.lookup z >=>
+    M.lookup p )
+
+
+-- | Insert a 4-element key and the corresponding value in the map.
+-- Use the combining function if value already present in the map.
+insertWith4
+  :: (Ord a, Ord b, Ord c, Ord d)
+  => (e -> e -> e)
+  -> a -> b -> c -> d -> e
+  -> M.Map a (M.Map b (M.Map c (M.Map d e)))
+  -> M.Map a (M.Map b (M.Map c (M.Map d e)))
+insertWith4 f x y z p q =
+  M.insertWith
+    ( M.unionWith
+      ( M.unionWith
+        ( M.unionWith f )
+      )
+    )
+    x
+    ( M.singleton
+      y
+      ( M.singleton
+        z
+        ( M.singleton p q )
+      )
+    )
