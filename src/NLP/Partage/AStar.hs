@@ -86,7 +86,8 @@ import qualified NLP.Partage.Auto as A
 import           NLP.Partage.DAG (Gram, DID, DAG, Weight)
 import qualified NLP.Partage.DAG as DAG
 import           NLP.Partage.AStar.Auto (Auto(..), mkAuto)
-import qualified NLP.Partage.AStar.Heuristic.Dummy as H
+-- import qualified NLP.Partage.AStar.Heuristic.Dummy as H
+import qualified NLP.Partage.AStar.Heuristic.Base as H
 -- import qualified NLP.Partage.AStar.Heuristic as H
 
 -- For debugging purposes
@@ -441,7 +442,9 @@ data Hype n t = Hype
         M.Map Pos         -- beginning position
         ( M.Map n         -- non-terminal
           ( M.Map Pos     -- ending position
-            ( M.Map (Passive n t) (ExtWeight n t) )
+            -- ( M.Map (Either n DID)   -- full non-terminal label
+              ( M.Map (Passive n t) (ExtWeight n t) )
+            -- )
           )
         )
     -- ^ Processed initial passive items.
@@ -692,6 +695,7 @@ passiveTrav p hype
       (p ^. spanP ^. beg)
       (nonTerm (p ^. dagID) hype)
       (p ^. spanP ^. end)
+      -- (p ^. dagID)
       p (donePassiveIni hype)
 --     M.lookup (p ^. spanP ^. beg) (donePassiveIni hype) >>=
 --     M.lookup (nonTerm (p ^. dagID) hype) >>=
@@ -744,6 +748,7 @@ savePassive p ts
              (p ^. spanP ^. beg)
              (nonTerm (p ^. dagID) hype)
              (p ^. spanP ^. end)
+             -- (p ^. dagID)
              p ts (donePassiveIni hype)
       in RWS.state $ \s -> ((), s {donePassiveIni = newDone s})
   | isRoot (p ^. dagID) =
@@ -978,11 +983,12 @@ rootSpan x (i, j) = do
       P.each $ case M.lookup i donePassiveIni >>= M.lookup x >>= M.lookup j of
         Nothing -> []
         Just m -> map (Arr.second priWeight) (M.toList m)
+                   -- ((M.elems >=> M.toList) m)
       P.each $ case M.lookup i donePassiveAuxNoTop >>= M.lookup x >>= M.lookup j of
         Nothing -> []
-        Just m -> -- map (Arr.second priWeight) (M.toList m)
-          [ (p, priWeight e)
-          | (p, e) <- M.toList m ]
+        Just m -> map (Arr.second priWeight) (M.toList m)
+          -- [ (p, priWeight e)
+          -- | (p, e) <- M.toList m ]
 
 
 -- | Return all processed items which:
@@ -1007,6 +1013,7 @@ provideBeg' x i = do
           map
             (Arr.second priWeight)
             ((M.elems >=> M.toList) m)
+            -- ((M.elems >=> M.elems >=> M.toList) m)
       P.each $ case M.lookup i donePassiveAuxNoTop >>= M.lookup x of
         Nothing -> []
         Just m ->
@@ -1019,20 +1026,23 @@ provideBeg' x i = do
 -- * provide a given label,
 -- * begin on the given position.
 --
--- TODO: Should be optimized.
+-- TODO: Should be better optimized.
 provideBegIni
     :: (Ord n, Ord t) => Either n DID -> Pos
     -> P.ListT (Earley n t) (Passive n t, Weight)
 provideBegIni x i = do
     hype@Hype{..} <- lift RWS.get
-    P.Select $ do
-      let n = nonTerm x hype
-      P.each $ case M.lookup i donePassiveIni >>= M.lookup n of
-        Nothing -> []
-        Just m ->
-          [ (q, priWeight e)
-          | (q, e) <- (M.elems >=> M.toList) m
-          , q ^. dagID == x ]
+    let n = nonTerm x hype
+    each $
+      maybeToList ((M.lookup i >=> M.lookup n) donePassiveIni) >>=
+      M.elems >>=
+      -- maybeToList . M.lookup x >>=
+        ( \m -> do
+            p <-
+              [ (q, priWeight e)
+              | (q, e) <- M.toList m
+              , q ^. dagID == x ]
+            return p )
 
 
 -- | Return all auxiliary passive items which:
@@ -1109,12 +1119,12 @@ auxModifyGap x (i, j) = do
 --         , q ^. dagID == Left x ]
 
 
--- | List all processed passive items.
-listPassive :: Hype n t -> [(Passive n t, ExtWeight n t)]
-listPassive Hype{..}
-  =  (M.elems >=> M.elems >=> M.elems >=> M.toList) donePassiveIni
-  ++ (M.elems >=> M.elems >=> M.elems >=> M.toList) donePassiveAuxNoTop
-  ++ (M.elems >=> M.elems >=> M.elems >=> M.toList) donePassiveAuxTop
+-- -- | List all processed passive items.
+-- listPassive :: Hype n t -> [(Passive n t, ExtWeight n t)]
+-- listPassive Hype{..}
+--   =  (M.elems >=> M.elems >=> M.elems >=> M.toList) donePassiveIni
+--   ++ (M.elems >=> M.elems >=> M.elems >=> M.toList) donePassiveAuxNoTop
+--   ++ (M.elems >=> M.elems >=> M.elems >=> M.toList) donePassiveAuxTop
 
 
 --------------------------------------------------
@@ -1915,11 +1925,11 @@ finalFrom
     -> Hype n t     -- ^ Result of the earley computation
     -> [Passive n t]
 finalFrom start n Hype{..} =
-    case M.lookup 0 donePassiveIni >>= M.lookup start >>= M.lookup n of
+    case M.lookup 0 donePassiveIni >>= M.lookup start of -- >>= M.lookup n of
         Nothing -> []
         Just m ->
             [ p
-            | p <- M.keys m
+            | p <- (M.elems >=> M.keys) m
             , p ^. dagID == Left start ]
 
 
@@ -2068,3 +2078,47 @@ insertWith4 f x y z p q =
         ( M.singleton p q )
       )
     )
+
+
+-- -- | Lookup a 5-element key in the map.
+-- lookup5
+--   :: (Ord a, Ord b, Ord c, Ord d, Ord e)
+--   => a -> b -> c -> d -> e
+--   -> M.Map a (M.Map b (M.Map c (M.Map d (M.Map e f))))
+--   -> Maybe f
+-- lookup5 x y z w p =
+--   M.lookup x >=>
+--   M.lookup y >=>
+--   M.lookup z >=>
+--   M.lookup w >=>
+--   M.lookup p
+
+
+-- -- | Insert a 5-element key and the corresponding value in the map.
+-- -- Use the combining function if value already present in the map.
+-- insertWith5
+--   :: (Ord a, Ord b, Ord c, Ord d, Ord e)
+--   => (f -> f -> f)
+--   -> a -> b -> c -> d -> e -> f
+--   -> M.Map a (M.Map b (M.Map c (M.Map d (M.Map e f))))
+--   -> M.Map a (M.Map b (M.Map c (M.Map d (M.Map e f))))
+-- insertWith5 f x y z w p q =
+--   M.insertWith
+--     ( M.unionWith
+--       ( M.unionWith
+--         ( M.unionWith
+--           ( M.unionWith f )
+--         )
+--       )
+--     )
+--     x
+--     ( M.singleton
+--       y
+--       ( M.singleton
+--         z
+--         ( M.singleton
+--           w
+--           ( M.singleton p q )
+--         )
+--       )
+--     )

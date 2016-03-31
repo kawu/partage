@@ -44,6 +44,7 @@ import           Data.PSQueue (Binding(..))
 import qualified Data.Tree as R
 
 import           NLP.Partage.Tree.Other
+import           NLP.Partage.DAG () -- for Ord (R.Tree a)
 
 
 --------------------------
@@ -51,7 +52,7 @@ import           NLP.Partage.Tree.Other
 --------------------------
 
 
-deriving instance (Ord n, Ord t) => (Ord (Tree n t))
+-- deriving instance (Ord n, Ord t) => (Ord (Tree n t))
 
 
 -- | A TAG grammar: a set of (elementary) initial and auxiliary
