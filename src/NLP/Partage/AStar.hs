@@ -27,20 +27,30 @@ module NLP.Partage.AStar
 -- ** With automata precompiled
 -- , recognizeAuto
 
-  , recognizeFromAuto
+, recognizeFromAuto
 -- , parseAuto
 , earleyAuto
+, earleyAutoP
 -- ** Automaton
 , Auto
 , mkAuto
 
 -- * Parsing trace (hypergraph)
 , Hype
--- -- ** Extracting parsed trees
--- , parsedTrees
--- -- ** Stats
--- , hyperNodesNum
--- , hyperEdgesNum
+, Item (..)
+, Passive
+, Active
+-- ** Extracting parsed trees
+, parsedTrees
+, fromPassive
+, fromActive
+-- ** Stats
+, hyperNodesNum
+, hyperEdgesNum
+, doneNodesNum
+, doneEdgesNum
+, waitingNodesNum
+, waitingEdgesNum
 -- -- ** Printing
 -- , printHype
 
@@ -74,7 +84,8 @@ import           Data.Lens.Light
 import qualified Data.MemoCombinators as Memo
 
 import qualified Pipes                      as P
--- import qualified Pipes.Prelude              as P
+import           Pipes                      ((>->))
+import qualified Pipes.Prelude              as P
 
 import           Data.DAWG.Ord (ID)
 
@@ -492,7 +503,9 @@ mkHype auto = Hype
 
 -- | Earley parser monad.  Contains the input sentence (reader)
 -- and the state of the computation `Hype'.
-type Earley n t = RWS.RWST (Input t) () (Hype n t) IO
+type Earley n t = RWS.RWST
+  (Input t) () (Hype n t)
+  (P.Producer (Item n t, Hype n t) IO)
 
 
 -- | Read word from the given position of the input.
@@ -573,13 +586,71 @@ hasElems i = do
 --------------------------------------------------
 
 
--- -- | Number of nodes in the parsing hypergraph.
--- hyperNodesNum :: Hype n t -> Int
--- hyperNodesNum e
---     = length (listPassive e)
---     + length (listActive e)
---
---
+-- | List all passive done items together with the corresponding
+-- traversals.
+listPassive :: Hype n t -> [(Passive n t, ExtWeight n t)]
+listPassive hype =
+  list (donePassiveIni hype) ++
+  list (donePassiveAuxTop hype) ++
+  list (donePassiveAuxNoTop hype)
+  where list = M.elems >=> M.elems >=> M.elems >=> M.toList
+
+
+-- | List all active done items together with the corresponding
+-- traversals.
+listActive :: Hype n t -> [(Active, ExtWeight n t)]
+listActive = (M.elems >=> M.elems >=> M.toList) . doneActive
+
+
+-- | List all waiting items together with the corresponding
+-- traversals.
+listWaiting :: (Ord n, Ord t) => Hype n t -> [(Item n t, ExtWeight n t)]
+listWaiting =
+  let toPair (p :-> w) = (p, w)
+   in map toPair . Q.toList . waiting
+
+
+-- | Number of passive (done) nodes in the parsing hypergraph.
+doneNodesNum :: Hype n t -> Int
+doneNodesNum e
+    = length (listPassive e)
+    + length (listActive e)
+
+
+-- | Number of waiting nodes in the parsing hypergraph.
+waitingNodesNum :: (Ord n, Ord t) => Hype n t -> Int
+waitingNodesNum = length . listWaiting
+
+
+-- | Number of nodes in the parsing hypergraph.
+hyperNodesNum :: (Ord n, Ord t) => Hype n t -> Int
+hyperNodesNum e = doneNodesNum e + waitingNodesNum e
+
+
+-- | Number of edges outgoing from done nodes in the underlying hypergraph.
+doneEdgesNum :: Hype n t -> Int
+doneEdgesNum e
+    = sumTrav (listPassive e)
+    + sumTrav (listActive e)
+
+
+-- | Number of edges outgoing from waiting nodes in the underlying hypergraph.
+waitingEdgesNum :: (Ord n, Ord t) => Hype n t -> Int
+waitingEdgesNum = sumTrav . listWaiting
+
+
+-- | Number of edges in the parsing hypergraph.
+hyperEdgesNum :: (Ord n, Ord t) => Hype n t -> Int
+hyperEdgesNum e = doneEdgesNum e + waitingEdgesNum e
+
+
+-- | Sum up traversals.
+sumTrav :: [(a, ExtWeight n t)] -> Int
+sumTrav xs = sum
+    [ S.size (prioTrav ext)
+    | (_, ext) <- xs ]
+
+
 -- -- | Number of edges in the parsing hypergraph.
 -- hyperEdgesNum :: forall n t. Hype n t -> Int
 -- hyperEdgesNum earSt
@@ -621,12 +692,6 @@ hasElems i = do
 --------------------
 -- Active items
 --------------------
-
-
--- -- | List all active done items together with the corresponding
--- -- traversals.
--- listActive :: Hype n t -> [(Active, S.Set (Trav n t))]
--- listActive = (M.elems >=> M.elems >=> M.toList) . doneActive
 
 
 -- | Return the corresponding set of traversals for an active item.
@@ -677,12 +742,6 @@ saveActive p ts =
 --------------------
 -- Passive items
 --------------------
-
-
--- -- | List all passive done items together with the corresponding
--- -- traversals.
--- listPassive :: Hype n t -> [(Passive n t, S.Set (Trav n t))]
--- listPassive = (M.elems >=> M.toList) . donePassive
 
 
 -- | Return the corresponding set of traversals for a passive item.
@@ -1638,99 +1697,84 @@ step (ItemA p :-> e) = do
 ---------------------------
 
 
--- -- | Extract the set of parsed trees obtained on the given input
--- -- sentence.  Should be run on the result of the earley parser.
--- parsedTrees
---     :: forall n t. (Ord n, Ord t)
---     => Hype n t     -- ^ Final state of the earley parser
---     -> n            -- ^ The start symbol
---     -> Int          -- ^ Length of the input sentence
---     -> [T.Tree n t]
--- parsedTrees earSt start n
---
---     = concatMap fromPassive
---     $ finalFrom start n earSt
---
---   where
---
---     fromPassive :: Passive n t -> [T.Tree n t]
---     fromPassive p = concat
---         [ fromPassiveTrav p trav
---         | travSet <- maybeToList $ passiveTrav p earSt
---         , trav <- S.toList travSet ]
---
---     fromPassiveTrav p (Scan q t) =
---         [ T.Branch
---             (nonTerm $ getL label p)
---             (reverse $ T.Leaf t : ts)
---         | ts <- fromActive q ]
---
--- --     fromPassiveTrav p (Foot q x) =
--- --         [ T.Branch
--- --             (nonTerm $ getL label p)
--- --             (reverse $ T.Branch x [] : ts)
--- --         | ts <- fromActive q ]
---
---     fromPassiveTrav p (Foot q _p') =
---         [ T.Branch
---             (nonTerm $ getL label p)
---             (reverse $ T.Branch (nonTerm $ p ^. label) [] : ts)
---         | ts <- fromActive q ]
---
---     fromPassiveTrav p (Subst qp qa) =
---         [ T.Branch
---             (nonTerm $ getL label p)
---             (reverse $ t : ts)
---         | ts <- fromActive qa
---         , t  <- fromPassive qp ]
---
---     fromPassiveTrav _p (Adjoin qa qm) =
---         [ replaceFoot ini aux
---         | aux <- fromPassive qa
---         , ini <- fromPassive qm ]
---
---     -- | Replace foot (the only non-terminal leaf) by the given
---     -- initial tree.
---     replaceFoot ini (T.Branch _ []) = ini
---     replaceFoot ini (T.Branch x ts) = T.Branch x $ map (replaceFoot ini) ts
---     replaceFoot _ t@(T.Leaf _)    = t
---
---
---     fromActive  :: Active -> [[T.Tree n t]]
---     fromActive p = case activeTrav p earSt of
---         Nothing -> error "fromActive: unknown active item"
---         Just travSet -> if S.null travSet
---             then [[]]
---             else concatMap
---                 (fromActiveTrav p)
---                 (S.toList travSet)
---
---     fromActiveTrav _p (Scan q t) =
---         [ T.Leaf t : ts
---         | ts <- fromActive q ]
---
---     fromActiveTrav _p (Foot q p) =
---         [ T.Branch (nonTerm $ p ^. label) [] : ts
---         | ts <- fromActive q ]
---
--- --     fromActiveTrav _p (Foot q x) =
--- --         [ T.Branch x [] : ts
--- --         | ts <- fromActive q ]
---
---     fromActiveTrav _p (Subst qp qa) =
---         [ t : ts
---         | ts <- fromActive qa
---         , t  <- fromPassive qp ]
---
---     fromActiveTrav _p (Adjoin _ _) =
---         error "parsedTrees: fromActiveTrav called on a passive item"
---
---
--- --------------------------------------------------
--- -- EARLEY
--- --------------------------------------------------
---
---
+-- | Extract the set of the parsed trees w.r.t. to the given active item.
+fromActive :: (Ord n, Ord t) => Active -> Hype n t -> [[T.Tree n t]]
+fromActive p hype =
+  case activeTrav p hype of
+    Nothing  -> error "fromActive: unknown active item"
+    Just ext -> if S.null (prioTrav ext)
+        then [[]]
+        else concatMap
+            (fromActiveTrav p)
+            (S.toList (prioTrav ext))
+  where
+    fromActiveTrav _p (Scan q t _) =
+        [ T.Leaf t : ts
+        | ts <- fromActive q hype ]
+    fromActiveTrav _p (Foot q p _) =
+        [ T.Branch (nonTerm (p ^. dagID) hype) [] : ts
+        | ts <- fromActive q hype ]
+    fromActiveTrav _p (Subst qp qa _) =
+        [ t : ts
+        | ts <- fromActive qa hype
+        , t  <- fromPassive qp hype ]
+    fromActiveTrav _p (Adjoin _ _) =
+        error "parsedTrees: fromActiveTrav called on a passive item"
+
+
+-- | Extract the set of the parsed trees w.r.t. to the given passive item.
+fromPassive :: (Ord n, Ord t) => Passive n t -> Hype n t -> [T.Tree n t]
+fromPassive p hype = concat
+  [ fromPassiveTrav p trav
+  | ext <- maybeToList $ passiveTrav p hype
+  , trav <- S.toList (prioTrav ext) ]
+  where
+    fromPassiveTrav p (Scan q t _) =
+        [ T.Branch
+            (nonTerm (getL dagID p) hype)
+            (reverse $ T.Leaf t : ts)
+        | ts <- fromActive q hype ]
+    fromPassiveTrav p (Foot q _p' _) =
+        [ T.Branch
+            (nonTerm (getL dagID p) hype)
+            (reverse $ T.Branch (nonTerm (p ^. dagID) hype) [] : ts)
+        | ts <- fromActive q hype ]
+    fromPassiveTrav p (Subst qp qa _) =
+        [ T.Branch
+            (nonTerm (getL dagID p) hype)
+            (reverse $ t : ts)
+        | ts <- fromActive qa hype
+        , t  <- fromPassive qp hype ]
+    fromPassiveTrav _p (Adjoin qa qm) =
+        [ replaceFoot ini aux
+        | aux <- fromPassive qa hype
+        , ini <- fromPassive qm hype ]
+    -- | Replace foot (the only non-terminal leaf) by the given
+    -- initial tree.
+    replaceFoot ini (T.Branch _ []) = ini
+    replaceFoot ini (T.Branch x ts) = T.Branch x $ map (replaceFoot ini) ts
+    replaceFoot _ t@(T.Leaf _)    = t
+
+
+-- | Extract the set of parsed trees obtained on the given input
+-- sentence.  Should be run on the result of the earley parser.
+parsedTrees
+    :: forall n t. (Ord n, Ord t)
+    => Hype n t     -- ^ Final state of the earley parser
+    -> n            -- ^ The start symbol
+    -> Int          -- ^ Length of the input sentence
+    -> [T.Tree n t]
+parsedTrees hype start n
+    = concatMap (flip fromPassive hype)
+    $ finalFrom start n hype
+
+
+
+--------------------------------------------------
+-- EARLEY
+--------------------------------------------------
+
+
 -- -- | Does the given grammar generate the given sentence?
 -- -- Uses the `earley` algorithm under the hood.
 -- recognize
@@ -1872,22 +1916,32 @@ earleyAuto
     => Auto n t         -- ^ Grammar automaton
     -> Input t          -- ^ Input sentence
     -> IO (Hype n t)
-earleyAuto auto input = do
-    fst <$> RWS.execRWST (init >> loop) input st0
+earleyAuto auto input =
+  P.runEffect $ earleyAutoP auto input >-> P.drain
+
+
+-- | Produce the constructed items (and the
+-- corresponding hypergraphs) on the fly.
+-- See also `earley`.
+earleyAutoP
+#ifdef DebugOn
+    :: (SOrd t, SOrd n)
+#else
+    :: (Ord t, Ord n)
+#endif
+    => Auto n t         -- ^ Grammar automaton
+    -> Input t          -- ^ Input sentence
+    -> P.Producer
+         (Item n t, Hype n t)
+         IO (Hype n t)
+earleyAutoP auto input = do
+    (hype, _) <- RWS.evalRWST (init >> loop) input st0
+    return hype
   where
     -- input length
-    -- n = V.length (inputSent input)
     n = length (inputSent input)
     -- empty hypergraph
-    -- st0 = mkHype esti auto
     st0 = mkHype auto
-    -- the heuristic
---     esti = H.mkEsti memoTerm auto
---     esti1 = H.estiCost1 memoTerm (termWei auto)
---     esti2 = H.estiCost3 memoTerm
---               (gramAuto auto)
---               (gramDAG auto)
---               esti1
     -- initialize hypergraph with initial active items
     init = P.runListT $ do
         root <- each . S.toList
@@ -1898,15 +1952,16 @@ earleyAuto auto input = do
                 { _beg   = i
                 , _end   = i
                 , _gap   = Nothing }
-        lift $ do
-            -- estDist <- estimateDistA q
-            -- pushActive q $ extWeight0 zeroWeight estDist
-            pushActive q zeroWeight Nothing
+        lift $ pushActive q zeroWeight Nothing
     -- the computation is performed as long as the waiting queue
     -- is non-empty.
     loop = popItem >>= \mp -> case mp of
-        Nothing -> return ()
-        Just p  -> step p >> loop
+        Nothing -> RWS.get
+        Just p  -> do
+          step p
+          hype <- RWS.get
+          lift $ P.yield (Q.key p, hype)
+          loop
 
 
 --------------------------------------------------
