@@ -151,6 +151,31 @@ data Span = Span {
 $( makeLenses [''Span] )
 
 
+-- | Does it represent regular rules?
+regular :: Span -> Bool
+regular = isNothing . getL gap
+
+
+-- | Does it represent auxiliary rules?
+auxiliary :: Span -> Bool
+auxiliary = isJust . getL gap
+
+
+-- | Print an active item.
+printSpan :: Span -> IO ()
+printSpan span = do
+    putStr . show $ getL beg span
+    putStr ", "
+    case getL gap span of
+        Nothing -> return ()
+        Just (p, q) -> do
+            putStr $ show p
+            putStr ", "
+            putStr $ show q
+            putStr ", "
+    putStr . show $ getL end span
+
+
 -- | Active chart item : state reference + span.
 data Active = Active {
       _state :: ID
@@ -172,36 +197,11 @@ data Passive n t = Passive {
 $( makeLenses [''Passive] )
 
 
--- | Does it represent regular rules?
-regular :: Span -> Bool
-regular = isNothing . getL gap
-
-
--- | Does it represent auxiliary rules?
-auxiliary :: Span -> Bool
-auxiliary = isJust . getL gap
-
-
 -- | Does it represent a root?
 isRoot :: Either n DID -> Bool
 isRoot x = case x of
     Left _  -> True
     Right _ -> False
-
-
--- | Print an active item.
-printSpan :: Span -> IO ()
-printSpan span = do
-    putStr . show $ getL beg span
-    putStr ", "
-    case getL gap span of
-        Nothing -> return ()
-        Just (p, q) -> do
-            putStr $ show p
-            putStr ", "
-            putStr $ show q
-            putStr ", "
-    putStr . show $ getL end span
 
 
 -- | Print an active item.

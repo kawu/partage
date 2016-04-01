@@ -38,8 +38,9 @@ module NLP.Partage.AStar
 -- * Parsing trace (hypergraph)
 , Hype
 , Item (..)
-, Passive
-, Active
+, Passive (..)
+, Active (..)
+, Span (..)
 -- ** Extracting parsed trees
 , parsedTrees
 , fromPassive

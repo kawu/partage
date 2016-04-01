@@ -74,7 +74,7 @@ library
       , NLP.Partage.AStar.Heuristic.Base
 
     ghc-options: -Wall
-    cpp-options: -DDebugOn
+    -- cpp-options: -DDebugOn
 
 
 source-repository head
