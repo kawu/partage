@@ -63,6 +63,7 @@ import           Prelude hiding             (init, span, (.))
 import           Control.Applicative        ((<$>))
 import qualified Control.Arrow as Arr
 import           Control.Monad      (guard, void, (>=>), when, forM_)
+import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Class  (lift)
 -- import           Control.Monad.Trans.Maybe  (MaybeT (..))
 import qualified Control.Monad.RWS.Strict   as RWS
@@ -852,7 +853,7 @@ pushActive p newWeight newTrav = do
   where
     newWait = Q.insertWith joinExtWeight (ItemA p)
 #ifdef DebugOn
-    track estWeight = lift $ do
+    track estWeight = liftIO $ do
         putStr ">A>  " >> printActive p
         putStr " :>  " >> print (newWeight, estWeight)
 #else
@@ -877,7 +878,7 @@ pushPassive p newWeight newTrav = do
   where
     newWait = Q.insertWith joinExtWeight (ItemP p)
 #ifdef DebugOn
-    track estWeight = lift $ do
+    track estWeight = liftIO $ do
         putStr ">P>  " >> printPassive p
         putStr " :>  " >> print (newWeight, estWeight)
 #else
@@ -1193,7 +1194,7 @@ auxModifyGap x (i, j) = do
 tryScan :: (SOrd t, SOrd n) => Active -> Weight -> Earley n t ()
 tryScan p cost = void $ P.runListT $ do
 #ifdef DebugOn
-    begTime <- lift . lift $ Time.getCurrentTime
+    begTime <- liftIO $ Time.getCurrentTime
 #endif
     -- read the word immediately following the ending position of
     -- the state
@@ -1214,7 +1215,7 @@ tryScan p cost = void $ P.runListT $ do
          -- . extWeight (addWeight cost termCost) estDist
 #ifdef DebugOn
     -- print logging information
-    lift . lift $ do
+    liftIO $ do
         endTime <- Time.getCurrentTime
         putStr "[S]  " >> printActive p
         putStr "  :  " >> printActive q
@@ -1238,7 +1239,7 @@ trySubst
     -> Earley n t ()
 trySubst p cost = void $ P.runListT $ do
 #ifdef DebugOn
-    begTime <- lift . lift $ Time.getCurrentTime
+    begTime <- liftIO $ Time.getCurrentTime
 #endif
     let pDID = getL dagID p
         pSpan = getL spanP p
@@ -1271,7 +1272,7 @@ trySubst p cost = void $ P.runListT $ do
              (Subst p q tranCost)
 #ifdef DebugOn
     -- print logging information
-    lift . lift $ do
+    liftIO $ do
         endTime <- Time.getCurrentTime
         putStr "[U]  " >> printPassive p
         putStr "  +  " >> printActive q
@@ -1291,7 +1292,7 @@ trySubst'
     -> Earley n t ()
 trySubst' q cost = void $ P.runListT $ do
 #ifdef DebugOn
-    begTime <- lift . lift $ Time.getCurrentTime
+    begTime <- liftIO $ Time.getCurrentTime
 #endif
     -- the underlying dag
     dag <- RWS.gets (gramDAG . automat)
@@ -1324,7 +1325,7 @@ trySubst' q cost = void $ P.runListT $ do
              (Subst p q tranCost)
 #ifdef DebugOn
     -- print logging information
-    lift . lift $ do
+    liftIO $ do
         endTime <- Time.getCurrentTime
         putStr "[U'] " >> printActive q
         putStr "  +  " >> printPassive p
@@ -1351,7 +1352,7 @@ tryAdjoinInit
     -> Earley n t ()
 tryAdjoinInit p _cost = void $ P.runListT $ do
 #ifdef DebugOn
-    begTime <- lift . lift $ Time.getCurrentTime
+    begTime <- liftIO $ Time.getCurrentTime
 #endif
     let pDID = p ^. dagID
         pSpan = p ^. spanP
@@ -1388,7 +1389,7 @@ tryAdjoinInit p _cost = void $ P.runListT $ do
 --     lift $ pushInduced q' $ Foot q p -- -- $ nonTerm foot
 #ifdef DebugOn
     -- print logging information
-    lift . lift $ do
+    liftIO $ do
         endTime <- Time.getCurrentTime
         putStr "[A]  " >> printPassive p
         putStr "  +  " >> printActive q
@@ -1411,7 +1412,7 @@ tryAdjoinInit'
     -> Earley n t ()
 tryAdjoinInit' q cost = void $ P.runListT $ do
 #ifdef DebugOn
-    begTime <- lift . lift $ Time.getCurrentTime
+    begTime <- liftIO $ Time.getCurrentTime
 #endif
     -- the underlying dag
     dag <- RWS.gets (gramDAG . automat)
@@ -1443,7 +1444,7 @@ tryAdjoinInit' q cost = void $ P.runListT $ do
              (Foot q p tranCost)
 #ifdef DebugOn
     -- print logging information
-    lift . lift $ do
+    liftIO $ do
         endTime <- Time.getCurrentTime
         putStr "[A'] " >> printActive q
         putStr "  +  " >> printPassive p
@@ -1469,7 +1470,7 @@ tryAdjoinCont
     -> Earley n t ()
 tryAdjoinCont p cost = void $ P.runListT $ do
 #ifdef DebugOn
-    begTime <- lift . lift $ Time.getCurrentTime
+    begTime <- liftIO $ Time.getCurrentTime
 #endif
     let pDID = p ^. dagID
         pSpan = p ^. spanP
@@ -1502,7 +1503,7 @@ tryAdjoinCont p cost = void $ P.runListT $ do
 --     lift $ pushInduced q' $ Subst p q
 #ifdef DebugOn
     -- logging info
-    lift . lift $ do
+    liftIO $ do
         endTime <- Time.getCurrentTime
         putStr "[B]  " >> printPassive p
         putStr "  +  " >> printActive q
@@ -1521,7 +1522,7 @@ tryAdjoinCont'
     -> Earley n t ()
 tryAdjoinCont' q cost = void $ P.runListT $ do
 #ifdef DebugOn
-    begTime <- lift . lift $ Time.getCurrentTime
+    begTime <- liftIO $ Time.getCurrentTime
 #endif
     -- the underlying dag
     dag <- RWS.gets (gramDAG . automat)
@@ -1549,7 +1550,7 @@ tryAdjoinCont' q cost = void $ P.runListT $ do
              (Subst p q tranCost)
 #ifdef DebugOn
     -- logging info
-    lift . lift $ do
+    liftIO $ do
         endTime <- Time.getCurrentTime
         putStr "[B'] " >> printActive q
         putStr "  +  " >> printPassive p
@@ -1574,7 +1575,7 @@ tryAdjoinTerm
     -> Earley n t ()
 tryAdjoinTerm q cost = void $ P.runListT $ do
 #ifdef DebugOn
-    begTime <- lift . lift $ Time.getCurrentTime
+    begTime <- liftIO $ Time.getCurrentTime
 #endif
     let qDID = q ^. dagID
         qSpan = q ^. spanP
@@ -1603,7 +1604,7 @@ tryAdjoinTerm q cost = void $ P.runListT $ do
              (addWeight cost cost')
              (Adjoin q p)
 #ifdef DebugOn
-    lift . lift $ do
+    liftIO $ do
         endTime <- Time.getCurrentTime
         putStr "[C]  " >> printPassive q
         putStr "  +  " >> printPassive p
@@ -1622,7 +1623,7 @@ tryAdjoinTerm'
     -> Earley n t ()
 tryAdjoinTerm' p cost = void $ P.runListT $ do
 #ifdef DebugOn
-    begTime <- lift . lift $ Time.getCurrentTime
+    begTime <- liftIO $ Time.getCurrentTime
 #endif
     let pDID = p ^. dagID
         pSpan = p ^. spanP
@@ -1651,7 +1652,7 @@ tryAdjoinTerm' p cost = void $ P.runListT $ do
              (addWeight cost cost')
              (Adjoin q p)
 #ifdef DebugOn
-    lift . lift $ do
+    liftIO $ do
         endTime <- Time.getCurrentTime
         putStr "[C'] " >> printPassive p
         putStr "  +  " >> printPassive q
