@@ -215,13 +215,15 @@ printActive p = do
 
 
 -- | Print a passive item.
-printPassive :: (Show n, Show t) => Passive n t -> IO ()
-printPassive p = do
+printPassive :: (Show n, Show t) => Hype n t -> Passive n t -> IO ()
+printPassive hype p = do
     putStr "("
     -- putStr . viewLab $ getL label p
     putStr $ case getL dagID p of
         Left rootNT -> show rootNT
-        Right did   -> show did
+        Right did   ->
+          show (DAG.unDID did) ++ "[" ++
+          show (nonTerm (getL dagID p) hype) ++ "]"
     putStr ", "
     printSpan $ getL spanP p
     putStrLn ")"
@@ -273,23 +275,23 @@ data Trav n t
 
 
 -- | Print a traversal.
-printTrav :: (Show n, Show t) => Item n t -> Trav n t -> IO ()
-printTrav q' (Scan p x) = do
+printTrav :: (Show n, Show t) => Hype n t -> Item n t -> Trav n t -> IO ()
+printTrav h q' (Scan p x) = do
     putStr "# " >> printActive p
     putStr "+ " >> print x
-    putStr "= " >> printItem q'
-printTrav q' (Subst p q) = do
+    putStr "= " >> printItem h q'
+printTrav h q' (Subst p q) = do
     putStr "# " >> printActive q
-    putStr "+ " >> printPassive p
-    putStr "= " >> printItem q'
-printTrav q' (Foot q p) = do
+    putStr "+ " >> printPassive h p
+    putStr "= " >> printItem h q'
+printTrav h q' (Foot q p) = do
     putStr "# " >> printActive q
-    putStr "+ " >> printPassive p
-    putStr "= " >> printItem q'
-printTrav q' (Adjoin p s) = do
-    putStr "# " >> printPassive p
-    putStr "+ " >> printPassive s
-    putStr "= " >> printItem q'
+    putStr "+ " >> printPassive h p
+    putStr "= " >> printItem h q'
+printTrav h q' (Adjoin p s) = do
+    putStr "# " >> printPassive h p
+    putStr "+ " >> printPassive h s
+    putStr "= " >> printItem h q'
 
 
 --------------------------------------------------
@@ -372,9 +374,9 @@ data Item n t
 
 
 -- | Print an active item.
-printItem :: (Show n, Show t) => Item n t -> IO ()
-printItem (ItemP p) = printPassive p
-printItem (ItemA p) = printActive p
+printItem :: (Show n, Show t) => Hype n t -> Item n t -> IO ()
+printItem h (ItemP p) = printPassive h p
+printItem _ (ItemA p) = printActive p
 
 
 -- | Priority of an active item.  Crucial for the algorithm --
@@ -508,11 +510,11 @@ hyperEdges earSt =
 
 -- | Print the hypergraph edges.
 printHype :: (Show n, Show t) => Hype n t -> IO ()
-printHype earSt =
+printHype hype =
     forM_ edges $ \(p, trav) ->
-        printTrav p trav
+        printTrav hype p trav
   where
-    edges  = sortIt (hyperEdges earSt)
+    edges  = sortIt (hyperEdges hype)
     sortIt = sortBy (comparing $ prio.fst)
 
 
@@ -943,9 +945,10 @@ trySubst p = void $ P.runListT $ do
     lift $ pushInduced q' $ Subst p q
 #ifdef DebugOn
     -- print logging information
+    hype <- RWS.get
     lift . lift $ do
         endTime <- Time.getCurrentTime
-        putStr "[U]  " >> printPassive p
+        putStr "[U]  " >> printPassive hype p
         putStr "  +  " >> printActive q
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
@@ -999,9 +1002,10 @@ tryAdjoinInit p = void $ P.runListT $ do
     lift $ pushInduced q' $ Foot q p -- -- $ nonTerm foot
 #ifdef DebugOn
     -- print logging information
+    hype <- RWS.get
     lift . lift $ do
         endTime <- Time.getCurrentTime
-        putStr "[A]  " >> printPassive p
+        putStr "[A]  " >> printPassive hype p
         putStr "  +  " >> printActive q
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
@@ -1050,9 +1054,10 @@ tryAdjoinCont p = void $ P.runListT $ do
     lift $ pushInduced q' $ Subst p q
 #ifdef DebugOn
     -- logging info
+    hype <- RWS.get
     lift . lift $ do
         endTime <- Time.getCurrentTime
-        putStr "[B]  " >> printPassive p
+        putStr "[B]  " >> printPassive hype p
         putStr "  +  " >> printActive q
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
@@ -1092,11 +1097,12 @@ tryAdjoinTerm q = void $ P.runListT $ do
            $ p
     lift $ pushPassive p' $ Adjoin q p
 #ifdef DebugOn
+    hype <- RWS.get
     lift . lift $ do
         endTime <- Time.getCurrentTime
-        putStr "[C]  " >> printPassive q
-        putStr "  +  " >> printPassive p
-        putStr "  :  " >> printPassive p'
+        putStr "[C]  " >> printPassive hype q
+        putStr "  +  " >> printPassive hype p
+        putStr "  :  " >> printPassive hype p'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
 #endif
 

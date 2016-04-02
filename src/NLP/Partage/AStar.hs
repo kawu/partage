@@ -232,13 +232,15 @@ printActive p = do
 
 
 -- | Print a passive item.
-printPassive :: (Show n, Show t) => Passive n t -> IO ()
-printPassive p = do
+printPassive :: (Show n, Show t) => Passive n t -> Hype n t -> IO ()
+printPassive p hype = do
     putStr "("
     -- putStr . viewLab $ getL label p
     putStr $ case getL dagID p of
         Left rootNT -> show rootNT
-        Right did   -> show did
+        Right did   ->
+          show (DAG.unDID did) ++ "[" ++
+          show (nonTerm (getL dagID p) hype) ++ "]"
     putStr ", "
     printSpan $ getL spanP p
     putStrLn ")"
@@ -418,9 +420,9 @@ data Item n t
 
 
 -- | Print an active item.
-printItem :: (Show n, Show t) => Item n t -> IO ()
-printItem (ItemP p) = printPassive p
-printItem (ItemA p) = printActive p
+printItem :: (Show n, Show t) => Item n t -> Hype n t -> IO ()
+printItem (ItemP p) h = printPassive p h
+printItem (ItemA p) _ = printActive p
 
 
 -- -- | Priority of an active item.  Crucial for the algorithm --
@@ -879,8 +881,10 @@ pushPassive p newWeight newTrav = do
   where
     newWait = Q.insertWith joinExtWeight (ItemP p)
 #ifdef DebugOn
-    track estWeight = liftIO $ do
-        putStr ">P>  " >> printPassive p
+    track estWeight = do
+      hype <- RWS.get
+      liftIO $ do
+        putStr ">P>  " >> printPassive p hype
         putStr " :>  " >> print (newWeight, estWeight)
 #else
     track _ = return ()
@@ -1273,9 +1277,10 @@ trySubst p cost = void $ P.runListT $ do
              (Subst p q tranCost)
 #ifdef DebugOn
     -- print logging information
+    hype <- RWS.get
     liftIO $ do
         endTime <- Time.getCurrentTime
-        putStr "[U]  " >> printPassive p
+        putStr "[U]  " >> printPassive p hype
         putStr "  +  " >> printActive q
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
@@ -1326,10 +1331,11 @@ trySubst' q cost = void $ P.runListT $ do
              (Subst p q tranCost)
 #ifdef DebugOn
     -- print logging information
+    hype <- RWS.get
     liftIO $ do
         endTime <- Time.getCurrentTime
         putStr "[U'] " >> printActive q
-        putStr "  +  " >> printPassive p
+        putStr "  +  " >> printPassive p hype
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
         putStr " #W  " >> print (sumWeight [cost, cost', tranCost])
@@ -1390,9 +1396,10 @@ tryAdjoinInit p _cost = void $ P.runListT $ do
 --     lift $ pushInduced q' $ Foot q p -- -- $ nonTerm foot
 #ifdef DebugOn
     -- print logging information
+    hype <- RWS.get
     liftIO $ do
         endTime <- Time.getCurrentTime
-        putStr "[A]  " >> printPassive p
+        putStr "[A]  " >> printPassive p hype
         putStr "  +  " >> printActive q
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
@@ -1445,10 +1452,11 @@ tryAdjoinInit' q cost = void $ P.runListT $ do
              (Foot q p tranCost)
 #ifdef DebugOn
     -- print logging information
+    hype <- RWS.get
     liftIO $ do
         endTime <- Time.getCurrentTime
         putStr "[A'] " >> printActive q
-        putStr "  +  " >> printPassive p
+        putStr "  +  " >> printPassive p hype
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
         putStr " #W  " >> print (addWeight cost tranCost)
@@ -1504,9 +1512,10 @@ tryAdjoinCont p cost = void $ P.runListT $ do
 --     lift $ pushInduced q' $ Subst p q
 #ifdef DebugOn
     -- logging info
+    hype <- RWS.get
     liftIO $ do
         endTime <- Time.getCurrentTime
-        putStr "[B]  " >> printPassive p
+        putStr "[B]  " >> printPassive p hype
         putStr "  +  " >> printActive q
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
@@ -1551,10 +1560,11 @@ tryAdjoinCont' q cost = void $ P.runListT $ do
              (Subst p q tranCost)
 #ifdef DebugOn
     -- logging info
+    hype <- RWS.get
     liftIO $ do
         endTime <- Time.getCurrentTime
         putStr "[B'] " >> printActive q
-        putStr "  +  " >> printPassive p
+        putStr "  +  " >> printPassive p hype
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
         putStr " #W  " >> print (sumWeight [cost, cost', tranCost])
@@ -1605,11 +1615,12 @@ tryAdjoinTerm q cost = void $ P.runListT $ do
              (addWeight cost cost')
              (Adjoin q p)
 #ifdef DebugOn
+    hype <- RWS.get
     liftIO $ do
         endTime <- Time.getCurrentTime
-        putStr "[C]  " >> printPassive q
-        putStr "  +  " >> printPassive p
-        putStr "  :  " >> printPassive p'
+        putStr "[C]  " >> printPassive q hype
+        putStr "  +  " >> printPassive p hype
+        putStr "  :  " >> printPassive p' hype
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
         putStr " #W  " >> print (addWeight cost cost')
         -- putStr " #E  " >> print estDist
@@ -1653,11 +1664,12 @@ tryAdjoinTerm' p cost = void $ P.runListT $ do
              (addWeight cost cost')
              (Adjoin q p)
 #ifdef DebugOn
+    hype <- RWS.get
     liftIO $ do
         endTime <- Time.getCurrentTime
-        putStr "[C'] " >> printPassive p
-        putStr "  +  " >> printPassive q
-        putStr "  :  " >> printPassive p'
+        putStr "[C'] " >> printPassive p hype
+        putStr "  +  " >> printPassive q hype
+        putStr "  :  " >> printPassive p' hype
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
         putStr " #W  " >> print (addWeight cost cost')
         -- putStr " #E  " >> print estDist
