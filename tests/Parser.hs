@@ -38,6 +38,10 @@ testEarley = T.testTree "Earley"
             . E.fromList
             $ input
     mkGram = DAG.mkGram . map mkTree
+    -- mkGram = DAG.mkDummy . map mkTree
+    -- <- dummy DAG cannot work with the current implementation of the Earley parser;
+    --    the Earley parser assumes e.g. that there is at most one node with a given
+    --    terminal, which is not true in dummy DAG.
     mkTree (t, w) = (O.encode t, w)
 
 

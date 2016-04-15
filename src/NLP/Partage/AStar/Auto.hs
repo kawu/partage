@@ -60,7 +60,7 @@ data Auto n t = Auto
     -- is represented by exactly one grammar DAG node.
     , leafDID  :: M.Map n DID
     -- ^ A map which assigns DAG IDs to the corresponding leaf
-    -- non-terminals.  Note that each grammar foot non-terminal
+    -- non-terminals.  Note that each grammar leaf non-terminal
     -- is represented by exactly one grammar DAG node.
     , estiCost :: H.Esti t
     -- ^ Heuristic estimations.
@@ -110,7 +110,8 @@ mkTermDID
     :: (Ord t)
     => DAG (O.Node n t) w
     -> M.Map t DID
-mkTermDID dag = M.fromList
+mkTermDID dag = M.fromListWith
+  (const $ error "Auto.mkTermDID: multiple nodes")
     [ (t, i)
     | i <- S.toList (DAG.nodeSet dag)
     , O.Term t <- maybeToList (DAG.label i dag) ]
@@ -121,7 +122,8 @@ mkFootDID
     :: (Ord n)
     => DAG (O.Node n t) w
     -> M.Map n DID
-mkFootDID dag = M.fromList
+mkFootDID dag = M.fromListWith
+  (const $ error "Auto.mkFootDID: multiple nodes")
     [ (x, i)
     | i <- S.toList (DAG.nodeSet dag)
     , O.Foot x <- maybeToList (DAG.label i dag) ]
@@ -132,7 +134,8 @@ mkLeafDID
     :: (Ord n)
     => DAG (O.Node n t) w
     -> M.Map n DID
-mkLeafDID dag = M.fromList
+mkLeafDID dag = M.fromListWith
+  (const $ error "Auto.mkLeafDID: multiple nodes")
     [ (x, i)
     | i <- S.toList (DAG.nodeSet dag)
     , DAG.isLeaf i dag

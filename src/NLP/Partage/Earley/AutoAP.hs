@@ -1370,7 +1370,11 @@ mkTermDID
     :: (Ord t)
     => DAG (O.Node n t) ()
     -> M.Map t DID
-mkTermDID dag = M.fromList
+mkTermDID dag = M.fromListWith
+  (const $ error "Auto.mkTermDID: multiple nodes")
+  -- the error above is related to the assumption of the parser that
+  -- there is at most one DAG node with a given terminal; the same
+  -- applies to `mkFootDID` and `mkLeafDID`
     [ (t, i)
     | i <- S.toList (DAG.nodeSet dag)
     , O.Term t <- maybeToList (DAG.label i dag) ]
@@ -1381,7 +1385,8 @@ mkFootDID
     :: (Ord n)
     => DAG (O.Node n t) ()
     -> M.Map n DID
-mkFootDID dag = M.fromList
+mkFootDID dag = M.fromListWith
+  (const $ error "Auto.mkFootDID: multiple nodes")
     [ (x, i)
     | i <- S.toList (DAG.nodeSet dag)
     , O.Foot x <- maybeToList (DAG.label i dag) ]
@@ -1392,7 +1397,8 @@ mkLeafDID
     :: (Ord n)
     => DAG (O.Node n t) ()
     -> M.Map n DID
-mkLeafDID dag = M.fromList
+mkLeafDID dag = M.fromListWith
+  (const $ error "Auto.mkLeafDID: multiple nodes")
     [ (x, i)
     | i <- S.toList (DAG.nodeSet dag)
     , DAG.isLeaf i dag

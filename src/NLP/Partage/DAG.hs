@@ -46,6 +46,7 @@ module NLP.Partage.DAG
 -- * Ensemble
 , Gram (..)
 , mkGram
+, mkDummy
 
 -- * Conversion
 -- $rule
@@ -57,6 +58,8 @@ module NLP.Partage.DAG
 -- ** Weighted
 , dagFromWeightedForest
 , rulesMapFromDAG
+-- ** Dummy
+, dummyFromWeightedForest
 
 -- -- * Low-level internal
 -- -- (Use on your own responsibility)
@@ -67,6 +70,7 @@ module NLP.Partage.DAG
 
 
 import           Control.Arrow              (first)
+import           Control.Monad              (forM)
 import qualified Control.Monad.State.Strict as E
 import           Prelude                    hiding (lookup)
 
@@ -114,6 +118,11 @@ data Node a b = Node
     , nodeEdges :: [(DID, b)]
     -- ^ Note that IDs on the `nodeEdges` list can be repeated.
     } deriving (Show, Eq, Ord, Functor)
+
+
+-- | Empty DAG.
+empty :: DAG a b
+empty = DAG S.empty M.empty
 
 
 -- | Lookup the ID in the DAG.
@@ -227,6 +236,10 @@ type DagM a b = E.State (DagSt a b)
 -- are disjoint.
 --
 -- TODO: Does it make sense to allow b \= () here?
+--
+-- TODO: At the moment, it seems that it doesn't make sense
+--   to distinguish root from normal nodes!
+--
 data DagSt a b = DagSt
     { rootMap :: M.Map (Node a b) DID
     -- ^ Map for top-level nodes
@@ -332,6 +345,63 @@ weighDAG dag rootWeightMap = DAG
      mkNode i n w = n
        { nodeValue = w
        , nodeEdges = [(j, 0) | j <- children i dag] }
+
+
+----------------------
+-- Dummy Convertion
+----------------------
+
+
+-- | Transform the given weighted grammar into a dummy `DAG`.  No subtree
+-- sharing takes place.
+dummyFromWeightedForest
+    :: [(R.Tree a, Weight)]
+    -> DAG a Weight
+dummyFromWeightedForest forestWeights =
+    let (forest, weights) = unzip forestWeights
+        (rootList, dag0) = flip E.runState empty . forM forest $ \t -> do
+          i <- dummyTree t
+          saveRoot i
+          return i
+     in weighDAG dag0 $
+            M.fromListWith min
+                (zip rootList weights)
+
+
+-- | Put the node in the underlying map.
+saveRoot :: DID -> E.State (DAG a b) ()
+saveRoot i = E.modify' $ \s -> s
+    {rootSet = S.insert i (rootSet s)}
+
+
+-- | Create a DAG node from a tree.
+dummyTree :: R.Tree a -> E.State (DAG a ()) DID
+dummyTree t = do
+    childrenIDs <- mapM dummyTree (R.subForest t)
+    addDummyNode $ Node
+        { nodeLabel = R.rootLabel t
+        , nodeValue = ()
+        , nodeEdges = zip childrenIDs $ repeat () }
+
+
+-- | Add a node (unless already exists) to the underlying
+-- DAG and return its ID.
+addDummyNode :: Node a b -> E.State (DAG a b) DID
+addDummyNode x = do
+    i <- dummyID
+    putDummy i x
+    return i
+
+
+-- | Put the node in the underlying map.
+putDummy :: DID -> Node a b -> E.State (DAG a b) ()
+putDummy i x = E.modify' $ \s -> s
+    {nodeMap = M.insert i x (nodeMap s)}
+
+
+-- | Retrieve new, unused node identifier.
+dummyID :: E.State (DAG a b) DID
+dummyID = E.gets $ \DAG{..} -> DID $ M.size nodeMap
 
 
 ----------------------
@@ -446,12 +516,25 @@ mkGram ts = Gram
   where
     dagGram_ = dagFromWeightedForest ts
 
+-- | Construct a dummy `Gram` (no subtree sharing) from the given weighted
+-- grammar.
+mkDummy
+    :: (Ord t)
+    => [(O.Tree n t, Weight)]
+    -> Gram n t
+mkDummy ts = Gram
+    { dagGram   = dagGram_
+    , factGram  = rulesMapFromDAG dagGram_
+    , termWei   = mkTermWei (map (first O.decode) ts) }
+  where
+    dagGram_ = dummyFromWeightedForest ts
+
 
 -- | Compute the lower bound estimates on reading terminal weights.
 -- Based on the idea that weights of the elementary trees are evenly
 -- distributed over its terminals.
 mkTermWei
-    :: (Ord n, Ord t)
+    :: (Ord t)
     => [(O.SomeTree n t, Weight)]   -- ^ Weighted grammar
     -> M.Map t Weight
 mkTermWei ts = M.fromListWith min
