@@ -61,6 +61,9 @@ module NLP.Partage.DAG
 -- ** Dummy
 , dummyFromWeightedForest
 
+-- * Tree
+, toTree
+
 -- -- * Low-level internal
 -- -- (Use on your own responsibility)
 -- , DagSt(..)
@@ -543,6 +546,22 @@ mkTermWei ts = M.fromListWith min
     , let terms = listTerms t
           n = length terms
     , x <- terms ]
+
+
+----------------------
+-- Convertion to tree
+----------------------
+
+
+-- | Retrieve a tree rooted in the given DAG node.
+-- Node and edge values will be discarded.
+-- Raises an exception for an invalid node ID.
+toTree :: DID -> DAG a b -> Maybe (R.Tree a)
+toTree i dag = do
+  x <- label i dag
+  let js = children i dag
+  ts <- mapM (flip toTree dag) js 
+  return $ R.Node x ts
 
 
 ----------------------
