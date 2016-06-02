@@ -50,6 +50,7 @@ module NLP.Partage.AStar
 , deriv2tree
 , expandDeriv
 , derivTrees
+, derivFromPassive
 -- , fromPassive'
 -- , fromActive'
 -- ** Stats
@@ -1988,6 +1989,23 @@ fromPassive' p hype = do
         (_, Right _) -> error "fromPassive': adjunction of a partial ET"
 
 
+-- | Extract the set of derivation trees w.r.t. to the given passive item.
+-- See `fromPassive'` for details.
+derivFromPassive
+  :: (Ord n, Ord t)
+  => Passive n t
+  -> Hype n t     -- ^ Current state of the earley parser
+  -> Input t      -- ^ Input sentence
+  -> IO (S.Set (Either Deriv [Deriv]))
+derivFromPassive p h input = do
+  r <- P.runEffect $ RWS.evalRWST doit input h >-> P.drain
+  return $ S.fromList (fst r)
+  where
+  doit = P.toListM . P.enumerate $ do
+    t <- fromPassive' p h
+    return t
+
+
 -- | Extract the set of parsed trees obtained on the given input
 -- sentence.  Should be run on the result of the earley parser.
 derivTrees
@@ -1998,6 +2016,9 @@ derivTrees
     -> IO (S.Set Deriv)
     -- -> IO [R.Tree DID]
 derivTrees h start input = do
+  -- NOTE: we need info about the input here because we are using
+  -- the Earley monad.  Otherwise, it would be better to unify
+  -- the interface with the `parsedTrees` function.
   r <- P.runEffect $ RWS.evalRWST doit input h >-> P.drain
   return $ S.fromList (fst r)
   -- return (fst r)
@@ -2218,11 +2239,11 @@ finalFrom
     -> Hype n t     -- ^ Result of the earley computation
     -> [Passive n t]
 finalFrom start n Hype{..} =
-    case M.lookup 0 donePassiveIni >>= M.lookup start of -- >>= M.lookup n of
+    case M.lookup 0 donePassiveIni >>= M.lookup start >>= M.lookup n of
         Nothing -> []
         Just m ->
             [ p
-            | p <- (M.elems >=> M.keys) m
+            | p <- M.keys m
             , p ^. dagID == Left start ]
 
 
