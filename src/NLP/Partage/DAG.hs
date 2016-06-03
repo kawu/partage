@@ -46,6 +46,7 @@ module NLP.Partage.DAG
 -- * Ensemble
 , Gram (..)
 , mkGram
+, mkFreqGram
 , mkDummy
 
 -- * Conversion
@@ -546,6 +547,47 @@ mkTermWei ts = M.fromListWith min
     , let terms = listTerms t
           n = length terms
     , x <- terms ]
+
+
+-- | Construct `Gram` from the given weighted grammar
+-- and the given terminals' frequency map.
+mkFreqGram
+    :: (Ord n, Ord t)
+    => M.Map t Int            -- ^ Global terminal frequencies
+    -> [(O.Tree n t, Weight)]
+    -> Gram n t
+mkFreqGram freqMap ts = Gram
+    { dagGram   = dagGram_
+    , factGram  = rulesMapFromDAG dagGram_
+    , termWei   = termWeiFromFreq freqMap (map (first O.decode) ts) }
+  where
+    dagGram_ = dagFromWeightedForest ts
+
+
+-- | Compute the lower bound estimates on reading terminal weights.
+-- Based on the idea that weights of the elementary trees are
+-- distributed over its terminals proportionaly to their global
+-- frequencies.
+-- We assume that terminals which are not present in the global
+-- frequency map are very rare.
+termWeiFromFreq
+    :: (Ord t)
+    => M.Map t Int                  -- ^ Global terminal frequencies
+    -> [(O.SomeTree n t, Weight)]   -- ^ Weighted grammar
+    -> M.Map t Weight
+termWeiFromFreq freqMap gram = M.fromListWith min
+  [ (term, treeWeight * termWeight)
+  | (tree, treeWeight) <- gram
+  , let terms = listTerms tree
+        termWeights = normalize $ map obtainWeight terms
+  , (term, termWeight) <- zip terms termWeights ]
+  where
+    obtainWeight term = case M.lookup term freqMap of
+      Just freq -> fromIntegral freq
+      Nothing   -> 1.0
+    normalize xs =
+      let n = sum xs
+      in  map (/n) xs
 
 
 ----------------------
