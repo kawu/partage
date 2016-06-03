@@ -41,6 +41,7 @@ module NLP.Partage.AStar
 , Passive (..)
 , Active (..)
 , Span (..)
+, ExtWeight (priWeight, estWeight)
 -- ** Extracting parsed trees
 , parsedTrees
 , fromPassive
@@ -598,9 +599,11 @@ mkHype auto = Hype
 
 -- | Earley parser monad.  Contains the input sentence (reader)
 -- and the state of the computation `Hype'.
+--
+-- TODO: it's strange that the producer is hardcoded here...
 type Earley n t = RWS.RWST
   (Input t) () (Hype n t)
-  (P.Producer (Item n t, Hype n t) IO)
+  (P.Producer (Binding (Item n t) (ExtWeight n t), Hype n t) IO)
 
 
 -- | Read word from the given position of the input.
@@ -2194,7 +2197,8 @@ earleyAutoP
     => Auto n t         -- ^ Grammar automaton
     -> Input t          -- ^ Input sentence
     -> P.Producer
-         (Item n t, Hype n t)
+         -- (Item n t, Hype n t)
+         (Binding (Item n t) (ExtWeight n t), Hype n t)
          IO (Hype n t)
 earleyAutoP auto input = do
     (hype, _) <- RWS.evalRWST (init >> loop) input st0
@@ -2222,7 +2226,8 @@ earleyAutoP auto input = do
         Just p  -> do
           step p
           hype <- RWS.get
-          lift $ P.yield (Q.key p, hype)
+          -- lift $ P.yield (Q.key p, hype)
+          lift $ P.yield (p, hype)
           loop
 
 
