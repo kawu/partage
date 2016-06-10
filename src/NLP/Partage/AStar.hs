@@ -48,12 +48,12 @@ module NLP.Partage.AStar
 , fromActive
 -- ** Extracting derivation trees
 , Deriv (..)
-, deriv2tree
-, expandDeriv
-, derivTrees
-, derivFromPassive
--- , fromPassive'
--- , fromActive'
+-- , deriv2tree
+-- , expandDeriv
+-- , derivTrees
+-- , derivFromPassive
+-- -- , fromPassive'
+-- -- , fromActive'
 -- ** Stats
 , hyperNodesNum
 , hyperEdgesNum
@@ -400,6 +400,24 @@ didFrom x (Foot q p _) = do
 didFrom x (Adjoin qa qm) = do
   -- we should not get here?
   error "didFrom: adjoin; we should not get here?"
+
+
+-- | A version of `didFrom` which works outside of the Earley monad.
+--
+-- NOTE: we need info about the input here because we are using
+-- the Earley monad.  Unfortunate...
+didFrom'
+  :: (Ord n, Ord t)
+  => Input t      -- ^ Input sentence
+  -> Hype n t     -- ^ Final state of the earley parser
+  -> n            -- ^ The start symbol
+  -> Trav n t
+  -> IO [DID]
+didFrom' input h nonTerm trav = do
+  r <- P.runEffect $ RWS.evalRWST doit input h >-> P.drain
+  return $ fst r
+  where
+    doit = P.toListM . P.enumerate $ didFrom nonTerm trav
 
 
 -- -- | A version of `didFrom` which works directly on
@@ -1857,8 +1875,7 @@ fromPassive p hype = concat
         [ replaceFoot ini aux
         | aux <- fromPassive qa hype
         , ini <- fromPassive qm hype ]
-    -- | Replace foot (the only non-terminal leaf) by the given
-    -- initial tree.
+    -- Replace foot (the only non-terminal leaf) by the given initial tree.
     replaceFoot ini (T.Branch _ []) = ini
     replaceFoot ini (T.Branch x ts) = T.Branch x $ map (replaceFoot ini) ts
     replaceFoot _ t@(T.Leaf _)    = t
@@ -1873,166 +1890,309 @@ parsedTrees
     -> Int          -- ^ Length of the input sentence
     -> [T.Tree n t]
 parsedTrees hype start n
-    = concatMap (flip fromPassive hype)
+    = concatMap (`fromPassive` hype)
     $ finalFrom start n hype
 
 
 ---------------------------
 -- Extracting Derivation Trees
+--
+-- Experimental version
 ---------------------------
 
 
--- | Derivation tree.
-data Deriv = Deriv
-  { root :: DID
-  -- ^ Root of the derivation tree
-  , subtrees :: S.Set Deriv
-  -- ^ Subtrees of the root node; eventually should also
-  -- contain Gorn addresses telling where the children
-  -- derivation trees are attached.
-  } deriving (Show, Eq, Ord)
+-- | Derivation tree is similar to `O.Tree` but additionally includes
+-- potential modifications aside the individual nodes.  Modifications
+-- themselves take the form of derivation trees.  Whether the modification
+-- represents a substitution or an adjunction can be concluded on the basis of
+-- the type (leaf or internal) of the node.
+type Deriv n t = R.Tree (DNode n t)
 
 
--- | Construct a rose tree from a derivation tree.
-deriv2tree :: Deriv -> R.Tree DID
-deriv2tree Deriv{..} = R.Node root (map deriv2tree $ S.toList subtrees)
+-- | A node of a derivation tree.
+data DNode n t = DNode
+  { theNode :: O.Node n t
+  , modif   :: [Deriv n t] }
 
 
--- | Expand a derivation tree by attaching, to each node and as the first child,
--- the corresponding grammar tree.
-expandDeriv :: DAG (O.Node n t) w -> R.Tree DID -> R.Tree (Either DID (O.Node n t))
-expandDeriv dag R.Node{..} = R.Node (Left rootLabel) $
-  toTree rootLabel :
-  map (expandDeriv dag) subForest
-  where
-    toTree x = case DAG.toTree x dag of
-      Nothing -> error "expandDeriv: incorrect DID"
-      Just t  -> fmap Right t
-
-
--- | Extract the set of the parsed trees w.r.t. to the given active item.
--- fromActive' :: (Ord n, Ord t) => Active -> Hype n t -> [[Deriv n t]]
--- fromActive' :: (Ord n, Ord t) => Active -> Hype n t -> P.ListT (Earley n t) [Deriv n t]
-fromActive' :: (Ord n, Ord t) => Active -> Hype n t -> P.ListT (Earley n t) [Deriv]
-fromActive' p hype =
-  case activeTrav p hype of
-    Nothing  -> error "fromActive: unknown active item"
-    Just ext ->
-      if S.null (prioTrav ext)
-      then return []
-      else do
-        trav <- each $ S.toList (prioTrav ext)
-        fromActiveTrav p trav
-  where
-    fromActiveTrav _p (Scan q _t _)  = fromActive' q hype
-    fromActiveTrav _p (Foot q _p' _) = fromActive' q hype
-    fromActiveTrav _p (Subst qp qa _) = do
-      ts <- fromActive'  qa hype
-      tt <- fromPassive' qp hype
-      return $ case tt of
-        Left t  -> t :  ts
-        Right s -> s ++ ts
-    fromActiveTrav _p (Adjoin _ _) =
-        error "fromActive': fromActiveTrav called on a passive item"
-
-
--- | Extract the set of the parsed trees w.r.t. to the given passive item.
---
--- For top-level passive items (i.e. items which represent fully parsed
--- elementary trees), `fromPassive'` should return a derivation tree.
---
--- For partial passive items, on the other hand, the result should be a list
--- of derivation trees attached somewhere to the subtree represented by the
--- passive item.
-fromPassive'
-  :: (Ord n, Ord t)
-  => Passive n t
-  -> Hype n t
-  -> P.ListT (Earley n t)
-       (Either Deriv [Deriv])
-       -- (Either (R.Tree DID) [R.Tree DID])
-fromPassive' p hype = do
-  ext  <- some $ passiveTrav p hype
-  trav <- each $ S.toList (prioTrav ext)
-  fromPassiveTrav p trav
-  where
-    fromPassiveTrav p trav@(Scan q t _) = do
-      ts <- fromActive' q hype
-      case p ^. dagID of
-        Right _ -> return $ Right ts
-        Left x -> do
-          di <- didFrom x trav
-          -- return . Left $ R.Node di ts
-          return . Left $ Deriv di (S.fromList ts)
-    fromPassiveTrav p trav@(Foot q _p' _) = do
-      ts <- fromActive' q hype
-      case p ^. dagID of
-        Right _ -> return $ Right ts
-        Left x -> do
-          di <- didFrom x trav
-          return . Left $ Deriv di (S.fromList ts)
-    fromPassiveTrav p trav@(Subst qp qa _) = do
-      ts <- fromActive' qa hype
-      tt <- fromPassive' qp hype
-      sts <- return $ case tt of
-        Right s -> s ++ ts
-        Left t  -> t :  ts
-      case p ^. dagID of
-        Right _  -> return $ Right sts
-        Left x -> do
-          di <- didFrom x trav
-          return . Left $ Deriv di (S.fromList sts)
-    fromPassiveTrav _p (Adjoin qa qm) = do
-      aux <- fromPassive' qa hype
-      ini <- fromPassive' qm hype
-      return $ case (ini, aux) of
-        -- (Left it , Left at) -> Left  $ it {R.subForest = at : R.subForest it}
-        (Left it , Left at) -> Left  $ it {subtrees = S.insert at (subtrees it)}
-        (Right is, Left at) -> Right $ at : is
-        (_, Right _) -> error "fromPassive': adjunction of a partial ET"
-
-
--- | Extract the set of derivation trees w.r.t. to the given passive item.
--- See `fromPassive'` for details.
-derivFromPassive
-  :: (Ord n, Ord t)
-  => Passive n t
-  -> Hype n t     -- ^ Current state of the earley parser
-  -> Input t      -- ^ Input sentence
-  -> IO (S.Set (Either Deriv [Deriv]))
-derivFromPassive p h input = do
-  r <- P.runEffect $ RWS.evalRWST doit input h >-> P.drain
-  return $ S.fromList (fst r)
-  where
-  doit = P.toListM . P.enumerate $ do
-    t <- fromPassive' p h
-    return t
-
-
--- | Extract the set of parsed trees obtained on the given input
--- sentence.  Should be run on the result of the earley parser.
+-- | Extract derivation trees obtained on the given input sentence. Should be
+-- run on the final result of the earley parser.
 derivTrees
     :: (Ord n, Ord t)
     => Hype n t     -- ^ Final state of the earley parser
     -> n            -- ^ The start symbol
-    -> Input t      -- ^ Input sentence
-    -> IO (S.Set Deriv)
-    -- -> IO [R.Tree DID]
-derivTrees h start input = do
-  -- NOTE: we need info about the input here because we are using
-  -- the Earley monad.  Otherwise, it would be better to unify
-  -- the interface with the `parsedTrees` function.
-  r <- P.runEffect $ RWS.evalRWST doit input h >-> P.drain
-  return $ S.fromList (fst r)
-  -- return (fst r)
+    -> Int          -- ^ Length of the input sentence
+    -> [Deriv n t]
+derivTrees hype start n
+    = concatMap (`fromPassive'` hype)
+    $ finalFrom start n hype
+
+
+-- | Extract the set of the parsed trees w.r.t. to the given passive item.
+fromPassive' :: forall n t. (Ord n, Ord t) => Passive n t -> Hype n t -> [Deriv n t]
+fromPassive' p hype = concat
+
+  [ fromPassiveTrav p trav
+  | ext <- maybeToList $ passiveTrav p hype
+  , trav <- S.toList (prioTrav ext) ]
+
   where
-  doit = P.toListM . P.enumerate $ do
-    let n = length (inputSent input)
-    p <- each $ finalFrom start n h
-    t <- fromPassive' p h
-    return $ case t of
-      Left t  -> t
-      Right _ -> error "derivTrees: final tree not a full ET"
+
+    fromPassiveTrav p (Scan q t _) =
+        [ mkTree p (termNode t) ts
+        | ts <- fromActive' q hype ]
+    fromPassiveTrav p (Foot q _p' _) =
+        [ mkTree p (footNode p) ts
+        | ts <- fromActive' q hype ]
+    fromPassiveTrav p (Subst qp qa _) =
+        [ mkTree p (substNode t) ts
+        | ts <- fromActive' qa hype
+        , t  <- fromPassive' qp hype ]
+    fromPassiveTrav _p (Adjoin qa qm) =
+        [ adjoinTree ini aux
+        | aux <- fromPassive' qa hype
+        , ini <- fromPassive' qm hype ]
+
+    -- Construct a derivation tree on the basis of the underlying passive
+    -- item, current child derivation and previous children derivations.
+    mkTree p t ts = R.Node
+      { R.rootLabel = mkRoot p
+      , R.subForest = reverse $ t : ts }
+
+    -- Extract the set of the parsed trees w.r.t. to the given active item.
+    fromActive' p hype = case activeTrav p hype of
+      Nothing  -> error "fromActive': unknown active item"
+      Just ext -> if S.null (prioTrav ext)
+        then [[]]
+        else concatMap
+             (fromActiveTrav p)
+             (S.toList (prioTrav ext))
+
+    fromActiveTrav _p (Scan q t _) =
+        [ termNode t : ts
+        | ts <- fromActive' q hype ]
+    fromActiveTrav _p (Foot q p _) =
+        [ footNode p : ts
+        | ts <- fromActive' q hype ]
+    fromActiveTrav _p (Subst qp qa _) =
+        [ substNode t : ts
+        | ts <- fromActive' qa hype
+        , t  <- fromPassive' qp hype ]
+    fromActiveTrav _p (Adjoin _ _) =
+        error "fromActive'.fromActiveTrav: called on a passive item"
+
+    -- Construct substitution node stemming from the given derivation.
+    substNode t = flip R.Node [] $ DNode
+      { theNode = O.NonTerm (derivRoot t)
+      , modif   = [t] }
+
+    -- Add the auxiliary derivation to the list of modifications of the
+    -- initial derivation.
+    adjoinTree ini aux = R.Node
+      { R.rootLabel = let root = R.rootLabel ini in DNode
+        { theNode = theNode root
+        , modif = aux : modif root }
+      , R.subForest = R.subForest ini }
+
+    -- Construct a derivation node with no modifier.
+    only x = DNode {theNode = x, modif =  []}
+
+    -- Several constructors which allow to build non-modified nodes.
+    mkRoot p = only . O.NonTerm $ nonTerm (getL dagID p) hype
+    mkFoot p = only . O.Foot $ nonTerm (getL dagID p) hype
+    mkTerm = only . O.Term
+
+    -- Build non-modified nodes of different types.
+    footNode p = R.Node (mkFoot p) []
+    termNode x = R.Node (mkTerm x) []
+
+    -- Retrieve root non-terminal of a derivation tree.
+    derivRoot :: Deriv n t -> n
+    derivRoot R.Node{..} = case theNode rootLabel of
+      O.NonTerm x -> x
+      O.Foot _ -> error "fromPassive'.getRoot: got foot"
+      O.Term _ -> error "fromPassive'.getRoot: got terminal"
+
+
+-- ---------------------------
+-- -- Extracting Derivation Trees
+-- ---------------------------
+--
+--
+-- -- | Derivation tree.
+-- data Deriv = Deriv
+--   { root :: DID
+--   -- ^ Root of the derivation tree
+--   , subtrees :: S.Set Deriv
+--   -- ^ Subtrees of the root node; eventually should also
+--   -- contain Gorn addresses telling where the children
+--   -- derivation trees are attached.
+--   } deriving (Show, Eq, Ord)
+-- 
+-- 
+-- -- -- | Derivation tree.
+-- -- data Deriv = Deriv
+-- --   { root :: DID
+-- --   -- ^ Root of the derivation tree
+-- --   , subtrees :: M.Map GornAddr Deriv
+-- --   -- ^ Subtrees of the root node
+-- --   } deriving (Show, Eq, Ord)
+-- -- 
+-- -- 
+-- -- -- | Empty list represents the current node. The first element of a non-empty
+-- -- -- list represents the position of the child, while the taile of the list
+-- -- -- represents the Gorn address w.r.t. this child.
+-- -- type GornAddr = [Int]
+-- 
+-- 
+-- -- | Construct a rose tree from a derivation tree.
+-- deriv2tree :: Deriv -> R.Tree DID
+-- deriv2tree Deriv{..} = R.Node root (map deriv2tree $ S.toList subtrees)
+-- 
+-- 
+-- -- | Expand a derivation tree by attaching, to each node and as the first child,
+-- -- the corresponding grammar tree.
+-- expandDeriv :: DAG (O.Node n t) w -> R.Tree DID -> R.Tree (Either DID (O.Node n t))
+-- expandDeriv dag R.Node{..} = R.Node (Left rootLabel) $
+--   toTree rootLabel :
+--   map (expandDeriv dag) subForest
+--   where
+--     toTree x = case DAG.toTree x dag of
+--       Nothing -> error "expandDeriv: incorrect DID"
+--       Just t  -> fmap Right t
+-- 
+-- 
+-- -- | Extract the set of the parsed trees w.r.t. to the given active item.
+-- -- fromActive' :: (Ord n, Ord t) => Active -> Hype n t -> [[Deriv n t]]
+-- -- fromActive' :: (Ord n, Ord t) => Active -> Hype n t -> P.ListT (Earley n t) [Deriv n t]
+-- fromActive' :: (Ord n, Ord t) => Active -> Hype n t -> P.ListT (Earley n t) [Deriv]
+-- fromActive' p hype =
+--   case activeTrav p hype of
+--     Nothing  -> error "fromActive: unknown active item"
+--     Just ext ->
+--       if S.null (prioTrav ext)
+--       then return []
+--       else do
+--         trav <- each $ S.toList (prioTrav ext)
+--         fromActiveTrav p trav
+--   where
+--     fromActiveTrav _p (Scan q _t _)  = fromActive' q hype
+--     fromActiveTrav _p (Foot q _p' _) = fromActive' q hype
+--     fromActiveTrav _p (Subst qp qa _) = do
+--       ts <- fromActive'  qa hype
+--       tt <- fromPassive' qp hype
+--       return $ case tt of
+--         Left t  -> t :  ts
+--         Right s -> s ++ ts
+--     fromActiveTrav _p (Adjoin _ _) =
+--         error "fromActive': fromActiveTrav called on an effectively passive item"
+-- 
+-- 
+-- -- | Extract derived trees w.r.t. to the given passive item.
+-- --
+-- -- For top-level passive items (i.e. items which represent fully parsed
+-- -- elementary trees), `fromPassive'` should return a derivation tree.
+-- --
+-- -- (1) For partial passive items, on the other hand, the result should be a list
+-- -- of derivation trees attached somewhere to the subtree represented by the
+-- -- passive item.
+-- --
+-- -- (2) For partial passive items, on the other hand, the result should be a map
+-- -- which represents attachement positions of the derivations trees attached
+-- -- somewhere to the subtree represented by the passive item.
+-- --
+-- -- Let us consider the `Scan` traversal. In this case, when we get a list of
+-- -- `Deriv`s for the underlying (preceding) active item, ... TODO
+-- fromPassive'
+--   :: (Ord n, Ord t)
+--   => Passive n t
+--   -> Hype n t
+--   -> P.ListT (Earley n t)
+--        (Either Deriv [Deriv])
+--        -- (Either (R.Tree DID) [R.Tree DID])
+-- fromPassive' p hype = do
+--   ext  <- some $ passiveTrav p hype
+--   trav <- each $ S.toList (prioTrav ext)
+--   fromPassiveTrav p trav
+--   where
+--     fromPassiveTrav p trav@(Scan q t _) = do
+--       ts <- fromActive' q hype
+--       case p ^. dagID of
+--         Right _ -> return $ Right ts
+--         Left x -> do
+--           di <- didFrom x trav
+--           -- return . Left $ R.Node di ts
+--           return . Left $ Deriv di (S.fromList ts)
+--     fromPassiveTrav p trav@(Foot q _p' _) = do
+--       ts <- fromActive' q hype
+--       case p ^. dagID of
+--         Right _ -> return $ Right ts
+--         Left x -> do
+--           di <- didFrom x trav
+--           return . Left $ Deriv di (S.fromList ts)
+--     fromPassiveTrav p trav@(Subst qp qa _) = do
+--       ts <- fromActive' qa hype
+--       tt <- fromPassive' qp hype
+--       sts <- return $ case tt of
+--         Right s -> s ++ ts
+--         Left t  -> t :  ts
+--       case p ^. dagID of
+--         Right _  -> return $ Right sts
+--         Left x -> do
+--           di <- didFrom x trav
+--           return . Left $ Deriv di (S.fromList sts)
+--     fromPassiveTrav _p (Adjoin qa qm) = do
+--       aux <- fromPassive' qa hype
+--       ini <- fromPassive' qm hype
+--       return $ case (ini, aux) of
+--         -- (Left it , Left at) -> Left  $ it {R.subForest = at : R.subForest it}
+--         (Left it , Left at) -> Left  $ it {subtrees = S.insert at (subtrees it)}
+--         (Right is, Left at) -> Right $ at : is
+--         (_, Right _) -> error "fromPassive': adjunction of a partial ET"
+-- 
+-- 
+-- -- | Extract the set of derivation trees w.r.t. to the given passive item.
+-- -- See `fromPassive'` for details.
+-- derivFromPassive
+--   :: (Ord n, Ord t)
+--   => Passive n t
+--   -> Hype n t     -- ^ Current state of the earley parser
+--   -> Input t      -- ^ Input sentence
+--   -> IO (S.Set (Either Deriv [Deriv]))
+-- derivFromPassive p h input = do
+--   r <- P.runEffect $ RWS.evalRWST doit input h >-> P.drain
+--   return $ S.fromList (fst r)
+--   where
+--   doit = P.toListM . P.enumerate $ do
+--     t <- fromPassive' p h
+--     return t
+-- 
+-- 
+-- -- | Extract the set of parsed trees obtained on the given input
+-- -- sentence.  Should be run on the result of the earley parser.
+-- --
+-- -- NOTE: we need info about the input here because we are using
+-- -- the Earley monad.  Otherwise, it would be better to unify
+-- -- the interface with the `parsedTrees` function.
+-- derivTrees
+--     :: (Ord n, Ord t)
+--     => Hype n t     -- ^ Final state of the earley parser
+--     -> n            -- ^ The start symbol
+--     -> Input t      -- ^ Input sentence
+--     -> IO (S.Set Deriv)
+--     -- -> IO [R.Tree DID]
+-- derivTrees h start input = do
+--   r <- P.runEffect $ RWS.evalRWST doit input h >-> P.drain
+--   return $ S.fromList (fst r)
+--   -- return (fst r)
+--   where
+--   doit = P.toListM . P.enumerate $ do
+--     let n = length (inputSent input)
+--     p <- each $ finalFrom start n h
+--     t <- fromPassive' p h
+--     return $ case t of
+--       Left t  -> t
+--       Right _ -> error "derivTrees: final tree not a full ET"
 
 
 --------------------------------------------------

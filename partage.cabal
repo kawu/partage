@@ -1,5 +1,5 @@
 name:               partage
-version:            0.2.0.0
+version:            0.3.0.0
 synopsis:           Earley-style parsing with compressed TAGs
 description:
     The library implements an Earley-style, bottom-up parser for tree adjoining
