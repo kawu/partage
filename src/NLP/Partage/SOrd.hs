@@ -12,7 +12,7 @@ module NLP.Partage.SOrd
 ) where
 
 
-import qualified Data.Hashable              as H
+-- import qualified Data.Hashable              as H
 
 
 -- | 'Ord' + 'Hashable'

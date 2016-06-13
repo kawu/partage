@@ -16,9 +16,9 @@ import qualified Control.Arrow                 as Arr
 import           Control.Exception             (assert)
 import qualified Control.Monad.State.Strict    as E
 
-import           Data.List                     (foldl', sortBy)
+import           Data.List                     (foldl')
 import qualified Data.Map.Strict               as M
-import           Data.Ord                      (comparing)
+-- import           Data.Ord                      (comparing)
 import qualified Data.Set                      as S
 
 import           Data.DAWG.Ord                 (ID)

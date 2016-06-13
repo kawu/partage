@@ -39,6 +39,7 @@ module NLP.Partage.AStar
 , Hype
 , Item (..)
 , Passive (..)
+, dagID
 , Active (..)
 , Span (..)
 , ExtWeight (priWeight, estWeight)
@@ -46,14 +47,15 @@ module NLP.Partage.AStar
 , parsedTrees
 , fromPassive
 , fromActive
--- ** Extracting derivation trees
-, Deriv (..)
--- , deriv2tree
--- , expandDeriv
+-- -- ** Extracting derivation trees
+-- , Deriv
+-- , DerivNode (..)
 -- , derivTrees
 -- , derivFromPassive
--- -- , fromPassive'
--- -- , fromActive'
+-- -- , deriv2tree
+-- -- , expandDeriv
+-- -- -- , fromPassive'
+-- -- -- , fromActive'
 -- ** Stats
 , hyperNodesNum
 , hyperEdgesNum
@@ -64,16 +66,24 @@ module NLP.Partage.AStar
 -- -- ** Printing
 -- , printHype
 
--- -- * Sentence position
--- , Pos
+-- * Sentence position
+, Pos
+
+-- * Internal (should not be exported here?)
+, Trav (..)
+, activeTrav
+, passiveTrav
+, prioTrav
+, nonTerm
+, finalFrom
 ) where
 
 
 import           Prelude hiding             (init, span, (.))
 import           Control.Applicative        ((<$>))
 import qualified Control.Arrow as Arr
-import           Control.Monad      (guard, void, (>=>), when, forM_)
-import           Control.Monad.IO.Class     (liftIO)
+import           Control.Monad      (guard, void, (>=>), when)
+-- import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Class  (lift)
 -- import           Control.Monad.Trans.Maybe  (MaybeT (..))
 import qualified Control.Monad.RWS.Strict   as RWS
@@ -93,7 +103,6 @@ import           Data.Lens.Light
 -- import           Data.Hashable (Hashable)
 -- import qualified Data.HashTable.IO          as H
 import qualified Data.MemoCombinators as Memo
-import qualified Data.Tree       as R
 
 import qualified Pipes                      as P
 import           Pipes                      ((>->))
@@ -106,7 +115,7 @@ import qualified NLP.Partage.Tree       as T
 import qualified NLP.Partage.Tree.Other as O
 import qualified NLP.Partage.Auto as A
 
-import           NLP.Partage.DAG (Gram, DID, DAG, Weight)
+import           NLP.Partage.DAG (DID, DAG, Weight)
 import qualified NLP.Partage.DAG as DAG
 import           NLP.Partage.AStar.Auto (Auto(..), mkAuto)
 -- import qualified NLP.Partage.AStar.Heuristic.Base as H
@@ -216,6 +225,7 @@ isRoot x = case x of
     Right _ -> False
 
 
+#ifdef DebugOn
 -- | Print an active item.
 printSpan :: Span -> IO ()
 printSpan span = do
@@ -254,6 +264,7 @@ printPassive p hype = do
     putStr ", "
     printSpan $ getL spanP p
     putStrLn ")"
+#endif
 
 
 --------------------------------------------------
@@ -329,103 +340,103 @@ data Trav n t
 --     putStr "= " >> printItem q'
 
 
--- | Retrieve the DAG node represented by the given top-level
--- passive item (represented by its non-terminal) and the
--- the corresponding incoming traversal.
---
--- This function is needed because passive items representing
--- full elementary trees (DAG roots) abstract over the actual
--- DAG node IDs and keep only information about the corresponding
--- non-terminals.
---
--- While the type of the result is a list(T), it should return
--- the single corresponding DID.
---
--- NOTE: it's a provisional, complicated function, and it might be
--- better to avoid it.  For instance, the structure of the underlying
--- chart could be modifed to keep information about DIDs of the
--- top-level passive items.  As it is defined now, it copies the
--- low-level behaviour of the individual inference functions.
-didFrom :: (Ord n, Ord t) => n -> Trav n t -> P.ListT (Earley n t) DID
-didFrom x (Scan q t _) = do
-  -- retrieve the underlying hype
-  h <- RWS.get
-  -- retrieve the automaton state
-  (_, i) <- followTerm (q ^. state) t
-  -- retrieve the corresponding heads
-  (_, d) <- heads i
-  -- filter those which provide the given non-terminal
-  guard $ nonTerm (Right d) h == x
-  return d
-didFrom x (Subst p q _) = do
-  let pDID = p ^. dagID
-  -- retrieve the underlying hype
-  h <- RWS.get
-  -- the underlying leaf map
-  let leafMap = (leafDID . automat) h
-  -- now, we need to choose the DAG node to search for depending on
-  -- whether the DAG node provided by `p' is a root or not
-  theDID <- case pDID of
-      -- real substitution
-      Left rootNT -> some $ M.lookup rootNT leafMap
-      -- pseudo-substitution
-      Right did -> return did
-  -- retrieve the automaton state
-  (_, i) <- follow (q ^. state) theDID
-  -- retrieve the corresponding heads
-  (_, d) <- heads i
-  -- filter those which provide the given non-terminal...
-  guard $ nonTerm (Right d) h == x
-  -- ...and which are top-level
-  guard $ DAG.isRoot d (gramDAG . automat $ h)
-  return d
-didFrom x (Foot q p _) = do
-  let pDID = p ^. dagID
-  -- retrieve the underlying hype
-  h <- RWS.get
-  -- the underlying leaf map
-  let footMap = (footDID  . automat) h
-  -- find all active items which expect a foot with the given
-  -- symbol and which end where `p` begins
-  let footNT = nonTerm pDID h
-  -- what is the corresponding foot DAG ID?
-  footID <- some $ M.lookup footNT footMap
-  -- retrieve the automaton state
-  (_, i) <- follow (q ^. state) footID
-  -- retrieve the corresponding heads
-  (_, d) <- heads i
-  -- filter those which provide the given non-terminal
-  guard $ nonTerm (Right d) h == x
-  return d
-didFrom x (Adjoin qa qm) = do
-  -- we should not get here?
-  error "didFrom: adjoin; we should not get here?"
-
-
--- | A version of `didFrom` which works outside of the Earley monad.
---
--- NOTE: we need info about the input here because we are using
--- the Earley monad.  Unfortunate...
-didFrom'
-  :: (Ord n, Ord t)
-  => Input t      -- ^ Input sentence
-  -> Hype n t     -- ^ Final state of the earley parser
-  -> n            -- ^ The start symbol
-  -> Trav n t
-  -> IO [DID]
-didFrom' input h nonTerm trav = do
-  r <- P.runEffect $ RWS.evalRWST doit input h >-> P.drain
-  return $ fst r
-  where
-    doit = P.toListM . P.enumerate $ didFrom nonTerm trav
-
-
--- -- | A version of `didFrom` which works directly on
--- -- passive items.
--- didFrom' :: (Ord n, Ord t) => Passive n t -> Trav n t -> P.ListT (Earley n t) DID
--- didFrom' p t = case p ^. dagID of
---   Left n  -> didFrom n t
---   Right i -> return i
+-- -- | Retrieve the DAG node represented by the given top-level
+-- -- passive item (represented by its non-terminal) and the
+-- -- the corresponding incoming traversal.
+-- --
+-- -- This function is needed because passive items representing
+-- -- full elementary trees (DAG roots) abstract over the actual
+-- -- DAG node IDs and keep only information about the corresponding
+-- -- non-terminals.
+-- --
+-- -- While the type of the result is a list(T), it should return
+-- -- the single corresponding DID.
+-- --
+-- -- NOTE: it's a provisional, complicated function, and it might be
+-- -- better to avoid it.  For instance, the structure of the underlying
+-- -- chart could be modifed to keep information about DIDs of the
+-- -- top-level passive items.  As it is defined now, it copies the
+-- -- low-level behaviour of the individual inference functions.
+-- didFrom :: (Ord n, Ord t) => n -> Trav n t -> P.ListT (Earley n t) DID
+-- didFrom x (Scan q t _) = do
+--   -- retrieve the underlying hype
+--   h <- RWS.get
+--   -- retrieve the automaton state
+--   (_, i) <- followTerm (q ^. state) t
+--   -- retrieve the corresponding heads
+--   (_, d) <- heads i
+--   -- filter those which provide the given non-terminal
+--   guard $ nonTerm (Right d) h == x
+--   return d
+-- didFrom x (Subst p q _) = do
+--   let pDID = p ^. dagID
+--   -- retrieve the underlying hype
+--   h <- RWS.get
+--   -- the underlying leaf map
+--   let leafMap = (leafDID . automat) h
+--   -- now, we need to choose the DAG node to search for depending on
+--   -- whether the DAG node provided by `p' is a root or not
+--   theDID <- case pDID of
+--       -- real substitution
+--       Left rootNT -> some $ M.lookup rootNT leafMap
+--       -- pseudo-substitution
+--       Right did -> return did
+--   -- retrieve the automaton state
+--   (_, i) <- follow (q ^. state) theDID
+--   -- retrieve the corresponding heads
+--   (_, d) <- heads i
+--   -- filter those which provide the given non-terminal...
+--   guard $ nonTerm (Right d) h == x
+--   -- ...and which are top-level
+--   guard $ DAG.isRoot d (gramDAG . automat $ h)
+--   return d
+-- didFrom x (Foot q p _) = do
+--   let pDID = p ^. dagID
+--   -- retrieve the underlying hype
+--   h <- RWS.get
+--   -- the underlying leaf map
+--   let footMap = (footDID  . automat) h
+--   -- find all active items which expect a foot with the given
+--   -- symbol and which end where `p` begins
+--   let footNT = nonTerm pDID h
+--   -- what is the corresponding foot DAG ID?
+--   footID <- some $ M.lookup footNT footMap
+--   -- retrieve the automaton state
+--   (_, i) <- follow (q ^. state) footID
+--   -- retrieve the corresponding heads
+--   (_, d) <- heads i
+--   -- filter those which provide the given non-terminal
+--   guard $ nonTerm (Right d) h == x
+--   return d
+-- didFrom x (Adjoin qa qm) = do
+--   -- we should not get here?
+--   error "didFrom: adjoin; we should not get here?"
+-- 
+-- 
+-- -- | A version of `didFrom` which works outside of the Earley monad.
+-- --
+-- -- NOTE: we need info about the input here because we are using
+-- -- the Earley monad.  Unfortunate...
+-- didFrom'
+--   :: (Ord n, Ord t)
+--   => Input t      -- ^ Input sentence
+--   -> Hype n t     -- ^ Final state of the earley parser
+--   -> n            -- ^ The start symbol
+--   -> Trav n t
+--   -> IO [DID]
+-- didFrom' input h nonTerm trav = do
+--   r <- P.runEffect $ RWS.evalRWST doit input h >-> P.drain
+--   return $ fst r
+--   where
+--     doit = P.toListM . P.enumerate $ didFrom nonTerm trav
+-- 
+-- 
+-- -- -- | A version of `didFrom` which works directly on
+-- -- -- passive items.
+-- -- didFrom' :: (Ord n, Ord t) => Passive n t -> Trav n t -> P.ListT (Earley n t) DID
+-- -- didFrom' p t = case p ^. dagID of
+-- --   Left n  -> didFrom n t
+-- --   Right i -> return i
 
 
 
@@ -529,10 +540,12 @@ data Item n t
     deriving (Show, Eq, Ord)
 
 
+#ifdef DebugOn
 -- | Print an active item.
 printItem :: (Show n, Show t) => Item n t -> Hype n t -> IO ()
 printItem (ItemP p) h = printPassive p h
 printItem (ItemA p) _ = printActive p
+#endif
 
 
 -- -- | Priority of an active item.  Crucial for the algorithm --
@@ -1825,13 +1838,13 @@ step (ItemA p :-> e) = do
 
 -- | Extract the set of the parsed trees w.r.t. to the given active item.
 fromActive :: (Ord n, Ord t) => Active -> Hype n t -> [[T.Tree n t]]
-fromActive p hype =
-  case activeTrav p hype of
+fromActive active hype =
+  case activeTrav active hype of
     Nothing  -> error "fromActive: unknown active item"
     Just ext -> if S.null (prioTrav ext)
         then [[]]
         else concatMap
-            (fromActiveTrav p)
+            (fromActiveTrav active)
             (S.toList (prioTrav ext))
   where
     fromActiveTrav _p (Scan q t _) =
@@ -1850,9 +1863,9 @@ fromActive p hype =
 
 -- | Extract the set of the parsed trees w.r.t. to the given passive item.
 fromPassive :: (Ord n, Ord t) => Passive n t -> Hype n t -> [T.Tree n t]
-fromPassive p hype = concat
-  [ fromPassiveTrav p trav
-  | ext <- maybeToList $ passiveTrav p hype
+fromPassive passive hype = concat
+  [ fromPassiveTrav passive trav
+  | ext <- maybeToList $ passiveTrav passive hype
   , trav <- S.toList (prioTrav ext) ]
   where
     fromPassiveTrav p (Scan q t _) =
@@ -1894,124 +1907,126 @@ parsedTrees hype start n
     $ finalFrom start n hype
 
 
----------------------------
--- Extracting Derivation Trees
---
--- Experimental version
----------------------------
-
-
--- | Derivation tree is similar to `O.Tree` but additionally includes
--- potential modifications aside the individual nodes.  Modifications
--- themselves take the form of derivation trees.  Whether the modification
--- represents a substitution or an adjunction can be concluded on the basis of
--- the type (leaf or internal) of the node.
-type Deriv n t = R.Tree (DNode n t)
-
-
--- | A node of a derivation tree.
-data DNode n t = DNode
-  { theNode :: O.Node n t
-  , modif   :: [Deriv n t] }
-
-
--- | Extract derivation trees obtained on the given input sentence. Should be
--- run on the final result of the earley parser.
-derivTrees
-    :: (Ord n, Ord t)
-    => Hype n t     -- ^ Final state of the earley parser
-    -> n            -- ^ The start symbol
-    -> Int          -- ^ Length of the input sentence
-    -> [Deriv n t]
-derivTrees hype start n
-    = concatMap (`fromPassive'` hype)
-    $ finalFrom start n hype
-
-
--- | Extract the set of the parsed trees w.r.t. to the given passive item.
-fromPassive' :: forall n t. (Ord n, Ord t) => Passive n t -> Hype n t -> [Deriv n t]
-fromPassive' p hype = concat
-
-  [ fromPassiveTrav p trav
-  | ext <- maybeToList $ passiveTrav p hype
-  , trav <- S.toList (prioTrav ext) ]
-
-  where
-
-    fromPassiveTrav p (Scan q t _) =
-        [ mkTree p (termNode t) ts
-        | ts <- fromActive' q hype ]
-    fromPassiveTrav p (Foot q _p' _) =
-        [ mkTree p (footNode p) ts
-        | ts <- fromActive' q hype ]
-    fromPassiveTrav p (Subst qp qa _) =
-        [ mkTree p (substNode t) ts
-        | ts <- fromActive' qa hype
-        , t  <- fromPassive' qp hype ]
-    fromPassiveTrav _p (Adjoin qa qm) =
-        [ adjoinTree ini aux
-        | aux <- fromPassive' qa hype
-        , ini <- fromPassive' qm hype ]
-
-    -- Construct a derivation tree on the basis of the underlying passive
-    -- item, current child derivation and previous children derivations.
-    mkTree p t ts = R.Node
-      { R.rootLabel = mkRoot p
-      , R.subForest = reverse $ t : ts }
-
-    -- Extract the set of the parsed trees w.r.t. to the given active item.
-    fromActive' p hype = case activeTrav p hype of
-      Nothing  -> error "fromActive': unknown active item"
-      Just ext -> if S.null (prioTrav ext)
-        then [[]]
-        else concatMap
-             (fromActiveTrav p)
-             (S.toList (prioTrav ext))
-
-    fromActiveTrav _p (Scan q t _) =
-        [ termNode t : ts
-        | ts <- fromActive' q hype ]
-    fromActiveTrav _p (Foot q p _) =
-        [ footNode p : ts
-        | ts <- fromActive' q hype ]
-    fromActiveTrav _p (Subst qp qa _) =
-        [ substNode t : ts
-        | ts <- fromActive' qa hype
-        , t  <- fromPassive' qp hype ]
-    fromActiveTrav _p (Adjoin _ _) =
-        error "fromActive'.fromActiveTrav: called on a passive item"
-
-    -- Construct substitution node stemming from the given derivation.
-    substNode t = flip R.Node [] $ DNode
-      { theNode = O.NonTerm (derivRoot t)
-      , modif   = [t] }
-
-    -- Add the auxiliary derivation to the list of modifications of the
-    -- initial derivation.
-    adjoinTree ini aux = R.Node
-      { R.rootLabel = let root = R.rootLabel ini in DNode
-        { theNode = theNode root
-        , modif = aux : modif root }
-      , R.subForest = R.subForest ini }
-
-    -- Construct a derivation node with no modifier.
-    only x = DNode {theNode = x, modif =  []}
-
-    -- Several constructors which allow to build non-modified nodes.
-    mkRoot p = only . O.NonTerm $ nonTerm (getL dagID p) hype
-    mkFoot p = only . O.Foot $ nonTerm (getL dagID p) hype
-    mkTerm = only . O.Term
-
-    -- Build non-modified nodes of different types.
-    footNode p = R.Node (mkFoot p) []
-    termNode x = R.Node (mkTerm x) []
-
-    -- Retrieve root non-terminal of a derivation tree.
-    derivRoot :: Deriv n t -> n
-    derivRoot R.Node{..} = case theNode rootLabel of
-      O.NonTerm x -> x
-      O.Foot _ -> error "fromPassive'.getRoot: got foot"
-      O.Term _ -> error "fromPassive'.getRoot: got terminal"
+-- ---------------------------
+-- -- Extracting Derivation Trees
+-- --
+-- -- Experimental version
+-- ---------------------------
+-- 
+-- 
+-- -- | Derivation tree is similar to `O.Tree` but additionally includes
+-- -- potential modifications aside the individual nodes.  Modifications
+-- -- themselves take the form of derivation trees.  Whether the modification
+-- -- represents a substitution or an adjunction can be concluded on the basis of
+-- -- the type (leaf or internal) of the node.
+-- type Deriv n t = R.Tree (DerivNode n t)
+-- 
+-- 
+-- -- | A node of a derivation tree.
+-- data DerivNode n t = DerivNode
+--   { node  :: O.Node n t
+--   , modif :: [Deriv n t] }
+-- 
+-- 
+-- -- | Extract derivation trees obtained on the given input sentence. Should be
+-- -- run on the final result of the earley parser.
+-- derivTrees
+--     :: (Ord n, Ord t)
+--     => Hype n t     -- ^ Final state of the earley parser
+--     -> n            -- ^ The start symbol
+--     -> Int          -- ^ Length of the input sentence
+--     -> [Deriv n t]
+-- derivTrees hype start n
+--     = concatMap (`derivFromPassive` hype)
+--     $ finalFrom start n hype
+-- 
+-- 
+-- -- | Extract the set of the parsed trees w.r.t. to the given passive item.
+-- derivFromPassive :: forall n t. (Ord n, Ord t) => Passive n t -> Hype n t -> [Deriv n t]
+-- derivFromPassive passive hype = concat
+-- 
+--   [ fromPassiveTrav passive trav
+--   | ext <- maybeToList $ passiveTrav passive hype
+--   , trav <- S.toList (prioTrav ext) ]
+-- 
+--   where
+-- 
+--     passiveDerivs = flip derivFromPassive hype
+-- 
+--     fromPassiveTrav p (Scan q t _) =
+--         [ mkTree p (termNode t) ts
+--         | ts <- activeDerivs q ]
+--     fromPassiveTrav p (Foot q _p' _) =
+--         [ mkTree p (footNode p) ts
+--         | ts <- activeDerivs q ]
+--     fromPassiveTrav p (Subst qp qa _) =
+--         [ mkTree p (substNode t) ts
+--         | ts <- activeDerivs qa
+--         , t  <- passiveDerivs qp ]
+--     fromPassiveTrav _p (Adjoin qa qm) =
+--         [ adjoinTree ini aux
+--         | aux <- passiveDerivs qa
+--         , ini <- passiveDerivs qm ]
+-- 
+--     -- Construct a derivation tree on the basis of the underlying passive
+--     -- item, current child derivation and previous children derivations.
+--     mkTree p t ts = R.Node
+--       { R.rootLabel = mkRoot p
+--       , R.subForest = reverse $ t : ts }
+-- 
+--     -- Extract the set of the parsed trees w.r.t. to the given active item.
+--     activeDerivs active = case activeTrav active hype of
+--       Nothing  -> error "activeDerivs: unknown active item"
+--       Just ext -> if S.null (prioTrav ext)
+--         then [[]]
+--         else concatMap
+--              (fromActiveTrav active)
+--              (S.toList (prioTrav ext))
+-- 
+--     fromActiveTrav _p (Scan q t _) =
+--         [ termNode t : ts
+--         | ts <- activeDerivs q ]
+--     fromActiveTrav _p (Foot q p _) =
+--         [ footNode p : ts
+--         | ts <- activeDerivs q ]
+--     fromActiveTrav _p (Subst qp qa _) =
+--         [ substNode t : ts
+--         | ts <- activeDerivs qa
+--         , t  <- passiveDerivs qp ]
+--     fromActiveTrav _p (Adjoin _ _) =
+--         error "activeDerivs.fromActiveTrav: called on a passive item"
+-- 
+--     -- Construct substitution node stemming from the given derivation.
+--     substNode t = flip R.Node [] $ DerivNode
+--       { node = O.NonTerm (derivRoot t)
+--       , modif   = [t] }
+-- 
+--     -- Add the auxiliary derivation to the list of modifications of the
+--     -- initial derivation.
+--     adjoinTree ini aux = R.Node
+--       { R.rootLabel = let root = R.rootLabel ini in DerivNode
+--         { node = node root
+--         , modif = aux : modif root }
+--       , R.subForest = R.subForest ini }
+-- 
+--     -- Construct a derivation node with no modifier.
+--     only x = DerivNode {node = x, modif =  []}
+-- 
+--     -- Several constructors which allow to build non-modified nodes.
+--     mkRoot p = only . O.NonTerm $ nonTerm (getL dagID p) hype
+--     mkFoot p = only . O.Foot $ nonTerm (getL dagID p) hype
+--     mkTerm = only . O.Term
+-- 
+--     -- Build non-modified nodes of different types.
+--     footNode p = R.Node (mkFoot p) []
+--     termNode x = R.Node (mkTerm x) []
+-- 
+--     -- Retrieve root non-terminal of a derivation tree.
+--     derivRoot :: Deriv n t -> n
+--     derivRoot R.Node{..} = case node rootLabel of
+--       O.NonTerm x -> x
+--       O.Foot _ -> error "passiveDerivs.getRoot: got foot"
+--       O.Term _ -> error "passiveDerivs.getRoot: got terminal"
 
 
 -- ---------------------------
