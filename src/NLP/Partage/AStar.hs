@@ -43,6 +43,8 @@ module NLP.Partage.AStar
 , Active (..)
 , Span (..)
 , ExtWeight (priWeight, estWeight)
+, HypeModif (..)
+, ModifType (..)
 -- ** Extracting parsed trees
 , parsedTrees
 , fromPassive
@@ -302,10 +304,12 @@ data Trav n t
     -- ^ Pseudo substitution
     | Foot
         { _actArg   :: Active
-        -- ^ The passive argument of the action
+        -- ^ The active argument of the action
         -- , theFoot  :: n
+        -- -- ^ The foot non-terminal
         , _theFoot  :: Passive n t
-        -- ^ The foot non-terminal
+        -- ^ The passive argument of the action
+        -- TODO: is it really interesting?
         , _weight   :: Weight
         -- ^ The traversal weight
         }
@@ -632,7 +636,10 @@ mkHype auto = Hype
 -- What is produced by the pipe represents all types of modifications which
 -- can apply to the underlying, processed (done) part of the hypergraph.
 data HypeModif n t = HypeModif
-  { modifType :: ModifType
+  { modifHype :: Hype n t
+    -- ^ Current version of the hypergraph, with the corresponding
+    -- modification applied
+  , modifType :: ModifType
     -- ^ Type of modification of the hypergraph
   , modifItem :: Item n t
     -- ^ Hypernode which is either added (if `modifType = NewNode`) or
@@ -655,11 +662,34 @@ data ModifType
 -- | Earley parser monad.  Contains the input sentence (reader)
 -- and the state of the computation `Hype'.
 --
--- TODO: it's strange that the producer is hardcoded here...
+-- Note that the producer is embedded in RWS. There are two reasons for that:
+-- (i) this allows to easily treat RWS as a local state which can be easily
+-- stripped down in subsequent pipe-based computations, and (ii) RWS component
+-- is consulted much more often then the pipe component (it is not clear,
+-- however, what are the performance gains stemming from this design choice).
 type Earley n t = RWS.RWST
   (Input t) () (Hype n t)
   -- (P.Producer (Binding (Item n t) (ExtWeight n t), Hype n t) IO)
   (P.Producer (HypeModif n t) IO)
+
+
+-- | Yielf `HypeModif` to the underlying pipe. The argument function will be
+-- supplied with the current hypergraph, for convenience.
+yieldModif
+  :: (Hype n t -> HypeModif n t)
+  -> Earley n t ()
+yieldModif mkModif = do
+  hype <- RWS.get
+  lift . P.yield . mkModif $ hype
+
+
+-- -- | Earley parser monad.  Contains the input sentence (reader)
+-- -- and the state of the computation `Hype'.
+-- type EarleyCore n t = RWS.RWST (Input t) () (Hype n t) IO
+--
+--
+-- -- | Earley pipe.
+-- type Earley n t = P.Producer (HypeModif n t) (EarleyCore n t)
 
 
 -- | Read word from the given position of the input.
@@ -1003,8 +1033,9 @@ pushActive p newWeight newTrav = do
   track estDist >> isProcessedA p >>= \b -> if b
     then do
       saveActive p new
-      lift $ P.yield HypeModif
-        { modifType = case newTrav of
+      yieldModif $ \hype -> HypeModif
+        { modifHype = hype
+        , modifType = case newTrav of
             Nothing -> NewNode
             _ -> NewArcs
           -- WARNING: above, something we know from the context; `pushActive` is
@@ -1040,8 +1071,9 @@ pushPassive p newWeight newTrav = do
   track estDist >> isProcessedP p >>= \b -> if b
     then do
       savePassive p new
-      lift $ P.yield HypeModif
-        { modifType = NewArcs
+      yieldModif $ \hype -> HypeModif
+        { modifHype = hype
+        , modifType = NewArcs
         , modifItem = ItemP p
         , modifTrav = new }
     else modify' $ \s -> s {waiting = newWait new (waiting s)}
@@ -1864,8 +1896,9 @@ step (ItemP p :-> e) = do
       , tryAdjoinTerm' ]
     -- TODO: consider moving before the inference applications
     savePassive p e -- -- $ prioTrav e
-    lift $ P.yield HypeModif
-      { modifType = NewNode
+    yieldModif $ \hype -> HypeModif
+      { modifHype = hype
+      , modifType = NewNode
       , modifItem = ItemP p
       , modifTrav = e}
 step (ItemA p :-> e) = do
@@ -1877,8 +1910,9 @@ step (ItemA p :-> e) = do
       , tryAdjoinCont' ]
     -- TODO: consider moving before the inference applications
     saveActive p e -- -- $ prioTrav e
-    lift $ P.yield HypeModif
-      { modifType = NewNode
+    yieldModif $ \hype -> HypeModif
+      { modifHype = hype
+      , modifType = NewNode
       , modifItem = ItemA p
       , modifTrav = e }
 
@@ -2408,55 +2442,69 @@ earleyAuto
     => Auto n t         -- ^ Grammar automaton
     -> Input t          -- ^ Input sentence
     -> IO (Hype n t)
-earleyAuto auto input =
-  P.runEffect $ earleyAutoP auto input >-> P.drain
+earleyAuto auto input = do
+  (hype, _) <- P.runEffect $ do
+    let pipe = RWS.evalRWST earleyAutoP input (mkHype auto)
+    pipe >-> P.drain
+  return hype
+
+--   let eff = earleyAutoP >-> P.drain
+--   in  fst <$> RWS.evalRWST (P.runEffect eff) input (mkHype auto)
 
 
--- | Produce the constructed items (and the
--- corresponding hypergraphs) on the fly.
--- See also `earley`.
+-- -- | Produce the constructed items (and the
+-- -- corresponding hypergraphs) on the fly.
+-- -- See also `earley`.
+-- earleyAutoP
+-- #ifdef DebugOn
+--     :: (SOrd t, SOrd n)
+-- #else
+--     :: (Ord t, Ord n)
+-- #endif
+--     => Auto n t         -- ^ Grammar automaton
+--     -> Input t          -- ^ Input sentence
+--     -> P.Producer
+--          -- -- (Item n t, Hype n t)
+--          -- (Binding (Item n t) (ExtWeight n t), Hype n t)
+--          (HypeModif n t)
+--          IO (Hype n t)
+-- earleyAutoP auto input = do
+--     (hype, _) <- RWS.evalRWST (init >> loop) input st0
+--     return hype
+
+
+-- | Produce the constructed items (and the corresponding hypergraphs) on the
+-- fly. See also `earley`.
 earleyAutoP
 #ifdef DebugOn
     :: (SOrd t, SOrd n)
 #else
     :: (Ord t, Ord n)
 #endif
-    => Auto n t         -- ^ Grammar automaton
-    -> Input t          -- ^ Input sentence
-    -> P.Producer
-         -- -- (Item n t, Hype n t)
-         -- (Binding (Item n t) (ExtWeight n t), Hype n t)
-         (HypeModif n t)
-         IO (Hype n t)
-earleyAutoP auto input = do
-    (hype, _) <- RWS.evalRWST (init >> loop) input st0
-    return hype
+    => Earley n t (Hype n t)
+earleyAutoP =
+  init >> loop
   where
-    -- input length
-    n = length (inputSent input)
-    -- empty hypergraph
-    st0 = mkHype auto
     -- initialize hypergraph with initial active items
     init = P.runListT $ do
-        root <- each . S.toList
-              . A.roots . A.fromWei
-              . gramAuto $ auto
-        i    <- each [0 .. n - 1]
-        let q = Active root Span
-                { _beg   = i
-                , _end   = i
-                , _gap   = Nothing }
-        lift $ pushActive q zeroWeight Nothing
+      -- input length
+      n <- lift $ length <$> RWS.asks inputSent
+      auto <- lift $ RWS.gets automat
+      root <- each . S.toList
+            . A.roots . A.fromWei
+            . gramAuto $ auto
+      i    <- each [0 .. n - 1]
+      let q = Active root Span
+              { _beg   = i
+              , _end   = i
+              , _gap   = Nothing }
+      lift $ pushActive q zeroWeight Nothing
     -- the computation is performed as long as the waiting queue
     -- is non-empty.
     loop = popItem >>= \mp -> case mp of
         Nothing -> RWS.get
         Just p  -> do
-          step p
-          -- hype <- RWS.get
-          -- -- lift $ P.yield (Q.key p, hype)
-          -- lift $ P.yield (p, hype)
-          loop
+          step p >> loop
 
 
 --------------------------------------------------
