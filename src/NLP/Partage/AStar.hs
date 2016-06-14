@@ -628,13 +628,38 @@ mkHype auto = Hype
     , waiting = Q.empty }
 
 
+-- | Type of elements produced by the pipe underlying the `Earley` monad.
+-- What is produced by the pipe represents all types of modifications which
+-- can apply to the underlying, processed (done) part of the hypergraph.
+data HypeModif n t = HypeModif
+  { modifType :: ModifType
+    -- ^ Type of modification of the hypergraph
+  , modifItem :: Item n t
+    -- ^ Hypernode which is either added (if `modifType = NewNode`) or
+    -- just the target (if `modifType = NewArcs`) of the newly added
+    -- hyperarcs.
+  , modifTrav :: ExtWeight n t
+    -- ^ New arcs (if any) being added to the passive part of the hypergraph
+  }
+
+
+-- | Type of a modification of a hypergraph.
+data ModifType
+  = NewNode
+    -- ^ When a new node (and the corresponding in-going arcs) is added
+  | NewArcs
+    -- ^ When only new arcs, leading to an existig hypernode, are added
+  deriving (Show, Eq, Ord)
+
+
 -- | Earley parser monad.  Contains the input sentence (reader)
 -- and the state of the computation `Hype'.
 --
 -- TODO: it's strange that the producer is hardcoded here...
 type Earley n t = RWS.RWST
   (Input t) () (Hype n t)
-  (P.Producer (Binding (Item n t) (ExtWeight n t), Hype n t) IO)
+  -- (P.Producer (Binding (Item n t) (ExtWeight n t), Hype n t) IO)
+  (P.Producer (HypeModif n t) IO)
 
 
 -- | Read word from the given position of the input.
@@ -976,7 +1001,19 @@ pushActive p newWeight newTrav = do
         Just trav -> extWeight  newWeight estDist trav
         Nothing   -> extWeight0 newWeight estDist
   track estDist >> isProcessedA p >>= \b -> if b
-    then saveActive p new
+    then do
+      saveActive p new
+      lift $ P.yield HypeModif
+        { modifType = case newTrav of
+            Nothing -> NewNode
+            _ -> NewArcs
+          -- WARNING: above, something we know from the context; `pushActive` is
+          -- used in two situations: (a) when the hypergraph is initialized with
+          -- starting, active items (nodes), (b) a new traversal, leading to an
+          -- existing hypernode, is added. In case (a), no traversals are added,
+          -- only a new starting hypergraph node is added.
+        , modifItem = ItemA p
+        , modifTrav = new }
     else modify' $ \s -> s {waiting = newWait new (waiting s)}
   where
     newWait = Q.insertWith joinExtWeight (ItemA p)
@@ -1001,7 +1038,12 @@ pushPassive p newWeight newTrav = do
   estDist <- estimateDistP p
   let new = extWeight newWeight estDist newTrav
   track estDist >> isProcessedP p >>= \b -> if b
-    then savePassive p new
+    then do
+      savePassive p new
+      lift $ P.yield HypeModif
+        { modifType = NewArcs
+        , modifItem = ItemP p
+        , modifTrav = new }
     else modify' $ \s -> s {waiting = newWait new (waiting s)}
   where
     newWait = Q.insertWith joinExtWeight (ItemP p)
@@ -1820,7 +1862,12 @@ step (ItemP p :-> e) = do
       , tryAdjoinCont
       , tryAdjoinTerm
       , tryAdjoinTerm' ]
+    -- TODO: consider moving before the inference applications
     savePassive p e -- -- $ prioTrav e
+    lift $ P.yield HypeModif
+      { modifType = NewNode
+      , modifItem = ItemP p
+      , modifTrav = e}
 step (ItemA p :-> e) = do
     -- mapM_ ($ p)
     mapM_ (\f -> f p $ priWeight e)
@@ -1828,7 +1875,12 @@ step (ItemA p :-> e) = do
       , trySubst'
       , tryAdjoinInit'
       , tryAdjoinCont' ]
+    -- TODO: consider moving before the inference applications
     saveActive p e -- -- $ prioTrav e
+    lift $ P.yield HypeModif
+      { modifType = NewNode
+      , modifItem = ItemA p
+      , modifTrav = e }
 
 
 ---------------------------
@@ -2372,8 +2424,9 @@ earleyAutoP
     => Auto n t         -- ^ Grammar automaton
     -> Input t          -- ^ Input sentence
     -> P.Producer
-         -- (Item n t, Hype n t)
-         (Binding (Item n t) (ExtWeight n t), Hype n t)
+         -- -- (Item n t, Hype n t)
+         -- (Binding (Item n t) (ExtWeight n t), Hype n t)
+         (HypeModif n t)
          IO (Hype n t)
 earleyAutoP auto input = do
     (hype, _) <- RWS.evalRWST (init >> loop) input st0
@@ -2400,9 +2453,9 @@ earleyAutoP auto input = do
         Nothing -> RWS.get
         Just p  -> do
           step p
-          hype <- RWS.get
-          -- lift $ P.yield (Q.key p, hype)
-          lift $ P.yield (p, hype)
+          -- hype <- RWS.get
+          -- -- lift $ P.yield (Q.key p, hype)
+          -- lift $ P.yield (p, hype)
           loop
 
 
