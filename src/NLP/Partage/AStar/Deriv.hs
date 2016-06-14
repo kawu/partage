@@ -56,7 +56,7 @@ data DerivNode n t = DerivNode
 -- run on the final result of the earley parser.
 derivTrees
     :: (Ord n, Ord t)
-    => A.Hype n t     -- ^ Final state of the earley parser
+    => A.Hype n t   -- ^ Final state of the earley parser
     -> n            -- ^ The start symbol
     -> Int          -- ^ Length of the input sentence
     -> [Deriv n t]
@@ -232,20 +232,51 @@ data OutArc n t
 
 
 -- | A producer which generates the subsequent derivations encoded in the
--- progressively constructed hypergraph represented by the input pipe.
+-- progressively constructed hypergraph represented by the input producer.
 derivsPipe
   :: (Monad m, Ord n, Ord t)
-  => P.Producer (A.HypeModif n t) m a
+  => n                 -- ^ The start symbol
+  -> Int               -- ^ The length of the input sentence
+  -> P.Producer (A.HypeModif n t) m a
   -- ^ The producer representing dynamic construction of a hypergraph
   -> P.Producer (Deriv n t) m a
-derivsPipe modifPipe = P.for modifPipe $ \modif -> pipeDerivs modif
+derivsPipe start len modifPipe = P.for modifPipe (pipeDerivs start len)
 
 
--- | Pipe derivations based on the given latest hypergraph modification.
+-- | Generate derivations based on the given latest hypergraph modification.
+--
+-- TODO: at the moment the function doesn't guarantee to not to generate
+-- duplicate derivations (in particular, it doesn't check the status of the
+-- input hypergraph modification -- whether it is `A.NewNode` or `A.NewArcs`
+-- only).
 pipeDerivs
   :: (Monad m, Ord n, Ord t)
-  => A.HypeModif n t
+  => n                 -- ^ The start symbol
+  -> Int               -- ^ The length of the input sentence
+  -> A.HypeModif n t
   -> P.Producer (Deriv n t) m ()
-pipeDerivs A.HypeModif{..} = case modifItem of
-  A.ItemP p -> mapM_ P.yield $ derivFromPassive p modifHype
+pipeDerivs start len A.HypeModif{..} = case modifItem of
+  A.ItemP p -> if isFinal start len p
+    then mapM_ P.yield $ derivFromPassive p modifHype
+    else return ()
   _ -> return ()
+
+
+
+--------------------------------------------------
+-- Utilities
+--------------------------------------------------
+
+
+-- | Check whether the given passive item is final or not.
+isFinal
+  :: (Eq n)
+  => n             -- ^ The start symbol
+  -> Int           -- ^ The length of the input sentence
+  -> A.Passive n t -- ^ The item to check
+  -> Bool
+isFinal start n p =
+  p ^. A.spanP ^. A.beg == 0 &&
+  p ^. A.spanP ^. A.end == n &&
+  p ^. A.dagID == Left start &&
+  p ^. A.spanP ^. A.gap == Nothing

@@ -40,8 +40,12 @@ module NLP.Partage.AStar
 , Item (..)
 , Passive (..)
 , dagID
+, spanP
 , Active (..)
 , Span (..)
+, beg
+, end
+, gap
 , ExtWeight (priWeight, estWeight)
 , HypeModif (..)
 , ModifType (..)
