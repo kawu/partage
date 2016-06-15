@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -16,18 +17,23 @@ module NLP.Partage.AStar.Deriv
 ) where
 
 
-import           Data.Lens.Light
-import qualified Data.Map.Strict        as M
-import           Data.Maybe             (maybeToList)
-import qualified Data.Set               as S
-import qualified Data.Tree              as R
+import           Control.Monad             (guard, void, forM_, when)
+import qualified Control.Monad.RWS.Strict  as RWS
+import           Control.Monad.Trans.Class (lift)
+import           Control.Monad.Trans.Maybe (MaybeT (..))
 
-import qualified Pipes                  as P
+import           Data.Lens.Light
+import qualified Data.Map.Strict           as M
+import           Data.Maybe                (maybeToList)
+import qualified Data.Set                  as S
+import qualified Data.Tree                 as R
+
+import qualified Pipes                     as P
 -- import qualified Pipes.Prelude              as P
 
-import qualified NLP.Partage.AStar      as A
+import qualified NLP.Partage.AStar         as A
 -- import           NLP.Partage.DAG        (Weight)
-import qualified NLP.Partage.Tree.Other as O
+import qualified NLP.Partage.Tree.Other    as O
 
 
 ---------------------------
@@ -164,7 +170,7 @@ derivFromPassive passive hype = concat
 --
 -- Only the processed part of the hypergraph is stored.
 data RevHype n t = RevHype
-  { doneReversed :: M.Map (A.Item n t) (S.Set (OutArc n t)) }
+  { doneReversed :: M.Map (A.Item n t) (S.Set (RevTrav n t)) }
 
 
 -- | An arc outgoing from a hypergraph node. A reversed representation w.r.t.
@@ -175,7 +181,7 @@ data RevHype n t = RevHype
 -- outgoing edges.  For the moment, each constructor is adorned with a suffix
 -- 'A' or 'P' which tells whether the source item can be passive or active
 -- (or both, if no corresponding 'A' or 'P' suffix).
-data OutArc n t
+data RevTrav n t
     = ScanA
         { _outItem  :: A.Item n t
         -- ^ The output active or passive item
@@ -231,35 +237,165 @@ data OutArc n t
 --------------------------------------------------
 
 
--- | A producer which generates the subsequent derivations encoded in the
--- progressively constructed hypergraph represented by the input producer.
-derivsPipe
+-- | Derivation monad.
+type DerivM n t m = RWS.RWST
+  (DerivR n) () (DerivS n t)
+  (P.Producer (Deriv n t) m)
+
+
+-- | Reader component of `DerivM`.
+data DerivR n = DerivR
+  { startSym :: n
+    -- ^ Start symbol of the grammar
+  , sentLen  :: Int
+    -- ^ Length of the input sentence
+  } deriving (Show, Eq, Ord)
+
+
+-- | State component of `DerivM`.
+-- data DerivS n t = DerivS
+type DerivS n t = RevHype n t
+
+
+-- | Process a hypergraph modification.
+procModif
+  :: forall m n t. (Monad m, Ord n, Ord t)
+  => A.HypeModif n t
+  -> DerivM n t m ()
+procModif A.HypeModif{..}
+  | modifType == A.NewNode = void . runMaybeT $ do
+      A.ItemP p <- return modifItem
+      guard =<< lift (isFinal p)
+      mapM_ (lift . lift . P.yield) $
+        derivFromPassive p modifHype
+  where
+    -- Recursively explore the hypergraph starting from the new node and add all
+    -- nodes and arcs to the inverse representation, if no present there yet.
+    go :: A.Item n t -> DerivM n t m ()
+    go node = do
+      b <- hasNode node
+      when (not b) $ do
+        forM_ (S.toList $ ingoingArcs node modifHype) $ \trav -> do
+          addArc node trav >> case trav of
+            A.Scan{..} -> goA scanFrom
+            A.Subst{..} -> goP passArg >> goA actArg
+            -- TODO: below we don't explore the foot item
+            A.Foot{..} -> goA actArg
+            A.Adjoin{..} -> goP passAdj >> goP passMod
+    -- Versions of `go` specialized to active and passive items
+    goA = go . A.ItemA
+    goP = go . A.ItemP
+
+
+-- | Retrieve the set/list of arcs ingoing to the given hypergraph node.
+ingoingArcs
+  :: (Ord n, Ord t)
+  => A.Item n t
+  -> A.Hype n t
+  -> S.Set (A.Trav n t)
+ingoingArcs item hype = getTrav $ case item of
+  A.ItemA a -> A.activeTrav a hype
+  A.ItemP p -> A.passiveTrav p hype
+  where
+    getTrav = \case
+      Nothing -> S.empty
+      Just ew -> A.prioTrav ew
+
+
+-- | Does the inversed representation of the hypergraph contain the given node?
+hasNode :: (Monad m, Ord n) => A.Item n t -> DerivM n t m Bool
+hasNode item = do
+  rev <- RWS.gets doneReversed
+  return $ M.member item rev
+
+
+-- | Add a node to the inversed representation of the hypergraph. Nothing about
+-- the ingoing or outgoing arcs is known at this moment.
+addNode :: (Monad m, Ord n) => A.Item n t -> DerivM n t m ()
+addNode item = RWS.modify' $ \RevHype{..} ->
+  let rev = M.insert item S.empty doneReversed
+  in  RevHype {doneReversed = rev}
+
+
+-- | Add an arc to the inversed representation of the hypergraph.
+addArc
   :: (Monad m, Ord n, Ord t)
-  => n                 -- ^ The start symbol
-  -> Int               -- ^ The length of the input sentence
-  -> P.Producer (A.HypeModif n t) m a
-  -- ^ The producer representing dynamic construction of a hypergraph
-  -> P.Producer (Deriv n t) m a
-derivsPipe start len modifPipe = P.for modifPipe (pipeDerivs start len)
+  => A.Item n t
+     -- ^ Node to which the arc leads
+  -> A.Trav n t
+     -- ^ Arc to add
+  -> DerivM n t m ()
+addArc item trav = RWS.modify' $ \RevHype{..} ->
+  let rev = doneReversed `modifyWith`
+            [addOne p t | (p, t) <- turnAround item trav]
+            -- map (uncurry addOne) (turnAround item trav)
+  in  RevHype {doneReversed = rev}
+  where
+    modifyWith = flip applyAll
+    addOne revItem revTrav =
+      M.insertWith S.union revItem (S.singleton revTrav)
 
 
--- | Generate derivations based on the given latest hypergraph modification.
+-- | Apply a list of transformations to a given argument.
+applyAll :: [a -> a] -> a -> a
+applyAll funs x = case funs of
+  f : fs -> f (applyAll fs x)
+  [] -> x
+
+
+-- | Retrieve outgoing arcs from the given ingoing arc.
+turnAround
+  :: A.Item n t
+     -- ^ Target node
+  -> A.Trav n t
+     -- ^ Arc ingoing to the target node
+  -> [(A.Item n t, RevTrav n t)]
+turnAround item trav = case trav of
+  A.Scan{..} ->
+    [ (A.ItemA scanFrom, ScanA item _scanTerm) ]
+  A.Subst{..} ->
+    [ (A.ItemP passArg, SubstP item actArg)
+    , (A.ItemA actArg, SubstA passArg item) ]
+  A.Foot{..} ->
+    [ (A.ItemA actArg, FootA item _theFoot) ]
+  A.Adjoin{..} ->
+    let target = pass item in
+    [ (A.ItemP passAdj, AdjoinP target passMod)
+    , (A.ItemP passMod, ModifyP passAdj target) ]
+  where
+    pass (A.ItemP p) = p
+    pass _ = error "turnAround.pass: expected passive item, got active"
+
+
+-- -- | A producer which generates the subsequent derivations encoded in the
+-- -- progressively constructed hypergraph represented by the input producer.
+-- derivsPipe
+--   :: (Monad m, Ord n, Ord t)
+--   => n                 -- ^ The start symbol
+--   -> Int               -- ^ The length of the input sentence
+--   -> P.Producer (A.HypeModif n t) m a
+--   -- ^ The producer representing dynamic construction of a hypergraph
+--   -> P.Producer (Deriv n t) m a
+-- derivsPipe start len modifPipe = P.for modifPipe (pipeDerivs start len)
 --
--- TODO: at the moment the function doesn't guarantee to not to generate
--- duplicate derivations (in particular, it doesn't check the status of the
--- input hypergraph modification -- whether it is `A.NewNode` or `A.NewArcs`
--- only).
-pipeDerivs
-  :: (Monad m, Ord n, Ord t)
-  => n                 -- ^ The start symbol
-  -> Int               -- ^ The length of the input sentence
-  -> A.HypeModif n t
-  -> P.Producer (Deriv n t) m ()
-pipeDerivs start len A.HypeModif{..} = case modifItem of
-  A.ItemP p -> if isFinal start len p
-    then mapM_ P.yield $ derivFromPassive p modifHype
-    else return ()
-  _ -> return ()
+--
+-- -- | Generate derivations based on the given latest hypergraph modification.
+-- --
+-- -- TODO: at the moment the function doesn't guarantee to not to generate
+-- -- duplicate derivations (in particular, it doesn't check the status of the
+-- -- input hypergraph modification -- whether it is `A.NewNode` or `A.NewArcs`
+-- -- only).
+-- pipeDerivs
+--   :: (Monad m, Ord n, Ord t)
+--   => n                 -- ^ The start symbol
+--   -> Int               -- ^ The length of the input sentence
+--   -> A.HypeModif n t
+--   -> P.Producer (Deriv n t) m ()
+-- pipeDerivs start len A.HypeModif{..} = case modifItem of
+--   A.ItemP p -> if isFinal start len p
+--     then mapM_ P.yield $ derivFromPassive p modifHype
+--     else return ()
+--   _ -> return ()
 
 
 
@@ -270,12 +406,22 @@ pipeDerivs start len A.HypeModif{..} = case modifItem of
 
 -- | Check whether the given passive item is final or not.
 isFinal
+  :: (Monad m, Eq n)
+  => A.Passive n t -- ^ The item to check
+  -> DerivM n t m Bool
+isFinal p = do
+  DerivR{..} <- RWS.ask
+  return $ isFinal_ startSym sentLen p
+
+
+-- | Check whether the given passive item is final or not.
+isFinal_
   :: (Eq n)
   => n             -- ^ The start symbol
   -> Int           -- ^ The length of the input sentence
   -> A.Passive n t -- ^ The item to check
   -> Bool
-isFinal start n p =
+isFinal_ start n p =
   p ^. A.spanP ^. A.beg == 0 &&
   p ^. A.spanP ^. A.end == n &&
   p ^. A.dagID == Left start &&

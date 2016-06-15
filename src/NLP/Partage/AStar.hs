@@ -290,7 +290,7 @@ printPassive p hype = do
 -- TODO: Weight component can be extracted outside the Trav datatype.
 data Trav n t
     = Scan
-        { _scanFrom :: Active
+        { scanFrom :: Active
         -- ^ The input active state
         , _scanTerm :: t
         -- ^ The scanned terminal
@@ -298,16 +298,16 @@ data Trav n t
         -- ^ The traversal weight
         }
     | Subst
-        { _passArg  :: Passive n t
+        { passArg  :: Passive n t
         -- ^ The passive argument of the action
-        , _actArg   :: Active
+        , actArg   :: Active
         -- ^ The active argument of the action
         , _weight   :: Weight
         -- ^ The traversal weight
         }
     -- ^ Pseudo substitution
     | Foot
-        { _actArg   :: Active
+        { actArg   :: Active
         -- ^ The active argument of the action
         -- , theFoot  :: n
         -- -- ^ The foot non-terminal
@@ -319,9 +319,9 @@ data Trav n t
         }
     -- ^ Foot adjoin
     | Adjoin
-        { _passAdj  :: Passive n t
+        { passAdj  :: Passive n t
         -- ^ The adjoined item
-        , _passMod  :: Passive n t
+        , passMod  :: Passive n t
         -- ^ The modified item
         }
     -- ^ Adjoin terminate with two passive arguments
