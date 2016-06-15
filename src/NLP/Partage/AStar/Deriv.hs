@@ -8,6 +8,7 @@ module NLP.Partage.AStar.Deriv
 , DerivNode (..)
 , derivTrees
 , fromPassive
+, deriv4show
 -- , deriv2tree
 -- , expandDeriv
 -- -- , fromPassive'
@@ -62,6 +63,36 @@ data DerivNode n t = DerivNode
   } deriving (Eq, Ord, Show)
 
 
+
+-- | NodeStatus tells wheter the node in the pretiffied derivation tree
+-- is a modifier or note.
+data PrintNode a
+  = Regular a
+  | Dependent
+  deriving (Eq, Ord)
+
+
+instance Show a => Show (PrintNode a) where
+  show (Regular x) = show x
+  show Dependent = "<<Dependent>>"
+
+
+-- | Transform the derivation tree into a tree which is easier
+-- to draw using the standard `R.draw` function.
+-- `fst` values in nodes are `False` for modifiers.
+deriv4show :: Deriv n t -> R.Tree (PrintNode (O.Node n t))
+deriv4show =
+  go False
+  where
+    go isMod t = addDep isMod $ R.Node
+      { R.rootLabel = Regular . node . R.rootLabel $ t
+      , R.subForest = map (go False) (R.subForest t)
+                   ++ map (go True) (modif $ R.rootLabel t) }
+    addDep isMod t
+      | isMod == True = R.Node Dependent [t]
+      | otherwise = t
+
+
 -- | Extract derivation trees obtained on the given input sentence. Should be
 -- run on the final result of the earley parser.
 derivTrees
@@ -92,7 +123,7 @@ fromPassiveTrav p trav hype = case trav of
     [ mkTree hype p (footNode hype p : ts)
     | ts <- activeDerivs q ]
   A.Subst qp qa _ ->
-    [ mkTree hype p (substNode t : ts)
+    [ mkTree hype p (substNode qp t : ts)
     | ts <- activeDerivs qa
     , t  <- passiveDerivs qp ]
   A.Adjoin qa qm ->
@@ -124,7 +155,7 @@ fromActiveTrav _p trav hype = case trav of
     [ footNode hype p : ts
     | ts <- activeDerivs q ]
   A.Subst qp qa _ ->
-    [ substNode t : ts
+    [ substNode qp t : ts
     | ts <- activeDerivs qa
     , t  <- passiveDerivs qp ]
   A.Adjoin _ _ ->
@@ -172,10 +203,12 @@ derivRoot R.Node{..} = case node rootLabel of
   O.Term _ -> error "passiveDerivs.getRoot: got terminal"
 
 -- | Construct substitution node stemming from the given derivation.
-substNode :: Deriv n t -> Deriv n t
-substNode t = flip R.Node [] $ DerivNode
-  { node = O.NonTerm (derivRoot t)
-  , modif   = [t] }
+substNode :: A.Passive n t -> Deriv n t -> Deriv n t
+substNode p t
+  | A.isRoot (p ^. A.dagID) = flip R.Node [] $ DerivNode
+    { node = O.NonTerm (derivRoot t)
+    , modif   = [t] }
+  | otherwise = t
 
 -- Add the auxiliary derivation to the list of modifications of the
 -- initial derivation.
@@ -348,13 +381,13 @@ upFromPassiveTrav
   -> A.Hype n t
   -> RevHype n t
   -> [Deriv n t]
-upFromPassiveTrav _source revTrav sourceDerivs hype revHype =
+upFromPassiveTrav source revTrav sourceDerivs hype revHype =
   case revTrav of
     SubstP{..} ->
       -- we now have a passive source, another active source, and an unknown target;
       -- based on that, we create a list of derivations of the source nodes.
       let combinedDerivs =
-            [ substNode t : ts
+            [ substNode source t : ts
             | ts <- fromActive actArg hype
             , t  <- sourceDerivs ]
       -- once we have the combined derivations of the source nodes, we proceed upwards
@@ -410,7 +443,7 @@ upFromActiveTrav _source revTrav sourceDerivs hype revHype =
       in  upFromItem outItem combinedDerivs hype revHype
     SubstA{..} ->
       let combinedDerivs =
-            [ substNode t : ts
+            [ substNode passArg t : ts
             | ts <- sourceDerivs -- fromActive actArg hype
             , t  <- fromPassive passArg hype ]
       in  upFromItem outItem combinedDerivs hype revHype
@@ -457,7 +490,7 @@ parseAndPrint
   -> IO ()
 parseAndPrint auto start input = void . P.runEffect $
   P.for pipe $ \t ->
-    lift . putStrLn $ R.drawTree (fmap show t)
+    lift . putStrLn . R.drawTree . fmap show . deriv4show $ t
   where
     pipe = A.earleyAutoP auto input P.>-> derivsPipe conf
     conf = DerivR
@@ -475,7 +508,7 @@ procAndPrint
   -> IO ()
 procAndPrint start input modif = void . P.runEffect $
   P.for pipe $ \t ->
-    lift . putStrLn $ R.drawTree (fmap show t)
+    lift . putStrLn . R.drawTree . fmap show . deriv4show $ t
   where
     pipe = P.yield modif P.>-> derivsPipe conf
     conf = DerivR

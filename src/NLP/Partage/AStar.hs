@@ -83,6 +83,7 @@ module NLP.Partage.AStar
 , prioTrav
 , nonTerm
 , finalFrom
+, isRoot
 ) where
 
 
@@ -1882,48 +1883,6 @@ tryAdjoinTerm' p cost = void $ P.runListT $ do
 #endif
 
 
---------------------------------------------------
--- Earley step
---------------------------------------------------
-
-
--- | Step of the algorithm loop.  `p' is the state popped up from
--- the queue.
-step
-    :: (SOrd t, SOrd n)
-    => Binding (Item n t) (ExtWeight n t)
-    -> Earley n t ()
-step (ItemP p :-> e) = do
-    -- mapM_ ($ p)
-    mapM_ (\f -> f p $ priWeight e)
-      [ trySubst
-      , tryAdjoinInit
-      , tryAdjoinCont
-      , tryAdjoinTerm
-      , tryAdjoinTerm' ]
-    -- TODO: consider moving before the inference applications
-    savePassive p e -- -- $ prioTrav e
-    yieldModif $ \hype -> HypeModif
-      { modifHype = hype
-      , modifType = NewNode
-      , modifItem = ItemP p
-      , modifTrav = e}
-step (ItemA p :-> e) = do
-    -- mapM_ ($ p)
-    mapM_ (\f -> f p $ priWeight e)
-      [ tryScan
-      , trySubst'
-      , tryAdjoinInit'
-      , tryAdjoinCont' ]
-    -- TODO: consider moving before the inference applications
-    saveActive p e -- -- $ prioTrav e
-    yieldModif $ \hype -> HypeModif
-      { modifHype = hype
-      , modifType = NewNode
-      , modifItem = ItemA p
-      , modifTrav = e }
-
-
 ---------------------------
 -- Extracting Parsed Trees
 ---------------------------
@@ -2506,6 +2465,48 @@ earleyAutoGen =
         Nothing -> RWS.get
         Just p  -> do
           step p >> loop
+
+
+--------------------------------------------------
+-- Earley step
+--------------------------------------------------
+
+
+-- | Step of the algorithm loop.  `p' is the state popped up from
+-- the queue.
+step
+    :: (SOrd t, SOrd n)
+    => Binding (Item n t) (ExtWeight n t)
+    -> Earley n t ()
+step (ItemP p :-> e) = do
+    -- TODO: consider moving before the inference applications
+    -- UPDATE: DONE
+    savePassive p e
+    yieldModif $ \hype -> HypeModif
+      { modifHype = hype
+      , modifType = NewNode
+      , modifItem = ItemP p
+      , modifTrav = e}
+    mapM_ (\f -> f p $ priWeight e)
+      [ trySubst
+      , tryAdjoinInit
+      , tryAdjoinCont
+      , tryAdjoinTerm
+      , tryAdjoinTerm' ]
+step (ItemA p :-> e) = do
+    -- TODO: consider moving before the inference applications
+    -- UPDATE: DONE
+    saveActive p e
+    yieldModif $ \hype -> HypeModif
+      { modifHype = hype
+      , modifType = NewNode
+      , modifItem = ItemA p
+      , modifTrav = e }
+    mapM_ (\f -> f p $ priWeight e)
+      [ tryScan
+      , trySubst'
+      , tryAdjoinInit'
+      , tryAdjoinCont' ]
 
 
 --------------------------------------------------
