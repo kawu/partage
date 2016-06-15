@@ -30,6 +30,7 @@ module NLP.Partage.AStar
 , recognizeFromAuto
 -- , parseAuto
 , earleyAuto
+, earleyAutoP
 , earleyAutoGen
 -- ** Automaton
 , Auto
@@ -1932,7 +1933,14 @@ step (ItemA p :-> e) = do
 fromActive :: (Ord n, Ord t) => Active -> Hype n t -> [[T.Tree n t]]
 fromActive active hype =
   case activeTrav active hype of
-    Nothing  -> error "fromActive: unknown active item"
+    -- Nothing  -> error "fromActive: unknown active item"
+    Nothing  -> case Q.lookup (ItemA active) (waiting hype) of
+      Just _  -> error $
+        "fromActive: active item in the waiting queue"
+        ++ "\n" ++ show active
+      Nothing -> error $
+        "fromActive: unknown active item (not even in the queue)"
+        ++ "\n" ++ show active
     Just ext -> if S.null (prioTrav ext)
         then [[]]
         else concatMap

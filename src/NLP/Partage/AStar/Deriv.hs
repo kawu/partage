@@ -16,6 +16,8 @@ module NLP.Partage.AStar.Deriv
 , RevHype (..)
 , DerivR (..)
 , derivsPipe
+, parseAndPrint
+, procAndPrint
 ) where
 
 
@@ -105,7 +107,7 @@ fromPassiveTrav p trav hype = case trav of
 -- | Extract the set of the parsed trees w.r.t. to the given active item.
 fromActive :: (Ord n, Ord t) => A.Active -> A.Hype n t -> [[Deriv n t]]
 fromActive active hype = case A.activeTrav active hype of
-  Nothing  -> error "fromActive: unknown active item"
+  Nothing  -> error $ "fromActive: unknown active item" ++ "\n" ++ show active
   Just ext -> if S.null (A.prioTrav ext)
     then [[]]
     else concatMap
@@ -445,19 +447,67 @@ data DerivR n = DerivR
 type DerivS n t = RevHype n t
 
 
+-- | Parse the given sentence with the give grammar and print
+-- the individual derivation trees (generated progressively).
+parseAndPrint
+  :: (Ord t, Ord n, Show n, Show t)
+  => A.Auto n t
+  -> n -- ^ The start symbol
+  -> A.Input t
+  -> IO ()
+parseAndPrint auto start input = void . P.runEffect $
+  P.for pipe $ \t ->
+    lift . putStrLn $ R.drawTree (fmap show t)
+  where
+    pipe = A.earleyAutoP auto input P.>-> derivsPipe conf
+    conf = DerivR
+      { startSym = start
+      , sentLen = length $ A.inputSent input }
+
+
+-- | Generate derivation trees for a given hypergraph modification
+-- and print them to stdin.
+procAndPrint
+  :: (Ord t, Ord n, Show n, Show t)
+  => n -- ^ The start symbol
+  -> A.Input t
+  -> A.HypeModif n t
+  -> IO ()
+procAndPrint start input modif = void . P.runEffect $
+  P.for pipe $ \t ->
+    lift . putStrLn $ R.drawTree (fmap show t)
+  where
+    pipe = P.yield modif P.>-> derivsPipe conf
+    conf = DerivR
+      { startSym = start
+      , sentLen = length $ A.inputSent input }
+
+
 -- | A pipe which transforms hypergraph modifications to the
 -- corresponding derivations.
 derivsPipe
   :: (Monad m, Ord n, Ord t)
   => DerivR n
-  -> P.Pipe (A.HypeModif n t) (Deriv n t) m ()
+  -> P.Pipe (A.HypeModif n t) (Deriv n t) m a
 derivsPipe conf =
-  void $ RWS.evalRWST loop conf emptyRevHype
+  fst <$> RWS.evalRWST loop conf emptyRevHype
   where
     loop = do
       hypeModif <- lift P.await
       procModif hypeModif
       loop
+
+
+-- -- | Process a hypergraph modification.
+-- procModif
+--   :: forall m n t. (Monad m, Ord n, Ord t)
+--   => A.HypeModif n t
+--   -> DerivM n t m ()
+-- procModif A.HypeModif{..} = case modifItem of
+--   A.ItemP p -> mapM_
+--     (lift . P.yield)
+--     (fromPassive p modifHype)
+--   _ -> return ()
 
 
 -- | Process a hypergraph modification.
