@@ -30,7 +30,7 @@ module NLP.Partage.AStar
 , recognizeFromAuto
 -- , parseAuto
 , earleyAuto
-, earleyAutoP
+, earleyAutoGen
 -- ** Automaton
 , Auto
 , mkAuto
@@ -1070,6 +1070,8 @@ pushPassive :: (SOrd t, SOrd n)
             -> Trav n t      -- ^ Traversal leading to the new item
             -> Earley n t ()
 pushPassive p newWeight newTrav = do
+  -- TODO: do we to compute the esimated distance if the node is already
+  -- processed (done)?
   estDist <- estimateDistP p
   let new = extWeight newWeight estDist newTrav
   track estDist >> isProcessedP p >>= \b -> if b
@@ -2446,47 +2448,34 @@ earleyAuto
     => Auto n t         -- ^ Grammar automaton
     -> Input t          -- ^ Input sentence
     -> IO (Hype n t)
-earleyAuto auto input = do
-  (hype, _) <- P.runEffect $ do
-    let pipe = RWS.evalRWST earleyAutoP input (mkHype auto)
-    pipe >-> P.drain
-  return hype
-
---   let eff = earleyAutoP >-> P.drain
---   in  fst <$> RWS.evalRWST (P.runEffect eff) input (mkHype auto)
+earleyAuto auto input = P.runEffect $
+  earleyAutoP auto input >-> P.drain
 
 
--- -- | Produce the constructed items (and the
--- -- corresponding hypergraphs) on the fly.
--- -- See also `earley`.
--- earleyAutoP
--- #ifdef DebugOn
---     :: (SOrd t, SOrd n)
--- #else
---     :: (Ord t, Ord n)
--- #endif
---     => Auto n t         -- ^ Grammar automaton
---     -> Input t          -- ^ Input sentence
---     -> P.Producer
---          -- -- (Item n t, Hype n t)
---          -- (Binding (Item n t) (ExtWeight n t), Hype n t)
---          (HypeModif n t)
---          IO (Hype n t)
--- earleyAutoP auto input = do
---     (hype, _) <- RWS.evalRWST (init >> loop) input st0
---     return hype
-
-
--- | Produce the constructed items (and the corresponding hypergraphs) on the
--- fly. See also `earley`.
+-- | See `earley`.
 earleyAutoP
 #ifdef DebugOn
     :: (SOrd t, SOrd n)
 #else
     :: (Ord t, Ord n)
 #endif
+    => Auto n t         -- ^ Grammar automaton
+    -> Input t          -- ^ Input sentence
+    -> P.Producer (HypeModif n t) IO (Hype n t)
+earleyAutoP auto input =
+  fst <$> RWS.evalRWST earleyAutoGen input (mkHype auto)
+
+
+-- | Produce the constructed items (and the corresponding hypergraphs) on the
+-- fly. See also `earley`.
+earleyAutoGen
+#ifdef DebugOn
+    :: (SOrd t, SOrd n)
+#else
+    :: (Ord t, Ord n)
+#endif
     => Earley n t (Hype n t)
-earleyAutoP =
+earleyAutoGen =
   init >> loop
   where
     -- initialize hypergraph with initial active items
