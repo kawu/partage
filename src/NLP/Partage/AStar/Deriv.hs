@@ -1,6 +1,7 @@
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections       #-}
 
 
 module NLP.Partage.AStar.Deriv
@@ -18,11 +19,12 @@ module NLP.Partage.AStar.Deriv
 , DerivR (..)
 , derivsPipe
 , parseAndPrint
-, procAndPrint
+-- , procAndPrint
 ) where
 
 
 import           Control.Monad             (forM_, guard, void, when)
+import           Control.Monad.IO.Class    (MonadIO (..), liftIO)
 import qualified Control.Monad.RWS.Strict  as RWS
 import           Control.Monad.Trans.Class (lift)
 import           Control.Monad.Trans.Maybe (MaybeT (..))
@@ -30,6 +32,7 @@ import           Control.Monad.Trans.Maybe (MaybeT (..))
 import           Data.Lens.Light
 import qualified Data.Map.Strict           as M
 import           Data.Maybe                (maybeToList)
+import qualified Data.PSQueue              as Q
 import qualified Data.Set                  as S
 import qualified Data.Tree                 as R
 
@@ -108,10 +111,18 @@ derivTrees hype start n
 
 -- | Extract the set of the parsed trees w.r.t. to the given passive item.
 fromPassive :: forall n t. (Ord n, Ord t) => A.Passive n t -> A.Hype n t -> [Deriv n t]
-fromPassive passive hype = concat
-  [ fromPassiveTrav passive trav hype
-  | ext <- maybeToList $ A.passiveTrav passive hype
-  , trav <- S.toList (A.prioTrav ext) ]
+fromPassive passive hype = case A.passiveTrav passive hype of
+  Nothing -> case Q.lookup (A.ItemP passive) (A.waiting hype) of
+    Just _ -> error "fromPassive: passive item in the waiting queue"
+    Nothing -> error "fromPassive: unknown passive item (not even in the queue)"
+  Just ext -> concat
+    [ fromPassiveTrav passive trav hype
+    | trav <- S.toList (A.prioTrav ext) ]
+
+-- fromPassive passive hype = concat
+--   [ fromPassiveTrav passive trav hype
+--   | ext <- maybeToList $ A.passiveTrav passive hype
+--   , trav <- S.toList (A.prioTrav ext) ]
 
 
 fromPassiveTrav :: (Ord n, Ord t) => A.Passive n t -> A.Trav n t -> A.Hype n t -> [Deriv n t]
@@ -119,8 +130,8 @@ fromPassiveTrav p trav hype = case trav of
   A.Scan q t _ ->
     [ mkTree hype p (termNode t : ts)
     | ts <- activeDerivs q ]
-  A.Foot q _p' _ ->
-    [ mkTree hype p (footNode hype p : ts)
+  A.Foot q x _ ->
+    [ mkTree hype p (footNode x : ts)
     | ts <- activeDerivs q ]
   A.Subst qp qa _ ->
     [ mkTree hype p (substNode qp t : ts)
@@ -138,7 +149,13 @@ fromPassiveTrav p trav hype = case trav of
 -- | Extract the set of the parsed trees w.r.t. to the given active item.
 fromActive :: (Ord n, Ord t) => A.Active -> A.Hype n t -> [[Deriv n t]]
 fromActive active hype = case A.activeTrav active hype of
-  Nothing  -> error $ "fromActive: unknown active item" ++ "\n" ++ show active
+  Nothing  -> case Q.lookup (A.ItemA active) (A.waiting hype) of
+    Just _ -> error $
+      "fromActive: active item in the waiting queue"
+      ++ "\n" ++ show active
+    Nothing -> error $
+      "fromActive: unknown active item (not even in the queue)"
+      ++ "\n" ++ show active
   Just ext -> if S.null (A.prioTrav ext)
     then [[]]
     else concatMap
@@ -151,8 +168,8 @@ fromActiveTrav _p trav hype = case trav of
   A.Scan q t _ ->
     [ termNode t : ts
     | ts <- activeDerivs q ]
-  A.Foot q p _ ->
-    [ footNode hype p : ts
+  A.Foot q x _ ->
+    [ footNode x : ts
     | ts <- activeDerivs q ]
   A.Subst qp qa _ ->
     [ substNode qp t : ts
@@ -181,16 +198,18 @@ only :: O.Node n t -> DerivNode n t
 only x = DerivNode {node = x, modif =  []}
 
 -- | Several constructors which allow to build non-modified nodes.
-mkRoot, mkFoot :: A.Hype n t -> A.Passive n t -> DerivNode n t
+mkRoot :: A.Hype n t -> A.Passive n t -> DerivNode n t
 mkRoot hype p = only . O.NonTerm $ A.nonTerm (getL A.dagID p) hype
-mkFoot hype p = only . O.Foot $ A.nonTerm (getL A.dagID p) hype
+
+mkFoot :: n -> DerivNode n t
+mkFoot x = only . O.Foot $ x
 
 mkTerm :: t -> DerivNode n t
 mkTerm = only . O.Term
 
 -- | Build non-modified nodes of different types.
-footNode :: A.Hype n t -> A.Passive n t -> Deriv n t
-footNode hype p = R.Node (mkFoot hype p) []
+footNode :: n -> Deriv n t
+footNode x = R.Node (mkFoot x) []
 
 termNode :: t -> Deriv n t
 termNode x = R.Node (mkTerm x) []
@@ -274,9 +293,10 @@ data RevTrav n t
     | FootA
         { outItem :: A.Item n t
         -- ^ The output active or passive item
-        , theFoot :: A.Passive n t
-        -- ^ The passive argument of the action
-        -- TODO: is it useful at all?  Maybe it only makes things more difficult?
+--         , theFoot :: A.Passive n t
+--         -- ^ The passive argument of the action
+        , theFoot  :: n
+        -- ^ The foot non-terminal
         }
     -- ^ Foot adjoin: match the foot of the source item with the given
     -- passive item
@@ -449,7 +469,7 @@ upFromActiveTrav _source revTrav sourceDerivs hype revHype =
       in  upFromItem outItem combinedDerivs hype revHype
     FootA{..} ->
       let combinedDerivs =
-            [ footNode hype theFoot : ts
+            [ footNode theFoot : ts
             | ts <- sourceDerivs ]
       in  upFromItem outItem combinedDerivs hype revHype
     _ -> error "upFromActiveTrav: got an 'passive' traversal for an active item"
@@ -460,10 +480,14 @@ upFromActiveTrav _source revTrav sourceDerivs hype revHype =
 --------------------------------------------------
 
 
+-- | Modifications corresponding to the given hypergraph modification.
+type ModifDerivs n t = (A.HypeModif n t, [Deriv n t])
+
+
 -- | Derivation monad.
 type DerivM n t m = RWS.RWST
   (DerivR n) () (DerivS n t)
-  (P.Pipe (A.HypeModif n t) (Deriv n t) m)
+  (P.Pipe (A.HypeModif n t) (ModifDerivs n t) m)
 
 
 -- | Reader component of `DerivM`.
@@ -480,7 +504,7 @@ data DerivR n = DerivR
 type DerivS n t = RevHype n t
 
 
--- | Parse the given sentence with the give grammar and print
+-- | Utility function: parse the given sentence with the give grammar and print
 -- the individual derivation trees (generated progressively).
 parseAndPrint
   :: (Ord t, Ord n, Show n, Show t)
@@ -489,8 +513,8 @@ parseAndPrint
   -> A.Input t
   -> IO ()
 parseAndPrint auto start input = void . P.runEffect $
-  P.for pipe $ \t ->
-    lift . putStrLn . R.drawTree . fmap show . deriv4show $ t
+  P.for pipe $ \(_hypeModif, ts) -> forM_ ts $
+    lift . putStrLn . R.drawTree . fmap show . deriv4show
   where
     pipe = A.earleyAutoP auto input P.>-> derivsPipe conf
     conf = DerivR
@@ -498,30 +522,56 @@ parseAndPrint auto start input = void . P.runEffect $
       , sentLen = length $ A.inputSent input }
 
 
--- | Generate derivation trees for a given hypergraph modification
--- and print them to stdin.
-procAndPrint
-  :: (Ord t, Ord n, Show n, Show t)
-  => n -- ^ The start symbol
-  -> A.Input t
-  -> A.HypeModif n t
-  -> IO ()
-procAndPrint start input modif = void . P.runEffect $
-  P.for pipe $ \t ->
-    lift . putStrLn . R.drawTree . fmap show . deriv4show $ t
-  where
-    pipe = P.yield modif P.>-> derivsPipe conf
-    conf = DerivR
-      { startSym = start
-      , sentLen = length $ A.inputSent input }
+-- NOTE: The function below has no right to exist. It runs the underlying State
+-- monad whose results are immediately lost after the call. Such behavior is
+-- unacceptable because the underlying state needs to be preserved throughout
+-- the entire process of the Earley parsing algorithm.
+--
+-- CONCLUSION: we need to change the type of the `derivsPipe` so that it returns
+-- not only the derivations but also the source hypergraph modifications. For
+-- each hypergraph modification, a separate pipe should be created (why shouldn't
+-- it be possible?) which enumerates the individual derivations corresponding for
+-- this specific hypergraph modification.
+--
+-- -- | Generate derivation trees for a given hypergraph modification
+-- -- and print them to stdin.
+-- procAndPrint
+--   :: (Ord t, Ord n, Show n, Show t)
+--   => n -- ^ The start symbol
+--   -> A.Input t
+--   -> A.HypeModif n t
+--   -> IO ()
+-- procAndPrint start input modif = void . P.runEffect $
+--   P.for pipe $ \t ->
+--     lift . putStrLn . R.drawTree . fmap show . deriv4show $ t
+--   where
+--     pipe = P.yield modif P.>-> derivsPipe conf
+--     conf = DerivR
+--       { startSym = start
+--       , sentLen = length $ A.inputSent input }
+
+
+-- -- | A pipe which transforms hypergraph modifications to the
+-- -- corresponding derivations.
+-- derivsPipe
+--   :: (MonadIO m, Ord n, Ord t)
+--   => DerivR n
+--   -> P.Pipe (A.HypeModif n t) (Deriv n t) m a
+-- derivsPipe conf =
+--   fst <$> RWS.evalRWST loop conf emptyRevHype
+--   where
+--     loop = do
+--       hypeModif <- lift P.await
+--       procModif hypeModif
+--       loop
 
 
 -- | A pipe which transforms hypergraph modifications to the
 -- corresponding derivations.
 derivsPipe
-  :: (Monad m, Ord n, Ord t)
+  :: (MonadIO m, Ord n, Ord t)
   => DerivR n
-  -> P.Pipe (A.HypeModif n t) (Deriv n t) m a
+  -> P.Pipe (A.HypeModif n t) (ModifDerivs n t) m a
 derivsPipe conf =
   fst <$> RWS.evalRWST loop conf emptyRevHype
   where
@@ -531,39 +581,34 @@ derivsPipe conf =
       loop
 
 
--- -- | Process a hypergraph modification.
--- procModif
---   :: forall m n t. (Monad m, Ord n, Ord t)
---   => A.HypeModif n t
---   -> DerivM n t m ()
--- procModif A.HypeModif{..} = case modifItem of
---   A.ItemP p -> mapM_
---     (lift . P.yield)
---     (fromPassive p modifHype)
---   _ -> return ()
-
-
 -- | Process a hypergraph modification.
 procModif
-  :: forall m n t. (Monad m, Ord n, Ord t)
+  :: forall m n t. (MonadIO m, Ord n, Ord t)
   => A.HypeModif n t
   -> DerivM n t m ()
-procModif A.HypeModif{..}
+procModif modif@A.HypeModif{..}
   | modifType == A.NewNode = void . runMaybeT $ do
+      liftIO $ putStrLn "<<NewNode>>"
       A.ItemP p <- return modifItem
       guard =<< lift (isFinal p)
+      liftIO $ putStrLn "<<NewNode->isFinal>>"
       lift $ goNode modifItem
       -- yield all derivations stemming from the final passive item
-      mapM_ (lift . yield) $ fromPassive p modifHype
+      -- mapM_ (lift . yield) $ fromPassive p modifHype
+      lift . yield . (modif,) $ fromPassive p modifHype
   | otherwise = do -- `modifType == A.NewArcs`
       -- check if the node is already in the reversed hypergraph; otherwise, it
       -- is not reachable from any final item so we can ignore it
+      rev <- RWS.gets doneReversed
+      liftIO $ putStrLn $ "<<NewArcs>> " ++ show (M.size rev)
       b <- hasNode modifItem
       when b $ do
+        liftIO $ putStrLn "<<NewArcs->hasNode>>"
         goChildren modifItem
         revHype <- RWS.get
         forM_ (nodeArcs modifItem) $ \arc -> do
-          mapM_ yield $ fromArc modifItem arc modifHype revHype
+          -- mapM_ yield $ fromArc modifItem arc modifHype revHype
+          yield . (modif,) $ fromArc modifItem arc modifHype revHype
           -- fromArc modifItem arc modifHype
   where
     yield = lift . P.yield
@@ -573,7 +618,11 @@ procModif A.HypeModif{..}
     goNode :: A.Item n t -> DerivM n t m ()
     goNode node = do
       b <- hasNode node
-      when (not b) (goChildren node)
+      liftIO $ putStrLn $ "goNode->hasNode: " ++ show b
+      when (not b) $ do
+        liftIO $ putStrLn "goNode->addNode"
+        addNode node
+        goChildren node
     -- Explore arcs ingoing to the given target node.
     goChildren node = mapM_ (goArc node) (nodeArcs node)
     nodeArcs node = S.toList $ ingoingArcs node modifHype
@@ -611,12 +660,12 @@ hasNode item = do
   return $ M.member item rev
 
 
--- -- | Add a node to the inversed representation of the hypergraph. Nothing about
--- -- the ingoing or outgoing arcs is known at this moment.
--- addNode :: (Monad m, Ord n) => A.Item n t -> DerivM n t m ()
--- addNode item = RWS.modify' $ \RevHype{..} ->
---   let rev = M.insert item S.empty doneReversed
---   in  RevHype {doneReversed = rev}
+-- | Add a node to the inversed representation of the hypergraph. Nothing about
+-- the ingoing or outgoing arcs is known at this moment.
+addNode :: (Monad m, Ord n, Ord t) => A.Item n t -> DerivM n t m ()
+addNode item = RWS.modify' $ \RevHype{..} ->
+  let rev = M.insertWith S.union item S.empty doneReversed
+  in  RevHype {doneReversed = rev}
 
 
 -- | Add an arc to the inversed representation of the hypergraph.
@@ -659,7 +708,7 @@ turnAround item trav = case trav of
     [ (A.ItemP passArg, SubstP item actArg)
     , (A.ItemA actArg, SubstA passArg item) ]
   A.Foot{..} ->
-    [ (A.ItemA actArg, FootA item _theFoot) ]
+    [ (A.ItemA actArg, FootA item theFoot) ]
   A.Adjoin{..} ->
     let target = pass item in
     [ (A.ItemP passAdj, AdjoinP target passMod)

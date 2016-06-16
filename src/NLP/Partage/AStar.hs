@@ -37,7 +37,7 @@ module NLP.Partage.AStar
 , mkAuto
 
 -- * Parsing trace (hypergraph)
-, Hype
+, Hype (waiting)
 , Item (..)
 , Passive (..)
 , dagID
@@ -311,11 +311,10 @@ data Trav n t
     | Foot
         { actArg   :: Active
         -- ^ The active argument of the action
-        -- , theFoot  :: n
-        -- -- ^ The foot non-terminal
-        , _theFoot  :: Passive n t
-        -- ^ The passive argument of the action
-        -- TODO: is it really interesting?
+        , theFoot  :: n
+        -- ^ The foot non-terminal
+--         , _theFoot  :: Passive n t
+--         -- ^ The passive argument of the action
         , _weight   :: Weight
         -- ^ The traversal weight
         }
@@ -1571,8 +1570,11 @@ tryAdjoinInit p _cost = void $ P.runListT $ do
     let pDID = p ^. dagID
         pSpan = p ^. spanP
     -- the underlying dag grammar
-    dag <- RWS.gets (gramDAG . automat)
-    footMap <- RWS.gets (footDID  . automat)
+    hype <- RWS.get
+    -- dag <- RWS.gets (gramDAG . automat)
+    let dag = gramDAG . automat $ hype
+    -- footMap <- RWS.gets (footDID  . automat)
+    let footMap = footDID  . automat $ hype
     -- make sure that the corresponding rule is either regular or
     -- intermediate auxiliary ((<=) used as implication here)
     guard $ auxiliary pSpan <= not (isRoot pDID)
@@ -1598,7 +1600,7 @@ tryAdjoinInit p _cost = void $ P.runListT $ do
     -- push the resulting state into the waiting queue
     lift $ pushInduced q'
              (addWeight cost tranCost)
-             (Foot q p tranCost)
+             (Foot q (nonTerm (p ^. dagID) hype) tranCost)
 --     -- push the resulting state into the waiting queue
 --     lift $ pushInduced q' $ Foot q p -- -- $ nonTerm foot
 #ifdef DebugOn
@@ -1630,7 +1632,9 @@ tryAdjoinInit' q cost = void $ P.runListT $ do
     begTime <- liftIO $ Time.getCurrentTime
 #endif
     -- the underlying dag
-    dag <- RWS.gets (gramDAG . automat)
+    -- dag <- RWS.gets (gramDAG . automat)
+    hype <- RWS.get
+    let dag = gramDAG . automat $ hype
     -- Retrieve the foot expected by `q`.
     -- (AuxFoot footNT, _) <- some $ expects' q
     -- (AuxFoot footNT, tranCost, j) <- elems (q ^. state)
@@ -1656,7 +1660,8 @@ tryAdjoinInit' q cost = void $ P.runListT $ do
     -- push the resulting state into the waiting queue
     lift $ pushInduced q'
              (addWeight cost tranCost)
-             (Foot q p tranCost)
+             -- (Foot q p tranCost)
+             (Foot q (nonTerm (p ^. dagID) hype) tranCost)
 #ifdef DebugOn
     -- print logging information
     hype <- RWS.get
@@ -1909,8 +1914,10 @@ fromActive active hype =
     fromActiveTrav _p (Scan q t _) =
         [ T.Leaf t : ts
         | ts <- fromActive q hype ]
-    fromActiveTrav _p (Foot q p _) =
-        [ T.Branch (nonTerm (p ^. dagID) hype) [] : ts
+    -- fromActiveTrav _p (Foot q p _) =
+        -- [ T.Branch (nonTerm (p ^. dagID) hype) [] : ts
+    fromActiveTrav _p (Foot q x _) =
+        [ T.Branch x [] : ts
         | ts <- fromActive q hype ]
     fromActiveTrav _p (Subst qp qa _) =
         [ t : ts
@@ -1932,7 +1939,7 @@ fromPassive passive hype = concat
             (nonTerm (getL dagID p) hype)
             (reverse $ T.Leaf t : ts)
         | ts <- fromActive q hype ]
-    fromPassiveTrav p (Foot q _p' _) =
+    fromPassiveTrav p (Foot q _x _) =
         [ T.Branch
             (nonTerm (getL dagID p) hype)
             (reverse $ T.Branch (nonTerm (p ^. dagID) hype) [] : ts)
