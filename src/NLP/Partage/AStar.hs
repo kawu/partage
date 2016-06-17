@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE RecordWildCards      #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE Rank2Types #-}
@@ -640,6 +641,8 @@ mkHype auto = Hype
 -- | Type of elements produced by the pipe underlying the `Earley` monad.
 -- What is produced by the pipe represents all types of modifications which
 -- can apply to the underlying, processed (done) part of the hypergraph.
+-- TODO: No need to report `modifTrav` if `modifType == NewNode` (then
+-- `modifTrav` can be easily induced from `modifHype`).
 data HypeModif n t = HypeModif
   { modifHype :: Hype n t
     -- ^ Current version of the hypergraph, with the corresponding
@@ -655,7 +658,9 @@ data HypeModif n t = HypeModif
   }
 
 
--- | Type of a modification of a hypergraph.
+-- | Type of a modification of a hypergraph.  The modification corresponds
+-- to the processed part of the hypergraph (i.e., it could have been already
+-- present in the waiting queue).
 data ModifType
   = NewNode
     -- ^ When a new node (and the corresponding in-going arcs) is added
@@ -928,6 +933,20 @@ saveActive p ts =
             ( doneActive st )
 
 
+-- | Check if, for the given active item, the given transitions are already
+-- present in the hypergraph.
+hasActiveTrav
+    :: (Ord t, Ord n)
+    => Active
+    -> S.Set (Trav n t)
+    -> Earley n t Bool
+hasActiveTrav p travSet = do
+  hype <- RWS.get
+  return $ case activeTrav p hype of
+    Just ExtWeight{..} -> travSet `S.isSubsetOf` prioTrav
+    Nothing -> False
+
+
 --------------------
 -- Passive items
 --------------------
@@ -1017,6 +1036,20 @@ savePassive p ts
        in RWS.state $ \s -> ((), s {donePassiveAuxNoTop = newDone s})
 
 
+-- | Check if, for the given active item, the given transitions are already
+-- present in the hypergraph.
+hasPassiveTrav
+    :: (Ord t, Ord n)
+    => Passive n t
+    -> S.Set (Trav n t)
+    -> Earley n t Bool
+hasPassiveTrav p travSet = do
+  hype <- RWS.get
+  return $ case passiveTrav p hype of
+    Just ExtWeight{..} -> travSet `S.isSubsetOf` prioTrav
+    Nothing -> False
+
+
 --------------------
 -- Waiting Queue
 --------------------
@@ -1035,22 +1068,27 @@ pushActive p newWeight newTrav = do
   let new = case newTrav of
         Just trav -> extWeight  newWeight estDist trav
         Nothing   -> extWeight0 newWeight estDist
-  track estDist >> isProcessedA p >>= \b -> if b
-    then do
-      saveActive p new
-      yieldModif $ \hype -> HypeModif
-        { modifHype = hype
-        , modifType = case newTrav of
-            Nothing -> NewNode
-            _ -> NewArcs
-          -- WARNING: above, something we know from the context; `pushActive` is
-          -- used in two situations: (a) when the hypergraph is initialized with
-          -- starting, active items (nodes), (b) a new traversal, leading to an
-          -- existing hypernode, is added. In case (a), no traversals are added,
-          -- only a new starting hypergraph node is added.
-        , modifItem = ItemA p
-        , modifTrav = new }
-    else modify' $ \s -> s {waiting = newWait new (waiting s)}
+  track estDist >> isProcessedA p >>= \case
+    True -> do
+--       hasActiveTrav p (prioTrav new) >>= \case
+--         False -> return ()
+--         True -> case newTrav of
+--           Just _ -> error "pushActive.NewArcs: arcs not new!"
+--           Nothing -> error "pushActive.NewArcs: shouldn't ever get here..."
+      -- Below we make sure that the `newTrav` is not actually already
+      -- in the processed part of the hypergraph.  Normally it should not
+      -- happen, but currently it can because we abstract over the exact
+      -- form of the passive item matched against a foot.  For the foot
+      -- adjoin inference rule it matter, but not in the hypergraph.
+      b <- hasActiveTrav p (prioTrav new)
+      when (not b) $ do
+        saveActive p new
+        yieldModif $ \hype -> HypeModif
+          { modifHype = hype
+          , modifType = NewArcs
+          , modifItem = ItemA p
+          , modifTrav = new }
+    False -> modify' $ \s -> s {waiting = newWait new (waiting s)}
   where
     newWait = Q.insertWith joinExtWeight (ItemA p)
 #ifdef DebugOn
@@ -1075,15 +1113,25 @@ pushPassive p newWeight newTrav = do
   -- processed (done)?
   estDist <- estimateDistP p
   let new = extWeight newWeight estDist newTrav
-  track estDist >> isProcessedP p >>= \b -> if b
-    then do
-      savePassive p new
-      yieldModif $ \hype -> HypeModif
-        { modifHype = hype
-        , modifType = NewArcs
-        , modifItem = ItemP p
-        , modifTrav = new }
-    else modify' $ \s -> s {waiting = newWait new (waiting s)}
+  track estDist >> isProcessedP p >>= \case
+    True -> do
+--       hasPassiveTrav p (prioTrav new) >>= \case
+--         False -> return ()
+--         True -> error "pushPassive.NewArcs: arcs not new!"
+      -- Below we make sure that `newTrav` is not actually already present in
+      -- the processed part of the hypergraph. Normally it should not happen,
+      -- but currently it can because we abstract over the exact form of the
+      -- passive item matched against a foot. For the foot adjoin inference rule
+      -- it matter, but not in the hypergraph.
+      b <- hasPassiveTrav p (prioTrav new)
+      when (not b) $ do
+        savePassive p new
+        yieldModif $ \hype -> HypeModif
+          { modifHype = hype
+          , modifType = NewArcs
+          , modifItem = ItemP p
+          , modifTrav = new }
+    False -> modify' $ \s -> s {waiting = newWait new (waiting s)}
   where
     newWait = Q.insertWith joinExtWeight (ItemP p)
 #ifdef DebugOn

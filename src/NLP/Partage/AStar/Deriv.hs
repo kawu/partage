@@ -354,7 +354,9 @@ fromArc node arc hype revHype =
 upFromItem
   :: (Ord n, Ord t)
   => A.Item n t
-  -> [[Deriv n t]] -- ^ Derivations corresponding to source (children) items
+  -> [[Deriv n t]]
+  -- ^ Derivations corresponding to children items of the given item
+  -- (following a certain hyperarc)
   -> A.Hype n t
   -> RevHype n t
   -> [Deriv n t]
@@ -569,7 +571,7 @@ parseAndPrint auto start input = void . P.runEffect $
 -- | A pipe which transforms hypergraph modifications to the
 -- corresponding derivations.
 derivsPipe
-  :: (MonadIO m, Ord n, Ord t)
+  :: forall m n t a. (MonadIO m, Ord n, Ord t)
   => DerivR n
   -> P.Pipe (A.HypeModif n t) (ModifDerivs n t) m a
 derivsPipe conf =
@@ -577,7 +579,8 @@ derivsPipe conf =
   where
     loop = do
       hypeModif <- lift P.await
-      procModif hypeModif
+      derivs <- procModif hypeModif
+      lift $ P.yield (hypeModif, derivs)
       loop
 
 
@@ -585,33 +588,35 @@ derivsPipe conf =
 procModif
   :: forall m n t. (MonadIO m, Ord n, Ord t)
   => A.HypeModif n t
-  -> DerivM n t m ()
-procModif modif@A.HypeModif{..}
-  | modifType == A.NewNode = void . runMaybeT $ do
+  -> DerivM n t m [Deriv n t]
+procModif A.HypeModif{..}
+  | modifType == A.NewNode = fmap (maybe [] id) . runMaybeT $ do
       liftIO $ putStrLn "<<NewNode>>"
       A.ItemP p <- return modifItem
       guard =<< lift (isFinal p)
       liftIO $ putStrLn "<<NewNode->isFinal>>"
       lift $ goNode modifItem
-      -- yield all derivations stemming from the final passive item
-      -- mapM_ (lift . yield) $ fromPassive p modifHype
-      lift . yield . (modif,) $ fromPassive p modifHype
+      return $ fromPassive p modifHype
   | otherwise = do -- `modifType == A.NewArcs`
       rev <- RWS.gets doneReversed
       liftIO $ putStrLn $ "<<NewArcs>> " ++ show (M.size rev)
       -- check if the node is already in the reversed hypergraph; otherwise, it
       -- is not reachable from any final item so we can ignore it
       b <- hasNode modifItem
-      when b $ do
+      if b then do
         liftIO $ putStrLn "<<NewArcs->hasNode>>"
-        goChildren modifItem
+        goChildren modifItem (A.prioTrav modifTrav)
         revHype <- RWS.get
-        forM_ (nodeArcs modifItem) $ \arc -> do
-          -- mapM_ yield $ fromArc modifItem arc modifHype revHype
-          yield . (modif,) $ fromArc modifItem arc modifHype revHype
-          -- fromArc modifItem arc modifHype
+        let derivs = concatMap
+              (\arc -> fromArc modifItem arc modifHype revHype)
+              (S.toList $ A.prioTrav modifTrav)
+        liftIO . putStrLn $ "<<NewArcs->" ++
+          show (length . S.toList $ A.prioTrav modifTrav) ++
+          " arcs>>"
+        liftIO . putStrLn $ "<<NewArcs->" ++ show (length derivs) ++ " derivs>>"
+        return derivs
+      else return []
   where
-    yield = lift . P.yield
     -- Recursively explore the hypergraph starting from the given node and add
     -- all nodes and arcs to the inverse representation, if not present there
     -- yet.
@@ -619,13 +624,12 @@ procModif modif@A.HypeModif{..}
 --     goNode node = addNode node >> goChildren node
     goNode node = do
       b <- hasNode node
-      liftIO $ putStrLn $ "goNode->hasNode: " ++ show b
+      -- liftIO $ putStrLn $ "goNode->hasNode: " ++ show b
       when (not b) $ do
-        liftIO $ putStrLn "goNode->addNode"
-        addNode node >> goChildren node
+        -- liftIO $ putStrLn "goNode->addNode"
+        addNode node >> goChildren node (ingoingArcs node modifHype)
     -- Explore arcs ingoing to the given target node.
-    goChildren node = mapM_ (goArc node) (nodeArcs node)
-    nodeArcs node = S.toList $ ingoingArcs node modifHype
+    goChildren node arcs = mapM_ (goArc node) (S.toList arcs)
     -- Similar to `goNode`, but exploration begins with a specific arc
     -- leading to the corresponding target node.
     goArc node arc = addArc node arc << case arc of
