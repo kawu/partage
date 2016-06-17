@@ -597,10 +597,10 @@ procModif modif@A.HypeModif{..}
       -- mapM_ (lift . yield) $ fromPassive p modifHype
       lift . yield . (modif,) $ fromPassive p modifHype
   | otherwise = do -- `modifType == A.NewArcs`
-      -- check if the node is already in the reversed hypergraph; otherwise, it
-      -- is not reachable from any final item so we can ignore it
       rev <- RWS.gets doneReversed
       liftIO $ putStrLn $ "<<NewArcs>> " ++ show (M.size rev)
+      -- check if the node is already in the reversed hypergraph; otherwise, it
+      -- is not reachable from any final item so we can ignore it
       b <- hasNode modifItem
       when b $ do
         liftIO $ putStrLn "<<NewArcs->hasNode>>"
@@ -616,23 +616,24 @@ procModif modif@A.HypeModif{..}
     -- all nodes and arcs to the inverse representation, if not present there
     -- yet.
     goNode :: A.Item n t -> DerivM n t m ()
+--     goNode node = addNode node >> goChildren node
     goNode node = do
       b <- hasNode node
       liftIO $ putStrLn $ "goNode->hasNode: " ++ show b
       when (not b) $ do
         liftIO $ putStrLn "goNode->addNode"
-        addNode node
-        goChildren node
+        addNode node >> goChildren node
     -- Explore arcs ingoing to the given target node.
     goChildren node = mapM_ (goArc node) (nodeArcs node)
     nodeArcs node = S.toList $ ingoingArcs node modifHype
     -- Similar to `goNode`, but exploration begins with a specific arc
     -- leading to the corresponding target node.
-    goArc node arc = addArc node arc >> case arc of
+    goArc node arc = addArc node arc << case arc of
       A.Scan{..} -> goNodeA scanFrom
       A.Subst{..} -> goNodeP passArg >> goNodeA actArg
       A.Foot{..} -> goNodeA actArg
       A.Adjoin{..} -> goNodeP passAdj >> goNodeP passMod
+      where m << n = n >> m
     -- Versions of `goNode` specialized to active and passive items
     goNodeA = goNode . A.ItemA
     goNodeP = goNode . A.ItemP
@@ -649,7 +650,9 @@ ingoingArcs item hype = getTrav $ case item of
   A.ItemP p -> A.passiveTrav p hype
   where
     getTrav = \case
-      Nothing -> S.empty
+      -- Nothing -> S.empty
+      Nothing -> error
+        "ingoingArcs: no traversals corresponding to the given item"
       Just ew -> A.prioTrav ew
 
 
