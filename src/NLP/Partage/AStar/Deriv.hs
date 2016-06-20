@@ -24,7 +24,7 @@ module NLP.Partage.AStar.Deriv
 
 
 import           Control.Monad             (forM_, guard, void, when)
-import           Control.Monad.IO.Class    (MonadIO (..), liftIO)
+-- import           Control.Monad.IO.Class    (MonadIO (..), liftIO)
 import qualified Control.Monad.RWS.Strict  as RWS
 import           Control.Monad.Trans.Class (lift)
 import           Control.Monad.Trans.Maybe (MaybeT (..))
@@ -45,9 +45,7 @@ import qualified NLP.Partage.Tree.Other    as O
 
 
 ---------------------------
--- Extracting Derivation Trees
---
--- Experimental version
+-- Derivation Trees
 ---------------------------
 
 
@@ -96,90 +94,9 @@ deriv4show =
       | otherwise = t
 
 
--- | Extract derivation trees obtained on the given input sentence. Should be
--- run on the final result of the earley parser.
-derivTrees
-    :: (Ord n, Ord t)
-    => A.Hype n t   -- ^ Final state of the earley parser
-    -> n            -- ^ The start symbol
-    -> Int          -- ^ Length of the input sentence
-    -> [Deriv n t]
-derivTrees hype start n
-    = concatMap (`fromPassive` hype)
-    $ A.finalFrom start n hype
-
-
--- | Extract the set of the parsed trees w.r.t. to the given passive item.
-fromPassive :: forall n t. (Ord n, Ord t) => A.Passive n t -> A.Hype n t -> [Deriv n t]
-fromPassive passive hype = case A.passiveTrav passive hype of
-  Nothing -> case Q.lookup (A.ItemP passive) (A.waiting hype) of
-    Just _ -> error "fromPassive: passive item in the waiting queue"
-    Nothing -> error "fromPassive: unknown passive item (not even in the queue)"
-  Just ext -> concat
-    [ fromPassiveTrav passive trav hype
-    | trav <- S.toList (A.prioTrav ext) ]
-
--- fromPassive passive hype = concat
---   [ fromPassiveTrav passive trav hype
---   | ext <- maybeToList $ A.passiveTrav passive hype
---   , trav <- S.toList (A.prioTrav ext) ]
-
-
-fromPassiveTrav :: (Ord n, Ord t) => A.Passive n t -> A.Trav n t -> A.Hype n t -> [Deriv n t]
-fromPassiveTrav p trav hype = case trav of
-  A.Scan q t _ ->
-    [ mkTree hype p (termNode t : ts)
-    | ts <- activeDerivs q ]
-  A.Foot q x _ ->
-    [ mkTree hype p (footNode x : ts)
-    | ts <- activeDerivs q ]
-  A.Subst qp qa _ ->
-    [ mkTree hype p (substNode qp t : ts)
-    | ts <- activeDerivs qa
-    , t  <- passiveDerivs qp ]
-  A.Adjoin qa qm ->
-    [ adjoinTree ini aux
-    | aux <- passiveDerivs qa
-    , ini <- passiveDerivs qm ]
-  where
-    passiveDerivs = flip fromPassive hype
-    activeDerivs  = flip fromActive  hype
-
-
--- | Extract the set of the parsed trees w.r.t. to the given active item.
-fromActive :: (Ord n, Ord t) => A.Active -> A.Hype n t -> [[Deriv n t]]
-fromActive active hype = case A.activeTrav active hype of
-  Nothing  -> case Q.lookup (A.ItemA active) (A.waiting hype) of
-    Just _ -> error $
-      "fromActive: active item in the waiting queue"
-      ++ "\n" ++ show active
-    Nothing -> error $
-      "fromActive: unknown active item (not even in the queue)"
-      ++ "\n" ++ show active
-  Just ext -> if S.null (A.prioTrav ext)
-    then [[]]
-    else concatMap
-         (\trav -> fromActiveTrav active trav hype)
-         (S.toList (A.prioTrav ext))
-
-
-fromActiveTrav :: (Ord n, Ord t) => A.Active -> A.Trav n t -> A.Hype n t -> [[Deriv n t]]
-fromActiveTrav _p trav hype = case trav of
-  A.Scan q t _ ->
-    [ termNode t : ts
-    | ts <- activeDerivs q ]
-  A.Foot q x _ ->
-    [ footNode x : ts
-    | ts <- activeDerivs q ]
-  A.Subst qp qa _ ->
-    [ substNode qp t : ts
-    | ts <- activeDerivs qa
-    , t  <- passiveDerivs qp ]
-  A.Adjoin _ _ ->
-    error "fromActiveTrav: called on a passive item"
-  where
-    activeDerivs = flip fromActive hype
-    passiveDerivs = flip fromPassive hype
+--------------------------------------------------
+-- Utilities for constructing derivations
+--------------------------------------------------
 
 
 -- | Construct a derivation tree on the basis of the underlying passive
@@ -237,6 +154,100 @@ adjoinTree ini aux = R.Node
     { node = node root
     , modif = aux : modif root }
   , R.subForest = R.subForest ini }
+
+
+-------------------------------
+-- Extracting Derivation Trees
+-------------------------------
+
+
+-- | Extract derivation trees obtained on the given input sentence. Should be
+-- run on the final result of the earley parser.
+derivTrees
+    :: (Ord n, Ord t)
+    => A.Hype n t   -- ^ Final state of the earley parser
+    -> n            -- ^ The start symbol
+    -> Int          -- ^ Length of the input sentence
+    -> [Deriv n t]
+derivTrees hype start n
+    = concatMap (`fromPassive` hype)
+    $ A.finalFrom start n hype
+
+
+-- | Extract derivation trees represented by the given passive item.
+fromPassive :: forall n t. (Ord n, Ord t) => A.Passive n t -> A.Hype n t -> [Deriv n t]
+fromPassive passive hype = case A.passiveTrav passive hype of
+  Nothing -> case Q.lookup (A.ItemP passive) (A.waiting hype) of
+    Just _ -> error "fromPassive: passive item in the waiting queue"
+    Nothing -> error "fromPassive: unknown passive item (not even in the queue)"
+  Just ext -> concat
+    [ fromPassiveTrav passive trav hype
+    | trav <- S.toList (A.prioTrav ext) ]
+-- fromPassive passive hype = concat
+--   [ fromPassiveTrav passive trav hype
+--   | ext <- maybeToList $ A.passiveTrav passive hype
+--   , trav <- S.toList (A.prioTrav ext) ]
+
+
+-- | Extract derivation trees represented by the given passive item
+-- and the corresponding input traversal.
+fromPassiveTrav :: (Ord n, Ord t) => A.Passive n t -> A.Trav n t -> A.Hype n t -> [Deriv n t]
+fromPassiveTrav p trav hype = case trav of
+  A.Scan q t _ ->
+    [ mkTree hype p (termNode t : ts)
+    | ts <- activeDerivs q ]
+  A.Foot q x _ ->
+    [ mkTree hype p (footNode x : ts)
+    | ts <- activeDerivs q ]
+  A.Subst qp qa _ ->
+    [ mkTree hype p (substNode qp t : ts)
+    | ts <- activeDerivs qa
+    , t  <- passiveDerivs qp ]
+  A.Adjoin qa qm ->
+    [ adjoinTree ini aux
+    | aux <- passiveDerivs qa
+    , ini <- passiveDerivs qm ]
+  where
+    passiveDerivs = flip fromPassive hype
+    activeDerivs  = flip fromActive  hype
+
+
+-- | Extract derivations represented by the given active item.
+fromActive :: (Ord n, Ord t) => A.Active -> A.Hype n t -> [[Deriv n t]]
+fromActive active hype = case A.activeTrav active hype of
+  Nothing  -> case Q.lookup (A.ItemA active) (A.waiting hype) of
+    Just _ -> error $
+      "fromActive: active item in the waiting queue"
+      ++ "\n" ++ show active
+    Nothing -> error $
+      "fromActive: unknown active item (not even in the queue)"
+      ++ "\n" ++ show active
+  Just ext -> if S.null (A.prioTrav ext)
+    then [[]]
+    else concatMap
+         (\trav -> fromActiveTrav active trav hype)
+         (S.toList (A.prioTrav ext))
+
+
+-- | Extract derivation trees represented by the given active item
+-- and the corresponding input traversal.
+fromActiveTrav :: (Ord n, Ord t) => A.Active -> A.Trav n t -> A.Hype n t -> [[Deriv n t]]
+fromActiveTrav _p trav hype = case trav of
+  A.Scan q t _ ->
+    [ termNode t : ts
+    | ts <- activeDerivs q ]
+  A.Foot q x _ ->
+    [ footNode x : ts
+    | ts <- activeDerivs q ]
+  A.Subst qp qa _ ->
+    [ substNode qp t : ts
+    | ts <- activeDerivs qa
+    , t  <- passiveDerivs qp ]
+  A.Adjoin _ _ ->
+    error "fromActiveTrav: called on a passive item"
+  where
+    activeDerivs = flip fromActive hype
+    passiveDerivs = flip fromPassive hype
 
 
 --------------------------------------------------
@@ -326,7 +337,7 @@ data RevTrav n t
 ---------------------------------
 
 
--- | Extract the derivation trees going through the given arc.
+-- | Extract derivations going through the given arc.
 fromArc
   :: (Ord n, Ord t)
   => A.Item n t
@@ -338,14 +349,13 @@ fromArc
   -> RevHype n t
      -- ^ The reversed version of the hypergraph
   -> [Deriv n t]
-  -- -> P.ListT (DerivM n t m) ()
 fromArc node arc hype revHype =
   case node of
     A.ItemP p ->
-      let derivs = fromPassiveTrav p arc hype
+      let derivs _ = fromPassiveTrav p arc hype
       in  upFromPassive p derivs hype revHype
     A.ItemA p ->
-      let derivs = fromActiveTrav p arc hype
+      let derivs _ = fromActiveTrav p arc hype
       in  upFromActive p derivs hype revHype
 
 
@@ -354,9 +364,9 @@ fromArc node arc hype revHype =
 upFromItem
   :: (Ord n, Ord t)
   => A.Item n t
-  -> [[Deriv n t]]
+  -> (() -> [[Deriv n t]])
   -- ^ Derivations corresponding to children items of the given item
-  -- (following a certain hyperarc)
+  -- (for a certain, fixed hyperarc)
   -> A.Hype n t
   -> RevHype n t
   -> [Deriv n t]
@@ -364,7 +374,7 @@ upFromItem item childDerivs hype revHype =
   case item of
     A.ItemP p ->
       -- first construct actual derivation trees for the passive item
-      let derivs = map (mkTree hype p) childDerivs
+      let derivs _ = map (mkTree hype p) (childDerivs ())
       in  upFromPassive p derivs hype revHype
     A.ItemA p -> upFromActive p childDerivs hype revHype
 
@@ -375,9 +385,8 @@ upFromPassive
   :: (Ord n, Ord t)
   => A.Passive n t
      -- ^ Passive node
-  -> [Deriv n t]
+  -> (() -> [Deriv n t])
      -- ^ The list of derivation corresponding to the passive node
-     -- TODO: this may lead to a spaceleak!
   -> A.Hype n t
   -> RevHype n t
   -> [Deriv n t]
@@ -385,7 +394,7 @@ upFromPassive passive passiveDerivs hype revHype =
   case M.lookup (A.ItemP passive) (doneReversed revHype) of
     Nothing -> error "upFromPassive: item with no respective entry in `RevHype`"
     Just revTravSet -> if S.null revTravSet
-      then passiveDerivs -- meaning that we got a final item, hopefully...
+      then passiveDerivs () -- meaning that we got a final item, hopefully...
       else concat
            [ upFromPassiveTrav passive revTrav passiveDerivs hype revHype
            | revTrav <- S.toList revTravSet ]
@@ -397,9 +406,8 @@ upFromPassiveTrav
      -- ^ Source hypernode (passive item)
   -> RevTrav n t
      -- ^ Traversal to be followed from the source node
-  -> [Deriv n t]
+  -> (() -> [Deriv n t])
      -- ^ Derivation corresponding to the source node
-     -- TODO: this may lead to a spaceleak!
   -> A.Hype n t
   -> RevHype n t
   -> [Deriv n t]
@@ -408,24 +416,24 @@ upFromPassiveTrav source revTrav sourceDerivs hype revHype =
     SubstP{..} ->
       -- we now have a passive source, another active source, and an unknown target;
       -- based on that, we create a list of derivations of the source nodes.
-      let combinedDerivs =
+      let combinedDerivs _ =
             [ substNode source t : ts
             | ts <- fromActive actArg hype
-            , t  <- sourceDerivs ]
+            , t  <- sourceDerivs () ]
       -- once we have the combined derivations of the source nodes, we proceed upwards
       -- by going to the unkown target item with the derivations we have
       in  upFromItem outItem combinedDerivs hype revHype
     AdjoinP{..} ->
-      let combinedDerivs =
+      let combinedDerivs _ =
             [ adjoinTree ini aux
-            | aux <- sourceDerivs
+            | aux <- sourceDerivs ()
             , ini <- fromPassive passMod hype ]
       in  upFromPassive outItemP combinedDerivs hype revHype
     ModifyP{..} ->
-      let combinedDerivs =
+      let combinedDerivs _ =
             [ adjoinTree ini aux
             | aux <- fromPassive passAdj hype
-            , ini <- sourceDerivs ]
+            , ini <- sourceDerivs () ]
       in  upFromPassive outItemP combinedDerivs hype revHype
     _ -> error "upFromPassiveTrav: got an 'active' traversal for a passive item"
 
@@ -435,7 +443,8 @@ upFromPassiveTrav source revTrav sourceDerivs hype revHype =
 upFromActive
   :: (Ord n, Ord t)
   => A.Active
-  -> [[Deriv n t]] -- ^ Derivation corresponding to the active node
+  -> (() -> [[Deriv n t]])
+  -- ^ Derivation corresponding to the active node
   -> A.Hype n t
   -> RevHype n t
   -> [Deriv n t]
@@ -451,7 +460,7 @@ upFromActiveTrav
      -- ^ Source hypernode (active item)
   -> RevTrav n t
      -- ^ Traversal to be followed from the source node
-  -> [[Deriv n t]]
+  -> (() -> [[Deriv n t]])
      -- ^ Derivation corresponding to the source node
   -> A.Hype n t
   -> RevHype n t
@@ -459,20 +468,20 @@ upFromActiveTrav
 upFromActiveTrav _source revTrav sourceDerivs hype revHype =
   case revTrav of
     ScanA{..} ->
-      let combinedDerivs =
+      let combinedDerivs _ =
             [ termNode scanTerm : ts
-            | ts <- sourceDerivs ]
+            | ts <- sourceDerivs () ]
       in  upFromItem outItem combinedDerivs hype revHype
     SubstA{..} ->
-      let combinedDerivs =
+      let combinedDerivs _ =
             [ substNode passArg t : ts
-            | ts <- sourceDerivs -- fromActive actArg hype
+            | ts <- sourceDerivs () -- fromActive actArg hype
             , t  <- fromPassive passArg hype ]
       in  upFromItem outItem combinedDerivs hype revHype
     FootA{..} ->
-      let combinedDerivs =
+      let combinedDerivs _ =
             [ footNode theFoot : ts
-            | ts <- sourceDerivs ]
+            | ts <- sourceDerivs () ]
       in  upFromItem outItem combinedDerivs hype revHype
     _ -> error "upFromActiveTrav: got an 'passive' traversal for an active item"
 
@@ -571,7 +580,7 @@ parseAndPrint auto start input = void . P.runEffect $
 -- | A pipe which transforms hypergraph modifications to the
 -- corresponding derivations.
 derivsPipe
-  :: forall m n t a. (MonadIO m, Ord n, Ord t)
+  :: forall m n t a. (Monad m, Ord n, Ord t)
   => DerivR n
   -> P.Pipe (A.HypeModif n t) (ModifDerivs n t) m a
 derivsPipe conf =
@@ -586,34 +595,34 @@ derivsPipe conf =
 
 -- | Process a hypergraph modification.
 procModif
-  :: forall m n t. (MonadIO m, Ord n, Ord t)
+  :: forall m n t. (Monad m, Ord n, Ord t)
   => A.HypeModif n t
   -> DerivM n t m [Deriv n t]
 procModif A.HypeModif{..}
   | modifType == A.NewNode = fmap (maybe [] id) . runMaybeT $ do
-      liftIO $ putStrLn "<<NewNode>>"
+      -- liftIO $ putStrLn "<<NewNode>>"
       A.ItemP p <- return modifItem
       guard =<< lift (isFinal p)
-      liftIO $ putStrLn "<<NewNode->isFinal>>"
+      -- liftIO $ putStrLn "<<NewNode->isFinal>>"
       lift $ goNode modifItem
       return $ fromPassive p modifHype
   | otherwise = do -- `modifType == A.NewArcs`
-      rev <- RWS.gets doneReversed
-      liftIO $ putStrLn $ "<<NewArcs>> " ++ show (M.size rev)
+      -- rev <- RWS.gets doneReversed
+      -- liftIO $ putStrLn $ "<<NewArcs>> " ++ show (M.size rev)
       -- check if the node is already in the reversed hypergraph; otherwise, it
       -- is not reachable from any final item so we can ignore it
       b <- hasNode modifItem
       if b then do
-        liftIO $ putStrLn "<<NewArcs->hasNode>>"
+        -- liftIO $ putStrLn "<<NewArcs->hasNode>>"
         goChildren modifItem (A.prioTrav modifTrav)
         revHype <- RWS.get
         let derivs = concatMap
               (\arc -> fromArc modifItem arc modifHype revHype)
               (S.toList $ A.prioTrav modifTrav)
-        liftIO . putStrLn $ "<<NewArcs->" ++
-          show (length . S.toList $ A.prioTrav modifTrav) ++
-          " arcs>>"
-        liftIO . putStrLn $ "<<NewArcs->" ++ show (length derivs) ++ " derivs>>"
+        -- liftIO . putStrLn $ "<<NewArcs->" ++
+        --   show (length . S.toList $ A.prioTrav modifTrav) ++
+        --   " arcs>>"
+        -- liftIO . putStrLn $ "<<NewArcs->" ++ show (length derivs) ++ " derivs>>"
         return derivs
       else return []
   where
