@@ -6,6 +6,7 @@
 
 module NLP.Partage.AStar.Deriv
 ( Deriv
+, ModifDerivs
 , DerivNode (..)
 , derivTrees
 , fromPassive
@@ -170,8 +171,8 @@ derivTrees
     -> Int          -- ^ Length of the input sentence
     -> [Deriv n t]
 derivTrees hype start n
-    = concatMap (`fromPassive` hype)
-    $ A.finalFrom start n hype
+  = concatMap (`fromPassive` hype)
+  $ A.finalFrom start n hype
 
 
 -- | Extract derivation trees represented by the given passive item.
