@@ -141,6 +141,22 @@ quickly = AuxTree (Branch "V"
     ]) [1]
 
 
+quickly' :: AuxTr
+quickly' = AuxTree (Branch "V"
+    [ Branch "V" []
+    , Branch "Ad" [Leaf "quickly"]
+    ]) [0]
+
+
+with :: AuxTr
+with = AuxTree (Branch "VP"
+    [ Branch "VP" []
+    , Branch "PP"
+      [ Branch "P" [Leaf "with"]
+      , Branch "NP" [] ]
+    ]) [0]
+
+
 a :: Tr
 a = Branch "D" [Leaf "a"]
 
@@ -157,7 +173,7 @@ mouse = Branch "NP"
 mkGram1 :: [(Other, Weight)]
 mkGram1 = map (,1) $
     map Left [tom, sleeps, caught, a, mouse] ++
-    map Right [almost, quickly]
+    map Right [almost, quickly, quickly', with]
 
 
 ---------------------------------------------------------------------
@@ -208,6 +224,7 @@ gram1Tests =
     , Test "S" ["Tom", "caught", "a", "Tom"] No
     , Test "S" ["Tom", "caught"] No
     , Test "S" ["caught", "a", "mouse"] No ]
+    -- , Test "S" ["Tom", "quickly", "quickly", "caught", "quickly", "quickly", "Tom"] Yes ]
 
 
 ---------------------------------------------------------------------
@@ -292,8 +309,8 @@ mkGram3 = map (,1) $
 -- recognized before it can be adjoined.
 gram3Tests :: [Test]
 gram3Tests =
-    [ Test "S" (words "p a e b b") Yes
-    , Test "S" (words "p a e b") No ]
+  [ Test "S" (words "p a e b b") Yes
+  , Test "S" (words "p a e b") No ]
 
 
 ---------------------------------------------------------------------
@@ -435,7 +452,7 @@ testTree modName TagParser{..} =
         _ -> return ()
 
     -- Test if `testDerivsIsSet` and `testFlyingDerivsIsSet`
-    -- give equal results
+    -- give the same results
     testDerivsEqual gram Test{..} = case (derivTrees, derivPipe) of
       (Just derivs, Just mkPipe) -> do
         derivsRef <- newIORef []
