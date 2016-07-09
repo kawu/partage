@@ -24,25 +24,27 @@ module NLP.Partage.AStar.Deriv
 ) where
 
 
-import           Control.Monad             (forM_, guard, void, when)
+import           Control.Monad              (forM_, guard, void, when)
 -- import           Control.Monad.IO.Class    (MonadIO (..), liftIO)
-import qualified Control.Monad.RWS.Strict  as RWS
-import           Control.Monad.Trans.Class (lift)
-import           Control.Monad.Trans.Maybe (MaybeT (..))
+import qualified Control.Monad.RWS.Strict   as RWS
+import qualified Control.Monad.State.Strict as E
+import           Control.Monad.Trans.Class  (lift)
+import           Control.Monad.Trans.Maybe  (MaybeT (..))
 
 import           Data.Lens.Light
-import qualified Data.Map.Strict           as M
-import           Data.Maybe                (maybeToList)
-import qualified Data.PSQueue              as Q
-import qualified Data.Set                  as S
-import qualified Data.Tree                 as R
+import qualified Data.Map.Strict            as M
+import           Data.Maybe                 (maybeToList)
+import qualified Data.PSQueue               as Q
+import qualified Data.Set                   as S
+import qualified Data.Tree                  as R
+-- import qualified Data.Traversable           as Trav
 
-import qualified Pipes                     as P
+import qualified Pipes                      as P
 -- import qualified Pipes.Prelude              as P
 
-import qualified NLP.Partage.AStar         as A
+import qualified NLP.Partage.AStar          as A
 -- import           NLP.Partage.DAG        (Weight)
-import qualified NLP.Partage.Tree.Other    as O
+import qualified NLP.Partage.Tree.Other     as O
 
 
 ---------------------------
@@ -63,7 +65,6 @@ data DerivNode n t = DerivNode
   { node  :: O.Node n t
   , modif :: [Deriv n t]
   } deriving (Eq, Ord, Show)
-
 
 
 -- | NodeStatus tells wheter the node in the pretiffied derivation tree
@@ -93,6 +94,31 @@ deriv4show =
     addDep isMod t
       | isMod == True = R.Node Dependent [t]
       | otherwise = t
+
+
+--------------------------------------------------
+-- Tokens
+--------------------------------------------------
+
+
+-- | A token is a terminal enriched with information about the position
+-- in the input sentence.
+data Tok t = Tok
+  { position :: Int
+    -- ^ Position of the node in the dependency tree
+  , terminal :: t
+    -- ^ Terminal on the corresponding position
+  } deriving (Show, Eq, Ord)
+
+
+-- | Tokenize derivation, i.e., replace terminals with the corresponding
+-- tokens.  WARNING: this assumes that the parsing input is a list and
+-- not a word-lattice, for example!
+tokenize :: Deriv n t -> Deriv n (Tok t)
+tokenize =
+  flip E.evalState (0 :: Int) . go
+  where
+    go R.Node{..} = undefined
 
 
 --------------------------------------------------
@@ -307,7 +333,7 @@ data RevTrav n t
         -- ^ The output active or passive item
 --         , theFoot :: A.Passive n t
 --         -- ^ The passive argument of the action
-        , theFoot  :: n
+        , theFoot :: n
         -- ^ The foot non-terminal
         }
     -- ^ Foot adjoin: match the foot of the source item with the given

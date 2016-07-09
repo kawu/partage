@@ -53,6 +53,7 @@ library
     exposed-modules:
         NLP.Partage.Tree
       , NLP.Partage.Tree.Other
+      , NLP.Partage.EdgeTree
       , NLP.Partage.DAG
       , NLP.Partage.Gen
       , NLP.Partage.Auto
@@ -64,6 +65,8 @@ library
       , NLP.Partage.Earley
       , NLP.Partage.AStar
       , NLP.Partage.AStar.Deriv
+      , NLP.Partage.AStar.Deriv.Gorn
+      , NLP.Partage.AStar.DepTree
 
     other-modules:
         NLP.Partage.SOrd

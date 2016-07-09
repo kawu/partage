@@ -146,7 +146,10 @@ import qualified Data.Time              as Time
 newtype Input t = Input {
     -- inputSent :: V.Vector (S.Set t)
       inputSent :: [t]
-    -- ^ The input sentence
+      -- ^ The input sentence
+      -- WARNING: some functions (notably, `Deriv.tokenize`) assume
+      -- that the input is a sequence, and not a word-lattice, for
+      -- example.
     }
 
 
