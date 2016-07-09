@@ -17,6 +17,8 @@ module NLP.Partage.Tree.Other
 -- * Conversion
 , encode
 , decode
+, unTree
+, mkTree
 
 -- * Utils
 , isTerm

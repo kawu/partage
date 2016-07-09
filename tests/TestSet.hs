@@ -39,6 +39,7 @@ import           Test.Tasty.HUnit          (testCase)
 
 import qualified Pipes                     as P
 
+import           NLP.Partage.AStar         (Tok)
 import qualified NLP.Partage.AStar.Deriv   as Deriv
 import           NLP.Partage.DAG           (Weight)
 import           NLP.Partage.Tree          (AuxTree (..), Tree (..))
@@ -53,7 +54,7 @@ import qualified NLP.Partage.Tree.Other    as O
 type Tr    = Tree String String
 type AuxTr = AuxTree String String
 type Other = O.SomeTree String String
-type Deriv = Deriv.Deriv String String
+type Deriv = Deriv.Deriv String (Tok String)
 type ModifDerivs = Deriv.ModifDerivs String String
 -- type Rl    = Rule String String
 -- type WRl   = W.Rule String String

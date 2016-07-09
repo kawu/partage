@@ -520,6 +520,7 @@ mkGram ts = Gram
   where
     dagGram_ = dagFromWeightedForest ts
 
+
 -- | Construct a dummy `Gram` (no subtree sharing) from the given weighted
 -- grammar.
 mkDummy

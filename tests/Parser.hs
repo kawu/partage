@@ -67,8 +67,16 @@ testAStar =
     parseFrom gram start input = do
       let dag = mkGram gram
           auto = A.mkAuto memoTerm dag
+          onTerm f (O.Term x) = O.Term (f x)
+          onTerm _ (O.NonTerm x) = O.NonTerm x
+          onTerm _ (O.Foot x) = O.Foot x
       hype <- A.earleyAuto auto (A.fromList input)
-      return . S.fromList $ A.parsedTrees hype start (length input)
+      return
+        . S.fromList
+        -- below we just map (Tok t -> t) but we have to also
+        -- do the corresponding encoding/decoding
+        . map (O.mkTree . fmap (onTerm A.terminal) . O.unTree)
+        $ A.parsedTrees hype start (length input)
     derivFrom gram start input = do
       let dag = mkGram gram
           auto = A.mkAuto memoTerm dag

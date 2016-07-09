@@ -27,7 +27,7 @@ module NLP.Partage.AStar.Deriv
 import           Control.Monad              (forM_, guard, void, when)
 -- import           Control.Monad.IO.Class    (MonadIO (..), liftIO)
 import qualified Control.Monad.RWS.Strict   as RWS
-import qualified Control.Monad.State.Strict as E
+-- import qualified Control.Monad.State.Strict as E
 import           Control.Monad.Trans.Class  (lift)
 import           Control.Monad.Trans.Maybe  (MaybeT (..))
 
@@ -43,6 +43,7 @@ import qualified Pipes                      as P
 -- import qualified Pipes.Prelude              as P
 
 import qualified NLP.Partage.AStar          as A
+import           NLP.Partage.AStar          (Tok)
 -- import           NLP.Partage.DAG        (Weight)
 import qualified NLP.Partage.Tree.Other     as O
 
@@ -96,29 +97,29 @@ deriv4show =
       | otherwise = t
 
 
---------------------------------------------------
--- Tokens
---------------------------------------------------
-
-
--- | A token is a terminal enriched with information about the position
--- in the input sentence.
-data Tok t = Tok
-  { position :: Int
-    -- ^ Position of the node in the dependency tree
-  , terminal :: t
-    -- ^ Terminal on the corresponding position
-  } deriving (Show, Eq, Ord)
-
-
--- | Tokenize derivation, i.e., replace terminals with the corresponding
--- tokens.  WARNING: this assumes that the parsing input is a list and
--- not a word-lattice, for example!
-tokenize :: Deriv n t -> Deriv n (Tok t)
-tokenize =
-  flip E.evalState (0 :: Int) . go
-  where
-    go R.Node{..} = undefined
+-- --------------------------------------------------
+-- -- Tokens
+-- --------------------------------------------------
+-- 
+-- 
+-- -- | A token is a terminal enriched with information about the position
+-- -- in the input sentence.
+-- data Tok t = Tok
+--   { position :: Int
+--     -- ^ Position of the node in the dependency tree
+--   , terminal :: t
+--     -- ^ Terminal on the corresponding position
+--   } deriving (Show, Eq, Ord)
+-- 
+-- 
+-- -- | Tokenize derivation, i.e., replace terminals with the corresponding
+-- -- tokens.  WARNING: this assumes that the parsing input is a list and
+-- -- not a word-lattice, for example!
+-- tokenize :: Deriv n t -> Deriv n (Tok t)
+-- tokenize =
+--   flip E.evalState (0 :: Int) . go
+--   where
+--     go R.Node{..} = undefined
 
 
 --------------------------------------------------
@@ -131,8 +132,8 @@ tokenize =
 mkTree
   :: A.Hype n t
   -> A.Passive n t
-  -> [Deriv n t]
-  -> Deriv n t
+  -> [Deriv n (Tok t)]
+  -> Deriv n (Tok t)
 mkTree hype p ts = R.Node
   { R.rootLabel = mkRoot hype p
   , R.subForest = reverse ts }
@@ -142,7 +143,7 @@ only :: O.Node n t -> DerivNode n t
 only x = DerivNode {node = x, modif =  []}
 
 -- | Several constructors which allow to build non-modified nodes.
-mkRoot :: A.Hype n t -> A.Passive n t -> DerivNode n t
+mkRoot :: A.Hype n t -> A.Passive n t -> DerivNode n (Tok t)
 mkRoot hype p = only . O.NonTerm $ A.nonTerm (getL A.dagID p) hype
 
 mkFoot :: n -> DerivNode n t
@@ -166,7 +167,7 @@ derivRoot R.Node{..} = case node rootLabel of
   O.Term _ -> error "passiveDerivs.getRoot: got terminal"
 
 -- | Construct substitution node stemming from the given derivation.
-substNode :: A.Passive n t -> Deriv n t -> Deriv n t
+substNode :: A.Passive n t -> Deriv n (Tok t) -> Deriv n (Tok t)
 substNode p t
   | A.isRoot (p ^. A.dagID) = flip R.Node [] $ DerivNode
     { node = O.NonTerm (derivRoot t)
@@ -195,14 +196,18 @@ derivTrees
     => A.Hype n t   -- ^ Final state of the earley parser
     -> n            -- ^ The start symbol
     -> Int          -- ^ Length of the input sentence
-    -> [Deriv n t]
+    -> [Deriv n (Tok t)]
 derivTrees hype start n
   = concatMap (`fromPassive` hype)
   $ A.finalFrom start n hype
 
 
 -- | Extract derivation trees represented by the given passive item.
-fromPassive :: forall n t. (Ord n, Ord t) => A.Passive n t -> A.Hype n t -> [Deriv n t]
+fromPassive
+  :: forall n t. (Ord n, Ord t)
+  => A.Passive n t
+  -> A.Hype n t
+  -> [Deriv n (Tok t)]
 fromPassive passive hype = case A.passiveTrav passive hype of
   Nothing -> case Q.lookup (A.ItemP passive) (A.waiting hype) of
     Just _ -> error "fromPassive: passive item in the waiting queue"
@@ -218,7 +223,12 @@ fromPassive passive hype = case A.passiveTrav passive hype of
 
 -- | Extract derivation trees represented by the given passive item
 -- and the corresponding input traversal.
-fromPassiveTrav :: (Ord n, Ord t) => A.Passive n t -> A.Trav n t -> A.Hype n t -> [Deriv n t]
+fromPassiveTrav
+  :: (Ord n, Ord t)
+  => A.Passive n t
+  -> A.Trav n t
+  -> A.Hype n t
+  -> [Deriv n (Tok t)]
 fromPassiveTrav p trav hype = case trav of
   A.Scan q t _ ->
     [ mkTree hype p (termNode t : ts)
@@ -240,7 +250,11 @@ fromPassiveTrav p trav hype = case trav of
 
 
 -- | Extract derivations represented by the given active item.
-fromActive :: (Ord n, Ord t) => A.Active -> A.Hype n t -> [[Deriv n t]]
+fromActive
+  :: (Ord n, Ord t)
+  => A.Active
+  -> A.Hype n t
+  -> [[Deriv n (Tok t)]]
 fromActive active hype = case A.activeTrav active hype of
   Nothing  -> case Q.lookup (A.ItemA active) (A.waiting hype) of
     Just _ -> error $
@@ -258,7 +272,12 @@ fromActive active hype = case A.activeTrav active hype of
 
 -- | Extract derivation trees represented by the given active item
 -- and the corresponding input traversal.
-fromActiveTrav :: (Ord n, Ord t) => A.Active -> A.Trav n t -> A.Hype n t -> [[Deriv n t]]
+fromActiveTrav
+  :: (Ord n, Ord t)
+  => A.Active
+  -> A.Trav n t
+  -> A.Hype n t
+  -> [[Deriv n (Tok t)]]
 fromActiveTrav _p trav hype = case trav of
   A.Scan q t _ ->
     [ termNode t : ts
@@ -308,7 +327,7 @@ data RevTrav n t
     = ScanA
         { outItem  :: A.Item n t
         -- ^ The output active or passive item
-        , scanTerm :: t
+        , scanTerm :: Tok t
         -- ^ The scanned terminal
         }
     -- ^ Scan: scan the leaf terminal with a terminal from the input
@@ -375,7 +394,7 @@ fromArc
      -- ^ The corresponding hypergraph
   -> RevHype n t
      -- ^ The reversed version of the hypergraph
-  -> [Deriv n t]
+  -> [Deriv n (Tok t)]
 fromArc node arc hype revHype =
   case node of
     A.ItemP p ->
@@ -391,12 +410,12 @@ fromArc node arc hype revHype =
 upFromItem
   :: (Ord n, Ord t)
   => A.Item n t
-  -> (() -> [[Deriv n t]])
+  -> (() -> [[Deriv n (Tok t)]])
   -- ^ Derivations corresponding to children items of the given item
   -- (for a certain, fixed hyperarc)
   -> A.Hype n t
   -> RevHype n t
-  -> [Deriv n t]
+  -> [Deriv n (Tok t)]
 upFromItem item childDerivs hype revHype =
   case item of
     A.ItemP p ->
@@ -412,11 +431,11 @@ upFromPassive
   :: (Ord n, Ord t)
   => A.Passive n t
      -- ^ Passive node
-  -> (() -> [Deriv n t])
+  -> (() -> [Deriv n (Tok t)])
      -- ^ The list of derivation corresponding to the passive node
   -> A.Hype n t
   -> RevHype n t
-  -> [Deriv n t]
+  -> [Deriv n (Tok t)]
 upFromPassive passive passiveDerivs hype revHype =
   case M.lookup (A.ItemP passive) (doneReversed revHype) of
     Nothing -> error "upFromPassive: item with no respective entry in `RevHype`"
@@ -433,11 +452,11 @@ upFromPassiveTrav
      -- ^ Source hypernode (passive item)
   -> RevTrav n t
      -- ^ Traversal to be followed from the source node
-  -> (() -> [Deriv n t])
+  -> (() -> [Deriv n (Tok t)])
      -- ^ Derivation corresponding to the source node
   -> A.Hype n t
   -> RevHype n t
-  -> [Deriv n t]
+  -> [Deriv n (Tok t)]
 upFromPassiveTrav source revTrav sourceDerivs hype revHype =
   case revTrav of
     SubstP{..} ->
@@ -470,11 +489,11 @@ upFromPassiveTrav source revTrav sourceDerivs hype revHype =
 upFromActive
   :: (Ord n, Ord t)
   => A.Active
-  -> (() -> [[Deriv n t]])
+  -> (() -> [[Deriv n (Tok t)]])
   -- ^ Derivation corresponding to the active node
   -> A.Hype n t
   -> RevHype n t
-  -> [Deriv n t]
+  -> [Deriv n (Tok t)]
 upFromActive active activeDerivs hype revHype = concat
   [ upFromActiveTrav active revTrav activeDerivs hype revHype
   | revTravSet <- maybeToList $ M.lookup (A.ItemA active) (doneReversed revHype)
@@ -487,11 +506,11 @@ upFromActiveTrav
      -- ^ Source hypernode (active item)
   -> RevTrav n t
      -- ^ Traversal to be followed from the source node
-  -> (() -> [[Deriv n t]])
+  -> (() -> [[Deriv n (Tok t)]])
      -- ^ Derivation corresponding to the source node
   -> A.Hype n t
   -> RevHype n t
-  -> [Deriv n t]
+  -> [Deriv n (Tok t)]
 upFromActiveTrav _source revTrav sourceDerivs hype revHype =
   case revTrav of
     ScanA{..} ->
@@ -519,7 +538,7 @@ upFromActiveTrav _source revTrav sourceDerivs hype revHype =
 
 
 -- | Modifications corresponding to the given hypergraph modification.
-type ModifDerivs n t = (A.HypeModif n t, [Deriv n t])
+type ModifDerivs n t = (A.HypeModif n t, [Deriv n (Tok t)])
 
 
 -- | Derivation monad.
@@ -624,7 +643,7 @@ derivsPipe conf =
 procModif
   :: forall m n t. (Monad m, Ord n, Ord t)
   => A.HypeModif n t
-  -> DerivM n t m [Deriv n t]
+  -> DerivM n t m [Deriv n (Tok t)]
 procModif A.HypeModif{..}
   | modifType == A.NewNode = fmap (maybe [] id) . runMaybeT $ do
       -- liftIO $ putStrLn "<<NewNode>>"

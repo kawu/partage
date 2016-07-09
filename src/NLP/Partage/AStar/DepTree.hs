@@ -6,7 +6,7 @@
 
 
 module NLP.Partage.AStar.DepTree
-( Tok (..)
+( Tree
 , Dep (..)
 , fromDeriv
 ) where
@@ -27,7 +27,7 @@ import qualified NLP.Partage.EdgeTree         as Edge
 
 
 -- | A dependency tree.
-type Tree n t = Edge.Tree (S.Set (Tok t)) (Dep n)
+type Tree n t = Edge.Tree (S.Set t) (Dep n)
 -- data Tree n t = Tree
 --   { root     :: S.Set (Tok t)
 --     -- ^ A set of tokens assigned to the root of a dependency tree
@@ -37,14 +37,14 @@ type Tree n t = Edge.Tree (S.Set (Tok t)) (Dep n)
 --   } deriving (Show, Eq, Ord)
 
 
--- | A token is a terminal enriched with information about the position
--- in the input sentence.
-data Tok t = Tok
-  { position :: Int
-    -- ^ Position of the node in the dependency tree
-  , terminal :: t
-    -- ^ Terminal on the corresponding position
-  } deriving (Show, Eq, Ord)
+-- -- | A token is a terminal enriched with information about the position
+-- -- in the input sentence.
+-- data Tok t = Tok
+--   { position :: Int
+--     -- ^ Position of the node in the dependency tree
+--   , terminal :: t
+--     -- ^ Terminal on the corresponding position
+--   } deriving (Show, Eq, Ord)
 
 
 -- | Dependency label.
@@ -68,7 +68,7 @@ data Dep a
 -- with information about the position in the input sentence.
 -- Non-terminals assigned to roots of the individual ETs
 -- become arcs.
-fromDeriv :: (Ord n, Ord t) => D.Deriv n (Tok t) -> Tree n t
+fromDeriv :: (Ord n, Ord t) => D.Deriv n t -> Tree n t
 fromDeriv rootDeriv =
   go rootDeriv (Top $ rootNT rootDeriv)
   where

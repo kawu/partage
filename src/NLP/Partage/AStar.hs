@@ -17,6 +17,7 @@ module NLP.Partage.AStar
 -- * Earley-style parsing
 -- ** Input
   Input (..)
+, Tok (..)
 , fromList
 -- , fromSets
 
@@ -145,12 +146,22 @@ import qualified Data.Time              as Time
 -- | Input of the parser.
 newtype Input t = Input {
     -- inputSent :: V.Vector (S.Set t)
-      inputSent :: [t]
+      inputSent :: [Tok t]
       -- ^ The input sentence
       -- WARNING: some functions (notably, `Deriv.tokenize`) assume
       -- that the input is a sequence, and not a word-lattice, for
       -- example.
     }
+
+
+-- | A token is a terminal enriched with information about the position
+-- in the input sentence.
+data Tok t = Tok
+  { position :: Int
+    -- ^ Position of the node in the dependency tree
+  , terminal :: t
+    -- ^ Terminal on the corresponding position
+  } deriving (Show, Eq, Ord)
 
 
 -- -- | Input of the parser.
@@ -169,7 +180,7 @@ newtype Input t = Input {
 
 -- | Construct `Input` from a list of terminals.
 fromList :: [t] -> Input t
-fromList = Input
+fromList = Input . map (uncurry Tok) . zip [0..]
 -- fromList = fromSets . map S.singleton
 
 
@@ -298,7 +309,7 @@ data Trav n t
     = Scan
         { scanFrom :: Active
         -- ^ The input active state
-        , _scanTerm :: t
+        , _scanTerm :: Tok t
         -- ^ The scanned terminal
         , _weight   :: Weight
         -- ^ The traversal weight
@@ -706,7 +717,7 @@ yieldModif mkModif = do
 
 
 -- | Read word from the given position of the input.
-readInput :: Pos -> P.ListT (Earley n t) t
+readInput :: Pos -> P.ListT (Earley n t) (Tok t)
 readInput i = do
     -- ask for the input
     sent <- RWS.asks inputSent
@@ -1234,7 +1245,7 @@ bagOfTerms span = do
     return $ x `H.bagAdd` y `H.bagAdd` z
   where
     sentLen = length <$> RWS.asks inputSent
-    estOn i j = H.bagFromList . over i j <$> RWS.asks inputSent
+    estOn i j = H.bagFromList . map terminal . over i j <$> RWS.asks inputSent
 
 
 ---------------------------------
@@ -1460,10 +1471,10 @@ tryScan p cost = void $ P.runListT $ do
 #endif
     -- read the word immediately following the ending position of
     -- the state
-    c <- readInput $ getL (spanA >>> end) p
+    tok <- readInput $ getL (spanA >>> end) p
     -- follow appropriate terminal transition outgoing from the
     -- given automaton state
-    (termCost, j) <- followTerm (getL state p) c
+    (termCost, j) <- followTerm (getL state p) (terminal tok)
     -- construct the resultant active item
     let q = setL state j
           . modL' (spanA >>> end) (+1)
@@ -1473,7 +1484,7 @@ tryScan p cost = void $ P.runListT $ do
     -- push the resulting state into the waiting queue
     lift $ pushInduced q
              (addWeight cost termCost)
-             (Scan p c termCost)
+             (Scan p tok termCost)
          -- . extWeight (addWeight cost termCost) estDist
 #ifdef DebugOn
     -- print logging information
@@ -1945,7 +1956,7 @@ tryAdjoinTerm' p cost = void $ P.runListT $ do
 
 
 -- | Extract the set of the parsed trees w.r.t. to the given active item.
-fromActive :: (Ord n, Ord t) => Active -> Hype n t -> [[T.Tree n t]]
+fromActive :: (Ord n, Ord t) => Active -> Hype n t -> [[T.Tree n (Tok t)]]
 fromActive active hype =
   case activeTrav active hype of
     -- Nothing  -> error "fromActive: unknown active item"
@@ -1979,7 +1990,7 @@ fromActive active hype =
 
 
 -- | Extract the set of the parsed trees w.r.t. to the given passive item.
-fromPassive :: (Ord n, Ord t) => Passive n t -> Hype n t -> [T.Tree n t]
+fromPassive :: (Ord n, Ord t) => Passive n t -> Hype n t -> [T.Tree n (Tok t)]
 fromPassive passive hype = concat
   [ fromPassiveTrav passive trav
   | ext <- maybeToList $ passiveTrav passive hype
@@ -2018,7 +2029,7 @@ parsedTrees
     => Hype n t     -- ^ Final state of the earley parser
     -> n            -- ^ The start symbol
     -> Int          -- ^ Length of the input sentence
-    -> [T.Tree n t]
+    -> [T.Tree n (Tok t)]
 parsedTrees hype start n
     = concatMap (`fromPassive` hype)
     $ finalFrom start n hype
