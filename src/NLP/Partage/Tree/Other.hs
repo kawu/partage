@@ -11,6 +11,7 @@ module NLP.Partage.Tree.Other
 -- * TAG Tree
   Tree
 , Node (..)
+, follow
 -- ** Base representation
 , SomeTree
 
@@ -31,7 +32,7 @@ module NLP.Partage.Tree.Other
 
 
 -- import           Control.Applicative ((<$>))
-import           Control.Monad (msum)
+import           Control.Monad (msum, foldM)
 -- import           Data.Maybe (isJust)
 import qualified Data.Foldable as F
 
@@ -69,6 +70,21 @@ type Tree n t = R.Tree (Node n t)
 
 -- | An original tree representation (see "NLP.Partage.Tree").
 type SomeTree n t = Either (T.Tree n t) (T.AuxTree n t)
+
+
+---------------------------------------------------------------------
+-- Path
+---------------------------------------------------------------------
+
+
+-- | Follow the path to a particular subtree.
+follow :: T.Path -> Tree a b -> Maybe (Tree a b)
+follow = flip $ foldM step
+
+
+-- | Follow one step of the `Path`.
+step :: R.Tree a -> Int -> Maybe (R.Tree a)
+step t k = R.subForest t !? k
 
 
 ---------------------------------------------------------------------
@@ -172,3 +188,16 @@ project =
 hasRoot :: Eq n => n -> Tree n t -> Bool
 hasRoot x (R.Node (NonTerm y) _) = x == y
 hasRoot _ _ = False
+
+
+---------------------------------------------------------------------
+-- Misc
+---------------------------------------------------------------------
+
+
+-- | Maybe a k-th element of a list.
+(!?) :: [a] -> Int -> Maybe a
+(x:xs) !? k
+    | k > 0     = xs !? (k-1)
+    | otherwise = Just x
+[] !? _ = Nothing

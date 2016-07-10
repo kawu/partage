@@ -8,18 +8,19 @@
 
 module NLP.Partage.AStar.Deriv.Gorn
 ( Deriv (..)
-, Gorn
+, deriv4show
 , fromDeriv
 ) where
 
 
--- import qualified Control.Arrow           as Arr
+import qualified Control.Arrow           as Arr
 
 import qualified Data.Map.Strict         as M
 import qualified Data.Tree               as R
 
 import qualified NLP.Partage.AStar.Deriv as D
 -- import qualified NLP.Partage.EdgeTree    as Edge
+import           NLP.Partage.Tree        (Path)
 import qualified NLP.Partage.Tree.Other  as O
 
 
@@ -37,7 +38,7 @@ data Deriv n t = Deriv
     -- ^ Root (elementary tree, ET) of the derivation tree
     -- (reminder: using the `rootET` name because it doesn't stem from
     --  the type the the root is an ET)
-  , modifs :: M.Map Gorn [Deriv n t]
+  , modifs :: M.Map Path [Deriv n t]
     -- ^ Derivations attached to the individual nodes (specified by the
     -- corresponding Gorn addresses) of the root ET; note that, in case of
     -- adjunction, many derivations can attach at one and the same Gorn address
@@ -46,8 +47,23 @@ data Deriv n t = Deriv
 -- type Deriv n t = Edge.Tree (O.Tree n t) Gorn
 
 
--- | A Gorn address, indicating a node in an ET.
-type Gorn = [Int]
+-- | Transform the derivation tree into a tree which is easy
+-- to draw using the standard `R.draw` function.
+deriv4show :: Deriv n t -> R.Tree (Either Path (O.Node n t))
+deriv4show =
+  go
+  where
+    go Deriv{..} = addChildren
+      (fmap Right rootET)
+      [ (path, go deriv)
+      | (path, derivs) <- M.toList modifs
+      , deriv <- derivs ]
+    addChildren R.Node{..} ts = R.Node
+      { R.rootLabel = rootLabel
+      , R.subForest = subForest ++
+        [ R.Node (Left path) [deriv]
+        | (path, deriv) <- ts ]
+      }
 
 
 ---------------------------------------------------
@@ -71,9 +87,9 @@ getRootET = fmap D.node
 
 -- | Get the derivations (and their corresponding Gorn addresses)
 -- modifying the rootET.
-getModifs :: D.Deriv n t -> [(Gorn, [D.Deriv n t])]
+getModifs :: D.Deriv n t -> [(Path, [D.Deriv n t])]
 getModifs =
-  go []
+  map (Arr.first reverse) . go []
   where
     go gorn R.Node{..}
       = (gorn, D.modif rootLabel)
