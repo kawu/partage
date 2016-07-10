@@ -8,6 +8,7 @@
 
 module NLP.Partage.AStar.Deriv.Gorn
 ( Deriv (..)
+, size
 , deriv4show
 , fromDeriv
 ) where
@@ -45,6 +46,14 @@ data Deriv n t = Deriv
     -- and in this case the attachement (adjunction) order matters.
   }
 -- type Deriv n t = Edge.Tree (O.Tree n t) Gorn
+
+
+-- | Size of a derivation tree (i.e., number of nodes).
+size :: Deriv n t -> Int
+size Deriv{..} = 1 + sum
+  [ size deriv
+  | (_path, derivs) <- M.toList modifs
+  , deriv <- derivs ]
 
 
 -- | Transform the derivation tree into a tree which is easy

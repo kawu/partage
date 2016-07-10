@@ -68,7 +68,7 @@ data DerivNode n t = DerivNode
   } deriving (Eq, Ord, Show)
 
 
--- | NodeStatus tells wheter the node in the pretiffied derivation tree
+-- | PrintNode tells wheter the node in the pretiffied derivation tree
 -- is a modifier or note.
 data PrintNode a
   = Regular a
