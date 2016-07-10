@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveFunctor   #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TupleSections   #-}
 
 
 -- | Module for working with dependency trees.
@@ -8,6 +9,8 @@
 module NLP.Partage.AStar.DepTree
 ( Tree (..)
 , Dep (..)
+, mapDep
+, discard
 , toRose
 , fromDeriv
 ) where
@@ -42,6 +45,25 @@ data Tree a b = Tree
 -- type Tree n t = Edge.Tree (S.Set t) (Dep n)
 
 
+-- | Dependency label.
+data Dep
+  = Arg
+    -- ^ Argument dependency (related to substitution)
+  | Mod
+    -- ^ Modifier dependency (related to adjunction)
+--   | Top
+--     -- ^ Dummy dependency to be used with top-level (root) nodes
+  deriving (Show, Eq, Ord)
+
+
+-- | Map dependency labels using the given function.  Note that this
+-- cannot be an implementation of `fmap` because it requires `Ord c`.
+mapDep :: (Ord a, Ord c) => (b -> c) -> Tree a b -> Tree a c
+mapDep f Tree{..} = Tree root $ M.fromList
+    [ (mapDep f t, f x)
+    | (t, x) <- M.toList children ]
+
+
 -- | Transform the dependency tree to a rose tree.
 toRose :: Tree a b -> R.Tree (a, Maybe b)
 toRose =
@@ -55,21 +77,23 @@ toRose =
         | (child, arc) <- M.toList children ] }
 
 
+-- | Discard dependency nodes which satisfy the given predicate.
+-- Return `Nothing` when all nodes are discarded.
+discard :: (Ord a, Ord b) => (a -> Bool) -> Tree a b -> [Tree a b]
+discard p tree
+  | p (root tree) = map fst newChildren
+  | otherwise = [Tree (root tree) (M.fromList newChildren)]
+  where
+    newChildren =
+      [ (newChild, dep)
+      | (oldChild, dep) <- M.toList (children tree)
+      , newChild <- discard p oldChild ]
+
+
 -- -- | Transform a rose tree to a dependency tree.
 -- -- Top-level arc dependency label is ignored.
 -- fromRose :: R.Tree (a, b) -> Tree a b
 -- fromRose = undefined
-
-
--- | Dependency label.
-data Dep
-  = Arg
-    -- ^ Argument dependency (related to substitution)
-  | Mod
-    -- ^ Modifier dependency (related to adjunction)
---   | Top
---     -- ^ Dummy dependency to be used with top-level (root) nodes
-  deriving (Show, Eq, Ord)
 
 
 ---------------------------------------------------
