@@ -6,7 +6,7 @@
 
 
 module NLP.Partage.AStar.DepTree
-( Tree
+( Tree (..)
 , Dep (..)
 , toRose
 , fromDeriv
@@ -55,14 +55,10 @@ toRose =
         | (child, arc) <- M.toList children ] }
 
 
--- -- | A token is a terminal enriched with information about the position
--- -- in the input sentence.
--- data Tok t = Tok
---   { position :: Int
---     -- ^ Position of the node in the dependency tree
---   , terminal :: t
---     -- ^ Terminal on the corresponding position
---   } deriving (Show, Eq, Ord)
+-- -- | Transform a rose tree to a dependency tree.
+-- -- Top-level arc dependency label is ignored.
+-- fromRose :: R.Tree (a, b) -> Tree a b
+-- fromRose = undefined
 
 
 -- | Dependency label.
