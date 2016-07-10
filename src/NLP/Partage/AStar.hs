@@ -161,7 +161,13 @@ data Tok t = Tok
     -- ^ Position of the node in the dependency tree
   , terminal :: t
     -- ^ Terminal on the corresponding position
-  } deriving (Show, Eq, Ord)
+  } deriving (Show)
+
+
+instance Eq (Tok t) where
+  (==) = (==) `on` position
+instance Ord (Tok t) where
+  compare = compare `on` position
 
 
 -- -- | Input of the parser.
