@@ -26,6 +26,7 @@ module TestSet
 
 import           Control.Applicative       ((<$>), (<*>))
 import           Control.Arrow             (first)
+import           Control.Monad             (forM_, void)
 -- import           Control.Monad.Morph       as Morph
 import           Control.Monad.Trans.Class (lift)
 
@@ -40,6 +41,7 @@ import           Test.Tasty.HUnit          (testCase)
 import qualified Pipes                     as P
 
 import           NLP.Partage.AStar         (Tok)
+import qualified NLP.Partage.AStar         as AStar
 import qualified NLP.Partage.AStar.Deriv   as Deriv
 import           NLP.Partage.DAG           (Weight)
 import           NLP.Partage.Tree          (AuxTree (..), Tree (..))
@@ -54,6 +56,7 @@ import qualified NLP.Partage.Tree.Other    as O
 type Tr    = Tree String String
 type AuxTr = AuxTree String String
 type Other = O.SomeTree String String
+type Hype  = AStar.Hype String String
 type Deriv = Deriv.Deriv String (Tok String)
 type ModifDerivs = Deriv.ModifDerivs String String
 -- type Rl    = Rule String String
@@ -383,9 +386,12 @@ data TagParser = TagParser
     -- derivations but it takes the form of a list so that derivations can be
     -- generated gradually; the property that the result is actually a set
     -- should be verified separately.
+  , encodes :: Maybe (Hype -> String -> [String] -> Deriv -> Bool)
+    -- ^ Function which checks whether the given derivation is encoded in
+    -- the given hypergraph
   , derivPipe :: Maybe
     ( [(Other, Weight)] -> String -> [String] ->
-      (P.Producer ModifDerivs IO ())
+      (P.Producer ModifDerivs IO Hype)
     )
     -- ^ A pipe (producer) which generates derivations on-the-fly
   }
@@ -393,7 +399,7 @@ data TagParser = TagParser
 
 -- | Dummy parser which doesn't provide anything.
 dummyParser :: TagParser
-dummyParser = TagParser Nothing Nothing Nothing Nothing
+dummyParser = TagParser Nothing Nothing Nothing Nothing Nothing
 
 
 -- | All the tests of the parsing algorithm.
@@ -422,6 +428,7 @@ testTree modName TagParser{..} =
         testDerivsIsSet gram test
         testFlyingDerivsIsSet gram test
         testDerivsEqual gram test
+        testEachDerivEncoded gram test
 
     -- Check if the recognition result is as expected
     testRecognition gram Test{..} = case recognize of
@@ -433,8 +440,7 @@ testTree modName TagParser{..} =
         (Just pa, Trees ts) -> pa gram startSym testSent @@?= ts
         _ -> return ()
 
-    -- Here we only check (for the moment) if the list of derivations
-    -- is actually a set
+    -- Here we only check if the list of derivations is actually a set
     testDerivsIsSet gram Test{..} = case derivTrees of
         Just derivs -> do
           ds <- derivs gram startSym testSent
@@ -446,7 +452,7 @@ testTree modName TagParser{..} =
         Just mkPipe -> do
           derivsRef <- newIORef []
           let pipe = mkPipe gram startSym testSent
-          P.runEffect . P.for pipe $ \(_modif, derivs) -> do
+          void $ P.runEffect . P.for pipe $ \(_modif, derivs) -> do
             lift $ modifyIORef' derivsRef (++ derivs)
           ds <- readIORef derivsRef
           length ds @?= length (nub ds)
@@ -458,12 +464,24 @@ testTree modName TagParser{..} =
       (Just derivs, Just mkPipe) -> do
         derivsRef <- newIORef []
         let pipe = mkPipe gram startSym testSent
-        P.runEffect . P.for pipe $ \(_modif, modifDerivs) -> do
+        void $ P.runEffect . P.for pipe $ \(_modif, modifDerivs) -> do
           lift $ modifyIORef' derivsRef (++ modifDerivs)
         ds1 <- readIORef derivsRef
         ds2 <- derivs gram startSym testSent
         S.fromList ds1 @?= S.fromList ds2
       _ -> return ()
+
+    -- Test if every output derivation is encoded in the final hypergraph
+    testEachDerivEncoded gram Test{..} = case (derivPipe, encodes) of
+        (Just mkPipe, Just enc) -> do
+          derivsRef <- newIORef []
+          let pipe = mkPipe gram startSym testSent
+          hype <- P.runEffect . P.for pipe $ \(_modif, derivs) -> do
+            lift $ modifyIORef' derivsRef (++ derivs)
+          ds <- readIORef derivsRef
+          forM_ ds $ \deriv ->
+            enc hype startSym testSent deriv @?= True
+        _ -> return ()
 
     simplify No         = False
     simplify Yes        = True
