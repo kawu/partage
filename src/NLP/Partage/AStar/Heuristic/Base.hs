@@ -18,7 +18,8 @@
 --   h(x) <= c(x, y) + h(y)
 --
 -- However, in this particular case, c(x, y) = 0 and h(y) < h(x), the latter
--- because of minw(t) > 0, which together imply h(x) > c(x, y) + h(y).  QED.
+-- because h(x) = h(y) + minw(t) and minw(t) > 0, which together imply h(x) >
+-- c(x, y) + h(y). QED.
 
 
 module NLP.Partage.AStar.Heuristic.Base
