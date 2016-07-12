@@ -703,7 +703,7 @@ type Earley n t = RWS.RWST
   (P.Producer (HypeModif n t) IO)
 
 
--- | Yielf `HypeModif` to the underlying pipe. The argument function will be
+-- | Yield `HypeModif` to the underlying pipe. The argument function will be
 -- supplied with the current hypergraph, for convenience.
 yieldModif
   :: (Hype n t -> HypeModif n t)
@@ -1129,7 +1129,7 @@ pushPassive :: (SOrd t, SOrd n)
             -> Trav n t      -- ^ Traversal leading to the new item
             -> Earley n t ()
 pushPassive p newWeight newTrav = do
-  -- TODO: do we to compute the esimated distance if the node is already
+  -- TODO: do we have to compute the esimated distance if the node is already
   -- processed (done)?
   estDist <- estimateDistP p
   let new = extWeight newWeight estDist newTrav
