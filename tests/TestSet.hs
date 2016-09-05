@@ -429,6 +429,7 @@ testTree modName TagParser{..} =
         testFlyingDerivsIsSet gram test
         testDerivsEqual gram test
         testEachDerivEncoded gram test
+        testWeightsAscend gram test
 
     -- Check if the recognition result is as expected
     testRecognition gram Test{..} = case recognize of
@@ -481,6 +482,20 @@ testTree modName TagParser{..} =
           ds <- readIORef derivsRef
           forM_ ds $ \deriv ->
             enc hype startSym testSent deriv @?= True
+        _ -> return ()
+
+    -- Check if the chart items are popped from the queue in the ascending
+    -- order of their weights; we assume here that weights are non-negative
+    testWeightsAscend gram Test{..} = case derivPipe of
+        Just mkPipe -> do
+          weightRef <- newIORef 0.0
+          let pipe = mkPipe gram startSym testSent
+          void $ P.runEffect . P.for pipe $ \(hypeModif, _derivs) -> lift $ do
+            let trav = AStar.modifTrav hypeModif
+                newWeight = AStar.priWeight trav + AStar.estWeight trav
+            curWeight <- readIORef weightRef
+            newWeight >= curWeight @?= True
+            writeIORef weightRef newWeight
         _ -> return ()
 
     simplify No         = False
