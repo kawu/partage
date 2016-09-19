@@ -173,11 +173,52 @@ mouse = Branch "NP"
     ]
 
 
+-- poPL :: AuxTr
+-- poPL = AuxTree (Branch "V"
+--     [ Branch "V" []
+--     , Branch "PP"
+--       [ Branch "P" [Leaf "po"]
+--       , Branch "NP" [] ]
+--     ]) [0]
+-- 
+-- 
+-- prostuPL :: Tr
+-- prostuPL = Branch "NP"
+--     [ Branch "N"
+--         [Leaf "prostu"]
+--     ]
+-- 
+-- 
+-- poProstuPL :: AuxTr
+-- poProstuPL = AuxTree (Branch "V"
+--     [ Branch "V" []
+--     , Branch "PP"
+--       [ Branch "P" [Leaf "po"]
+--       , Branch "NP" [Branch "N" [Leaf "prostu"]] ]
+--     ]) [0]
+
+
+dot :: AuxTr
+dot = AuxTree (Branch "S"
+    [ Branch "S" []
+    , Branch "I"
+      [ Leaf "." ]
+    ]) [0]
+
+dots :: AuxTr
+dots = AuxTree (Branch "S"
+    [ Branch "S" []
+    , Branch "I"
+      [ Leaf "."
+      , Leaf "." ]
+    ]) [0]
+
+
 -- | Compile the first grammar.
 mkGram1 :: [(Other, Weight)]
 mkGram1 = map (,1) $
-    map Left [tom, sleeps, caught, a, mouse] ++
-    map Right [almost, quickly, quickly', with]
+    map Left [tom, sleeps, caught, a, mouse] ++ --, prostuPL] ++
+    map Right [almost, quickly, quickly', with, dot, dots] --, poPL, poProstuPL ]
 
 
 ---------------------------------------------------------------------
@@ -227,7 +268,9 @@ gram1Tests =
     , Test "S" ["Tom", "caught", "Tom"] Yes
     , Test "S" ["Tom", "caught", "a", "Tom"] No
     , Test "S" ["Tom", "caught"] No
-    , Test "S" ["caught", "a", "mouse"] No ]
+    , Test "S" ["caught", "a", "mouse"] No
+    , Test "S" ["Tom", "caught", "Tom", ".", "."] Yes ]
+    -- , Test "S" ["Tom", "caught", "po", "prostu", "a", "mouse", ".", ".", "."] Yes ]
     -- , Test "S" ["Tom", "quickly", "quickly", "caught", "quickly", "quickly", "Tom"] Yes ]
 
 
@@ -429,7 +472,7 @@ testTree modName TagParser{..} =
         testFlyingDerivsIsSet gram test
         testDerivsEqual gram test
         testEachDerivEncoded gram test
-        testWeightsAscend gram test
+        -- testWeightsAscend gram test
 
     -- Check if the recognition result is as expected
     testRecognition gram Test{..} = case recognize of

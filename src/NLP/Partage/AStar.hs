@@ -68,8 +68,6 @@ module NLP.Partage.AStar
 -- ** Stats
 , hyperNodesNum
 , hyperEdgesNum
-, doneNodesNum
-, doneEdgesNum
 , waitingNodesNum
 , waitingEdgesNum
 -- -- ** Printing
@@ -86,6 +84,10 @@ module NLP.Partage.AStar
 , nonTerm
 , finalFrom
 , isRoot
+
+#ifdef DebugOn
+, printItem
+#endif
 ) where
 
 
@@ -93,7 +95,6 @@ import           Prelude hiding             (init, span, (.))
 import           Control.Applicative        ((<$>))
 import qualified Control.Arrow as Arr
 import           Control.Monad      (guard, void, (>=>), when)
--- import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Class  (lift)
 -- import           Control.Monad.Trans.Maybe  (MaybeT (..))
 import qualified Control.Monad.RWS.Strict   as RWS
@@ -132,430 +133,19 @@ import           NLP.Partage.AStar.Auto (Auto(..), mkAuto)
 -- import qualified NLP.Partage.AStar.Heuristic.Dummy as H
 import qualified NLP.Partage.AStar.Heuristic as H
 
+import           NLP.Partage.AStar.Base hiding (nonTerm)
+import qualified NLP.Partage.AStar.Base as Base
+import           NLP.Partage.AStar.Item hiding (printPassive)
+import qualified NLP.Partage.AStar.Item as Item
+import           NLP.Partage.AStar.ExtWeight
+import qualified NLP.Partage.AStar.Chart as Chart
+
+
 -- For debugging purposes
 #ifdef DebugOn
+import           Control.Monad.IO.Class     (liftIO)
 import qualified Data.Time              as Time
 #endif
-
-
---------------------------------------------------
--- Input
---------------------------------------------------
-
-
--- | Input of the parser.
-newtype Input t = Input {
-    -- inputSent :: V.Vector (S.Set t)
-      inputSent :: [Tok t]
-      -- ^ The input sentence
-      -- WARNING: some functions (notably, `Deriv.tokenize`) assume
-      -- that the input is a sequence, and not a word-lattice, for
-      -- example.
-    }
-
-
--- | A token is a terminal enriched with information about the position
--- in the input sentence.
-data Tok t = Tok
-  { position :: Int
-    -- ^ Position of the node in the dependency tree
-  , terminal :: t
-    -- ^ Terminal on the corresponding position
-  } deriving (Show)
-
-
-instance Eq (Tok t) where
-  (==) = (==) `on` position
-instance Ord (Tok t) where
-  compare = compare `on` position
-
-
--- -- | Input of the parser.
--- data Input t = Input {
---       inputSent :: V.Vector (S.Set t)
---     -- ^ The input sentence
---     , lexGramI  :: t -> S.Set t
---     -- ^ Lexicon grammar interface: each terminal @t@ in the
---     -- `inputSent` can potentially represent several different
---     -- terminals (anchors) at the level of the grammar.
---     -- If equivalent to `id`, no lexicon-grammar interface is used.
---     -- Otherwise, type @t@ represents both anchors and real terminals
---     -- (words from input sentences).
---     }
-
-
--- | Construct `Input` from a list of terminals.
-fromList :: [t] -> Input t
-fromList = Input . map (uncurry Tok) . zip [0..]
--- fromList = fromSets . map S.singleton
-
-
--- -- | Construct `Input` from a list of sets of terminals, each set
--- -- representing all possible interpretations of a given word.
--- fromSets :: [S.Set t] -> Input t
--- -- fromSets xs = Input (V.fromList xs) (\t -> S.singleton t)
--- fromSets xs = Input (V.fromList xs)
-
-
--- -- | Set the lexicon-grammar interface to
--- setLexGramI :: Input t ->
-
-
---------------------------------------------------
--- BASE TYPES
---------------------------------------------------
-
-
--- | A position in the input sentence.
-type Pos = Int
-
-
-data Span = Span {
-    -- | The starting position.
-      _beg   :: Pos
-    -- | The ending position (or rather the position of the dot).
-    , _end   :: Pos
-    -- | Coordinates of the gap (if applies)
-    , _gap   :: Maybe (Pos, Pos)
-    } deriving (Show, Eq, Ord)
-$( makeLenses [''Span] )
-
-
--- | Active chart item : state reference + span.
-data Active = Active {
-      _state :: ID
-    , _spanA :: Span
-    } deriving (Show, Eq, Ord)
-$( makeLenses [''Active] )
-
-
--- | Passive chart item : label + span.
-data Passive n t = Passive {
-      _dagID :: Either n DID
-    , _spanP :: Span
-    } deriving (Show, Eq, Ord)
-$( makeLenses [''Passive] )
-
-
--- | Does it represent regular rules?
-regular :: Span -> Bool
-regular = isNothing . getL gap
-
-
--- | Does it represent auxiliary rules?
-auxiliary :: Span -> Bool
-auxiliary = isJust . getL gap
-
-
--- | Does it represent a root?
-isRoot :: Either n DID -> Bool
-isRoot x = case x of
-    Left _  -> True
-    Right _ -> False
-
-
-#ifdef DebugOn
--- | Print an active item.
-printSpan :: Span -> IO ()
-printSpan span = do
-    putStr . show $ getL beg span
-    putStr ", "
-    case getL gap span of
-        Nothing -> return ()
-        Just (p, q) -> do
-            putStr $ show p
-            putStr ", "
-            putStr $ show q
-            putStr ", "
-    putStr . show $ getL end span
-
-
--- | Print an active item.
-printActive :: Active -> IO ()
-printActive p = do
-    putStr "("
-    putStr . show $ getL state p
-    putStr ", "
-    printSpan $ getL spanA p
-    putStrLn ")"
-
-
--- | Print a passive item.
-printPassive :: (Show n, Show t) => Passive n t -> Hype n t -> IO ()
-printPassive p hype = do
-    putStr "("
-    -- putStr . viewLab $ getL label p
-    putStr $ case getL dagID p of
-        Left rootNT -> show rootNT
-        Right did   ->
-          show (DAG.unDID did) ++ "[" ++
-          show (nonTerm (getL dagID p) hype) ++ "]"
-    putStr ", "
-    printSpan $ getL spanP p
-    putStrLn ")"
-#endif
-
-
---------------------------------------------------
--- Traversal
---------------------------------------------------
-
-
--- | Traversal represents an action of inducing a new item on the
--- basis of one or two other chart items.  It can be seen as an
--- application of one of the inference rules specifying the parsing
--- algorithm.
---
--- TODO: Sometimes there is no need to store all the arguments of the
--- inference rules, it seems.  From one of the arguments the other
--- one could be derived.
---
--- TODO: Weight component can be extracted outside the Trav datatype.
-data Trav n t
-    = Scan
-        { scanFrom :: Active
-        -- ^ The input active state
-        , _scanTerm :: Tok t
-        -- ^ The scanned terminal
-        , _weight   :: Weight
-        -- ^ The traversal weight
-        }
-    | Subst
-        { passArg  :: Passive n t
-        -- ^ The passive argument of the action
-        , actArg   :: Active
-        -- ^ The active argument of the action
-        , _weight   :: Weight
-        -- ^ The traversal weight
-        }
-    -- ^ Pseudo substitution
-    | Foot
-        { actArg   :: Active
-        -- ^ The active argument of the action
-        , theFoot  :: n
-        -- ^ The foot non-terminal
---         , _theFoot  :: Passive n t
---         -- ^ The passive argument of the action
-        , _weight   :: Weight
-        -- ^ The traversal weight
-        }
-    -- ^ Foot adjoin
-    | Adjoin
-        { passAdj  :: Passive n t
-        -- ^ The adjoined item
-        , passMod  :: Passive n t
-        -- ^ The modified item
-        }
-    -- ^ Adjoin terminate with two passive arguments
-    deriving (Show, Eq, Ord)
-
-
--- -- | Print a traversal.
--- printTrav :: (Show n, Show t) => Item n t -> Trav n t -> IO ()
--- printTrav q' (Scan p x) = do
---     putStr "# " >> printActive p
---     putStr "+ " >> print x
---     putStr "= " >> printItem q'
--- printTrav q' (Subst p q) = do
---     putStr "# " >> printActive q
---     putStr "+ " >> printPassive p
---     putStr "= " >> printItem q'
--- printTrav q' (Foot q p) = do
---     putStr "# " >> printActive q
---     putStr "+ " >> printPassive p
---     putStr "= " >> printItem q'
--- printTrav q' (Adjoin p s) = do
---     putStr "# " >> printPassive p
---     putStr "+ " >> printPassive s
---     putStr "= " >> printItem q'
-
-
--- -- | Retrieve the DAG node represented by the given top-level
--- -- passive item (represented by its non-terminal) and the
--- -- the corresponding incoming traversal.
--- --
--- -- This function is needed because passive items representing
--- -- full elementary trees (DAG roots) abstract over the actual
--- -- DAG node IDs and keep only information about the corresponding
--- -- non-terminals.
--- --
--- -- While the type of the result is a list(T), it should return
--- -- the single corresponding DID.
--- --
--- -- NOTE: it's a provisional, complicated function, and it might be
--- -- better to avoid it.  For instance, the structure of the underlying
--- -- chart could be modifed to keep information about DIDs of the
--- -- top-level passive items.  As it is defined now, it copies the
--- -- low-level behaviour of the individual inference functions.
--- didFrom :: (Ord n, Ord t) => n -> Trav n t -> P.ListT (Earley n t) DID
--- didFrom x (Scan q t _) = do
---   -- retrieve the underlying hype
---   h <- RWS.get
---   -- retrieve the automaton state
---   (_, i) <- followTerm (q ^. state) t
---   -- retrieve the corresponding heads
---   (_, d) <- heads i
---   -- filter those which provide the given non-terminal
---   guard $ nonTerm (Right d) h == x
---   return d
--- didFrom x (Subst p q _) = do
---   let pDID = p ^. dagID
---   -- retrieve the underlying hype
---   h <- RWS.get
---   -- the underlying leaf map
---   let leafMap = (leafDID . automat) h
---   -- now, we need to choose the DAG node to search for depending on
---   -- whether the DAG node provided by `p' is a root or not
---   theDID <- case pDID of
---       -- real substitution
---       Left rootNT -> some $ M.lookup rootNT leafMap
---       -- pseudo-substitution
---       Right did -> return did
---   -- retrieve the automaton state
---   (_, i) <- follow (q ^. state) theDID
---   -- retrieve the corresponding heads
---   (_, d) <- heads i
---   -- filter those which provide the given non-terminal...
---   guard $ nonTerm (Right d) h == x
---   -- ...and which are top-level
---   guard $ DAG.isRoot d (gramDAG . automat $ h)
---   return d
--- didFrom x (Foot q p _) = do
---   let pDID = p ^. dagID
---   -- retrieve the underlying hype
---   h <- RWS.get
---   -- the underlying leaf map
---   let footMap = (footDID  . automat) h
---   -- find all active items which expect a foot with the given
---   -- symbol and which end where `p` begins
---   let footNT = nonTerm pDID h
---   -- what is the corresponding foot DAG ID?
---   footID <- some $ M.lookup footNT footMap
---   -- retrieve the automaton state
---   (_, i) <- follow (q ^. state) footID
---   -- retrieve the corresponding heads
---   (_, d) <- heads i
---   -- filter those which provide the given non-terminal
---   guard $ nonTerm (Right d) h == x
---   return d
--- didFrom x (Adjoin qa qm) = do
---   -- we should not get here?
---   error "didFrom: adjoin; we should not get here?"
--- 
--- 
--- -- | A version of `didFrom` which works outside of the Earley monad.
--- --
--- -- NOTE: we need info about the input here because we are using
--- -- the Earley monad.  Unfortunate...
--- didFrom'
---   :: (Ord n, Ord t)
---   => Input t      -- ^ Input sentence
---   -> Hype n t     -- ^ Final state of the earley parser
---   -> n            -- ^ The start symbol
---   -> Trav n t
---   -> IO [DID]
--- didFrom' input h nonTerm trav = do
---   r <- P.runEffect $ RWS.evalRWST doit input h >-> P.drain
---   return $ fst r
---   where
---     doit = P.toListM . P.enumerate $ didFrom nonTerm trav
--- 
--- 
--- -- -- | A version of `didFrom` which works directly on
--- -- -- passive items.
--- -- didFrom' :: (Ord n, Ord t) => Passive n t -> Trav n t -> P.ListT (Earley n t) DID
--- -- didFrom' p t = case p ^. dagID of
--- --   Left n  -> didFrom n t
--- --   Right i -> return i
-
-
-
---------------------------------------------------
--- Weight (priority)
---------------------------------------------------
-
-
--- | Neutral element of the weight/priority.  Corresponds to the
--- logarithm of probability 1.
-zeroWeight :: Weight
-zeroWeight = 0
-
-
--- | Add two weights.
-addWeight :: Weight -> Weight -> Weight
-addWeight = (+)
-{-# INLINE addWeight #-}
-
-
--- | Sum weights.
-sumWeight :: [Weight] -> Weight
-sumWeight = sum
-{-# INLINE sumWeight #-}
-
-
--- | Minimum of two weights.
-minWeight :: Weight -> Weight -> Weight
-minWeight = min
-{-# INLINE minWeight #-}
-
-
---------------------------------------------------
--- Extended Weight
---
--- NOTE: it forms a semiring?
---------------------------------------------------
-
-
--- | Extended priority which preserves information about the
--- traversal leading to the underlying chart item.  The best weight
--- (priority) of reaching the underlying item is preserved as well.
--- Note that traversals themselves do not introduce any weights.
-data ExtWeight n t = ExtWeight
-    { priWeight :: Weight
-    -- ^ The actual priority.  In case of initial elements
-    -- corresponds to weights (probabilities?) assigned to
-    -- individual "elementary rules".
-    , estWeight :: Weight
-    -- ^ Estimated weight to the "end"
-    , prioTrav  :: S.Set (Trav n t)
-    -- ^ Traversal leading to the underlying chart item
-    } deriving (Show)
-
-instance (Eq n, Eq t) => Eq (ExtWeight n t) where
-    (==) = (==) `on` (addWeight <$> priWeight <*> estWeight)
-instance (Ord n, Ord t) => Ord (ExtWeight n t) where
-    compare = compare `on` (addWeight <$> priWeight <*> estWeight)
-
-
--- | Construct an initial `ExtWeight`.  With an empty set of input
--- traversals, it corresponds to a start node in the underlying
--- hyper-graph.
-extWeight0 :: Weight -> Weight -> ExtWeight n t
-extWeight0 p initEst = ExtWeight p initEst S.empty
-
-
--- | Construct an `ExtWeight` with one incoming traversal
--- (traversal=hyper-edge).
-extWeight :: Weight -> Weight -> Trav n t -> ExtWeight n t
-extWeight p est = ExtWeight p est . S.singleton
-
-
--- | Join two extended priorities:
--- * The actual priority (cost) preserved is the lower of the two; we
--- are simply keeping the lowest cost of reaching the underlying
--- chart item.
--- * The traversals are unioned.
-joinExtWeight
-    :: (Ord n, Ord t)
-    => ExtWeight n t
-    -> ExtWeight n t
-    -> ExtWeight n t
-joinExtWeight x y = if estWeight x /= estWeight y
-    then error "joinExtWeight: estimation costs differ!"
-    else ExtWeight
-        (minWeight (priWeight x) (priWeight y))
-        (estWeight x)
-        (S.union (prioTrav x) (prioTrav y))
 
 
 --------------------------------------------------
@@ -571,18 +161,16 @@ data Item n t
 
 
 #ifdef DebugOn
+-- | Print a passive item.
+printPassive :: (Show n, Show t) => Passive n t -> Hype n t -> IO ()
+printPassive p hype = Item.printPassive p (automat hype)
+
+
 -- | Print an active item.
 printItem :: (Show n, Show t) => Item n t -> Hype n t -> IO ()
 printItem (ItemP p) h = printPassive p h
 printItem (ItemA p) _ = printActive p
 #endif
-
-
--- -- | Priority of an active item.  Crucial for the algorithm --
--- -- states have to be removed from the queue in a specific order.
--- prio :: Item n t -> Prio
--- prio (ItemP p) = prioP p
--- prio (ItemA p) = prioA p
 
 
 --------------------------------------------------
@@ -595,50 +183,11 @@ data Hype n t = Hype
     { automat   :: Auto n t
     -- ^ The underlying automaton
 
-    -- , estiCost   :: H.Esti t
-
-    -- , doneActive  :: M.Map (ID, Pos) (S.Set (Active n t))
-    , doneActive  :: M.Map Pos (M.Map ID
-        -- (M.Map Active (S.Set (Trav n t))))
-        (M.Map Active (ExtWeight n t)))
-    -- ^ Processed active items partitioned w.r.t ending
-    -- positions and state IDs.
-
-    -- , donePassive :: M.Map (Pos, n, Pos)
-    --    (M.Map (Passive n t) (ExtWeight n t))
-    , donePassiveIni ::
-        M.Map Pos         -- beginning position
-        ( M.Map n         -- non-terminal
-          ( M.Map Pos     -- ending position
-            -- ( M.Map (Either n DID)   -- full non-terminal label
-              ( M.Map (Passive n t) (ExtWeight n t) )
-            -- )
-          )
-        )
-    -- ^ Processed initial passive items.
-
-    , donePassiveAuxNoTop ::
-        M.Map Pos         -- beginning position
-        ( M.Map n         -- non-terminal
-          ( M.Map Pos     -- ending position
-            ( M.Map (Passive n t) (ExtWeight n t) )
-          )
-        )
-    -- ^ Processed auxiliary top-level passive items.
-
-    , donePassiveAuxTop ::
-        M.Map Pos         -- gap starting position
-        ( M.Map n         -- non-terminal
-          ( M.Map Pos     -- gap ending position
-            ( M.Map (Passive n t) (ExtWeight n t) )
-          )
-        )
-    -- ^ Processed auxiliary passive items.
+    , chart :: Chart.Chart n t
+    -- ^ The underlying chart
 
     , waiting     :: Q.PSQ (Item n t) (ExtWeight n t)
-    -- ^ The set of states waiting on the queue to be processed.
-    -- Invariant: the intersection of `done' and `waiting' states
-    -- is empty.
+    -- ^ The underlying agenda
     }
 
 
@@ -651,10 +200,7 @@ mkHype
 mkHype auto = Hype
     { automat  = auto
     -- , estiCost = esti
-    , doneActive  = M.empty
-    , donePassiveIni = M.empty
-    , donePassiveAuxTop = M.empty
-    , donePassiveAuxNoTop = M.empty
+    , chart = Chart.empty
     , waiting = Q.empty }
 
 
@@ -711,15 +257,6 @@ yieldModif
 yieldModif mkModif = do
   hype <- RWS.get
   lift . P.yield . mkModif $ hype
-
-
--- -- | Earley parser monad.  Contains the input sentence (reader)
--- -- and the state of the computation `Hype'.
--- type EarleyCore n t = RWS.RWST (Input t) () (Hype n t) IO
---
---
--- -- | Earley pipe.
--- type Earley n t = P.Producer (HypeModif n t) (EarleyCore n t)
 
 
 -- | Read word from the given position of the input.
@@ -800,35 +337,12 @@ hasElems i = do
 --------------------------------------------------
 
 
--- | List all passive done items together with the corresponding
--- traversals.
-listPassive :: Hype n t -> [(Passive n t, ExtWeight n t)]
-listPassive hype =
-  list (donePassiveIni hype) ++
-  list (donePassiveAuxTop hype) ++
-  list (donePassiveAuxNoTop hype)
-  where list = M.elems >=> M.elems >=> M.elems >=> M.toList
-
-
--- | List all active done items together with the corresponding
--- traversals.
-listActive :: Hype n t -> [(Active, ExtWeight n t)]
-listActive = (M.elems >=> M.elems >=> M.toList) . doneActive
-
-
 -- | List all waiting items together with the corresponding
 -- traversals.
 listWaiting :: (Ord n, Ord t) => Hype n t -> [(Item n t, ExtWeight n t)]
 listWaiting =
   let toPair (p :-> w) = (p, w)
    in map toPair . Q.toList . waiting
-
-
--- | Number of passive (done) nodes in the parsing hypergraph.
-doneNodesNum :: Hype n t -> Int
-doneNodesNum e
-    = length (listPassive e)
-    + length (listActive e)
 
 
 -- | Number of waiting nodes in the parsing hypergraph.
@@ -838,14 +352,7 @@ waitingNodesNum = length . listWaiting
 
 -- | Number of nodes in the parsing hypergraph.
 hyperNodesNum :: (Ord n, Ord t) => Hype n t -> Int
-hyperNodesNum e = doneNodesNum e + waitingNodesNum e
-
-
--- | Number of edges outgoing from done nodes in the underlying hypergraph.
-doneEdgesNum :: Hype n t -> Int
-doneEdgesNum e
-    = sumTrav (listPassive e)
-    + sumTrav (listActive e)
+hyperNodesNum e = Chart.doneNodesNum (chart e) + waitingNodesNum e
 
 
 -- | Number of edges outgoing from waiting nodes in the underlying hypergraph.
@@ -855,7 +362,7 @@ waitingEdgesNum = sumTrav . listWaiting
 
 -- | Number of edges in the parsing hypergraph.
 hyperEdgesNum :: (Ord n, Ord t) => Hype n t -> Int
-hyperEdgesNum e = doneEdgesNum e + waitingEdgesNum e
+hyperEdgesNum e = Chart.doneEdgesNum (chart e) + waitingEdgesNum e
 
 
 -- | Sum up traversals.
@@ -865,73 +372,14 @@ sumTrav xs = sum
     | (_, ext) <- xs ]
 
 
--- -- | Number of edges in the parsing hypergraph.
--- hyperEdgesNum :: forall n t. Hype n t -> Int
--- hyperEdgesNum earSt
---     = sumOver listPassive
---     + sumOver listActive
---   where
---     sumOver :: (Hype n t -> [(a, S.Set (Trav n t))]) -> Int
---     sumOver listIt = sum
---         [ S.size travSet
---         | (_, travSet) <- listIt earSt ]
---
---
--- -- | Extract hypergraph (hyper)edges.
--- hyperEdges :: Hype n t -> [(Item n t, Trav n t)]
--- hyperEdges earSt =
---     passiveEdges ++ activeEdges
---   where
---     passiveEdges =
---         [ (ItemP p, trav)
---         | (p, travSet) <- listPassive earSt
---         , trav <- S.toList travSet ]
---     activeEdges =
---         [ (ItemA p, trav)
---         | (p, travSet) <- listActive earSt
---         , trav <- S.toList travSet ]
---
---
--- -- | Print the hypergraph edges.
--- printHype :: (Show n, Show t) => Hype n t -> IO ()
--- printHype earSt =
---     forM_ edges $ \(p, trav) ->
---         printTrav p trav
---   where
---     edges  = sortIt (hyperEdges earSt)
---     sortIt = sortBy (comparing $ prio.fst)
-
-
-
 --------------------
 -- Active items
 --------------------
 
 
--- | Return the corresponding set of traversals for an active item.
-activeTrav
-    :: (Ord n, Ord t)
-    => Active -> Hype n t
-    -> Maybe (ExtWeight n t)
-activeTrav p
-    = (   M.lookup (p ^. spanA ^. end)
-      >=> M.lookup (p ^. state)
-      >=> M.lookup p )
-    . doneActive
-
-
--- | Check if the active item is not already processed.
-_isProcessedA :: (Ord n, Ord t) => Active -> Hype n t -> Bool
-_isProcessedA p =
-    check . activeTrav p
-  where
-    check (Just _) = True
-    check _        = False
-
-
 -- | Check if the active item is not already processed.
 isProcessedA :: (Ord n, Ord t) => Active -> Earley n t Bool
-isProcessedA p = _isProcessedA p <$> RWS.get
+isProcessedA p = Chart.isProcessedA p . chart <$> RWS.get
 
 
 -- | Mark the active item as processed (`done').
@@ -941,16 +389,7 @@ saveActive
     -> ExtWeight n t
     -> Earley n t ()
 saveActive p ts =
-    RWS.modify' $ \s -> s {doneActive = newDone s}
-  where
-    newDone st =
-        M.insertWith
-            ( M.unionWith
-                ( M.unionWith joinExtWeight ) )
-            ( p ^. spanA ^. end )
-            ( M.singleton (p ^. state)
-                ( M.singleton p ts ) )
-            ( doneActive st )
+  RWS.modify' $ \h -> h {chart = Chart.saveActive p ts (chart h)}
 
 
 -- | Check if, for the given active item, the given transitions are already
@@ -960,11 +399,8 @@ hasActiveTrav
     => Active
     -> S.Set (Trav n t)
     -> Earley n t Bool
-hasActiveTrav p travSet = do
-  hype <- RWS.get
-  return $ case activeTrav p hype of
-    Just ExtWeight{..} -> travSet `S.isSubsetOf` prioTrav
-    Nothing -> False
+hasActiveTrav p travSet =
+  Chart.hasActiveTrav p travSet . chart <$> RWS.get
 
 
 --------------------
@@ -972,54 +408,11 @@ hasActiveTrav p travSet = do
 --------------------
 
 
--- | Return the corresponding set of traversals for a passive item.
-passiveTrav
-    :: (Ord n, Ord t)
-    => Passive n t -> Hype n t
-    -> Maybe (ExtWeight n t)
-passiveTrav p hype
-  | regular (p ^. spanP) = lookup4
-      (p ^. spanP ^. beg)
-      (nonTerm (p ^. dagID) hype)
-      (p ^. spanP ^. end)
-      -- (p ^. dagID)
-      p (donePassiveIni hype)
---     M.lookup (p ^. spanP ^. beg) (donePassiveIni hype) >>=
---     M.lookup (nonTerm (p ^. dagID) hype) >>=
---     M.lookup (p ^. spanP ^. end) >>=
---     M.lookup p
-  | isRoot (p ^. dagID) = lookup4
-      (fst . fromJust $ p ^. spanP ^. gap)
-      (nonTerm (p ^. dagID) hype)
-      (snd . fromJust $ p ^. spanP ^. gap)
-      p (donePassiveAuxTop hype)
---     M.lookup (fst . fromJust $ p ^. spanP ^. gap) (donePassiveAuxTop hype) >>=
---     M.lookup (nonTerm (p ^. dagID) hype) >>=
---     M.lookup (snd . fromJust $ p ^. spanP ^. gap) >>=
---     M.lookup p
-  | otherwise = lookup4
-      (p ^. spanP ^. beg)
-      (nonTerm (p ^. dagID) hype)
-      (p ^. spanP ^. end)
-      p (donePassiveAuxNoTop hype)
---     M.lookup (p ^. spanP ^. beg) (donePassiveAuxNoTop hype) >>=
---     M.lookup (nonTerm (p ^. dagID) hype) >>=
---     M.lookup (p ^. spanP ^. end) >>=
---     M.lookup p
-
-
--- | Check if the state is not already processed.
-_isProcessedP :: (Ord n, Ord t) => Passive n t -> Hype n t -> Bool
-_isProcessedP x =
-    check . passiveTrav x
-  where
-    check (Just _) = True
-    check _        = False
-
-
 -- | Check if the passive item is not already processed.
 isProcessedP :: (Ord n, Ord t) => Passive n t -> Earley n t Bool
-isProcessedP p = _isProcessedP p <$> RWS.get
+isProcessedP p = do
+  h <- RWS.get
+  return $ Chart.isProcessedP p (automat h) (chart h)
 
 
 -- | Mark the passive item as processed (`done').
@@ -1028,32 +421,10 @@ savePassive
     => Passive n t
     -> ExtWeight n t
     -> Earley n t ()
-savePassive p ts
-  | regular (p ^. spanP) =
-      let newDone hype =
-           insertWith4 joinExtWeight
-             (p ^. spanP ^. beg)
-             (nonTerm (p ^. dagID) hype)
-             (p ^. spanP ^. end)
-             -- (p ^. dagID)
-             p ts (donePassiveIni hype)
-      in RWS.state $ \s -> ((), s {donePassiveIni = newDone s})
-  | isRoot (p ^. dagID) =
-       let newDone hype =
-             insertWith4 joinExtWeight
-               (fst . fromJust $ p ^. spanP ^. gap)
-               (nonTerm (p ^. dagID) hype)
-               (snd . fromJust $ p ^. spanP ^. gap)
-               p ts (donePassiveAuxTop hype)
-       in RWS.state $ \s -> ((), s {donePassiveAuxTop = newDone s})
-  | otherwise =
-       let newDone hype =
-             insertWith4 joinExtWeight
-               (p ^. spanP ^. beg)
-               (nonTerm (p ^. dagID) hype)
-               (p ^. spanP ^. end)
-               p ts (donePassiveAuxNoTop hype)
-       in RWS.state $ \s -> ((), s {donePassiveAuxNoTop = newDone s})
+savePassive p ts = RWS.state $
+  \h ->
+    let newChart = Chart.savePassive p ts (automat h) (chart h)
+    in ((), h {chart = newChart})
 
 
 -- | Check if, for the given active item, the given transitions are already
@@ -1064,10 +435,8 @@ hasPassiveTrav
     -> S.Set (Trav n t)
     -> Earley n t Bool
 hasPassiveTrav p travSet = do
-  hype <- RWS.get
-  return $ case passiveTrav p hype of
-    Just ExtWeight{..} -> travSet `S.isSubsetOf` prioTrav
-    Nothing -> False
+  h <- RWS.get
+  return $ Chart.hasPassiveTrav p travSet (automat h) (chart h)
 
 
 --------------------
@@ -1099,7 +468,7 @@ pushActive p newWeight newTrav = do
       -- in the processed part of the hypergraph.  Normally it should not
       -- happen, but currently it can because we abstract over the exact
       -- form of the passive item matched against a foot.  For the foot
-      -- adjoin inference rule it matter, but not in the hypergraph.
+      -- adjoin inference rule it matters, but not in the hypergraph.
       b <- hasActiveTrav p (prioTrav new)
       when (not b) $ do
         saveActive p new
@@ -1142,7 +511,7 @@ pushPassive p newWeight newTrav = do
       -- the processed part of the hypergraph. Normally it should not happen,
       -- but currently it can because we abstract over the exact form of the
       -- passive item matched against a foot. For the foot adjoin inference rule
-      -- it matter, but not in the hypergraph.
+      -- it matters, but not in the hypergraph.
       b <- hasPassiveTrav p (prioTrav new)
       when (not b) $ do
         savePassive p new
@@ -1192,6 +561,15 @@ pushInduced q newWeight newTrav = do
         --         , estWeight = estDist }
         -- lift $ pushPassive p ext'
         lift $ pushPassive p (newWeight + headCost) newTrav
+#ifdef DebugOn
+        -- print logging information
+        hype <- RWS.get
+        liftIO $ do
+            putStr "[DE] " >> printActive q
+            putStr "  :  " >> printPassive p hype
+            putStr " #W  " >> print (newWeight + headCost)
+            -- putStr " #E  " >> print estDis
+#endif
 
 
 -- | Remove a state from the queue.
@@ -1284,30 +662,11 @@ bagOfTerms span = do
 --     each $ M.keys doneEndLab
 
 
--- | Return all active processed items which:
--- * expect a given label,
--- * end on the given position.
--- Return the weights of reaching them as well.
+-- | See `Chart.expectEnd`.
 expectEnd
     :: (HOrd n, HOrd t) => DID -> Pos
     -> P.ListT (Earley n t) (Active, Weight)
-expectEnd did i = do
-    Hype{..} <- lift RWS.get
-    -- determine items which end on the given position
-    doneEnd <- some $ M.lookup i doneActive
-    -- determine automaton states from which the given label
-    -- leaves as a body transition
-    stateSet <- some $ M.lookup did (withBody automat)
-    -- pick one of the states
-    stateID <- each . S.toList $
-         stateSet `S.intersection` M.keysSet doneEnd
-    -- determine items which refer to the chosen states
-    doneEndLab <- some $ M.lookup stateID doneEnd
-    -- return them all!
-    -- each $ M.keys doneEndLab
-    each $
-        [ (p, priWeight e)
-        | (p, e) <- M.toList doneEndLab ]
+expectEnd = Chart.expectEnd automat chart
 
 
 -- | Return all passive items with:
@@ -1316,152 +675,35 @@ expectEnd did i = do
 rootSpan
     :: Ord n => n -> (Pos, Pos)
     -> P.ListT (Earley n t) (Passive n t, Weight)
-rootSpan x (i, j) = do
-    Hype{..} <- lift RWS.get
-    P.Select $ do
-      P.each $ case M.lookup i donePassiveIni >>= M.lookup x >>= M.lookup j of
-        Nothing -> []
-        Just m -> map (Arr.second priWeight) (M.toList m)
-                   -- ((M.elems >=> M.toList) m)
-      P.each $ case M.lookup i donePassiveAuxNoTop >>= M.lookup x >>= M.lookup j of
-        Nothing -> []
-        Just m -> map (Arr.second priWeight) (M.toList m)
+rootSpan = Chart.rootSpan chart
 
 
--- | Return all processed items which:
--- * are fully matched (i.e. passive)
--- * provide a label with a given non-terminal,
--- * begin on the given position,
---
--- (Note the similarity to `provideBeg`)
---
--- TODO: The result is not top-level auxiliary.
--- See `tryAdjoinInit'` and `tryAdjoinInit`.
--- TODO: Remove the todo above.
+-- | See `Chart.provideBeg'`.
 provideBeg'
     :: (Ord n, Ord t) => n -> Pos
     -> P.ListT (Earley n t) (Passive n t, Weight)
-provideBeg' x i = do
-    Hype{..} <- lift RWS.get
-    P.Select $ do
-      P.each $ case M.lookup i donePassiveIni >>= M.lookup x of
-        Nothing -> []
-        Just m ->
-          map
-            (Arr.second priWeight)
-            ((M.elems >=> M.toList) m)
-            -- ((M.elems >=> M.elems >=> M.toList) m)
-      P.each $ case M.lookup i donePassiveAuxNoTop >>= M.lookup x of
-        Nothing -> []
-        Just m ->
-          map
-            (Arr.second priWeight)
-            ((M.elems >=> M.toList) m)
+provideBeg' = Chart.provideBeg' chart
 
 
--- | Return all initial passive items which:
--- * provide a given label,
--- * begin on the given position.
---
--- TODO: Should be better optimized.
+-- | See `Chart.provideBegIni`.
 provideBegIni
     :: (Ord n, Ord t) => Either n DID -> Pos
     -> P.ListT (Earley n t) (Passive n t, Weight)
-provideBegIni x i = do
-    hype@Hype{..} <- lift RWS.get
-    let n = nonTerm x hype
-    each $
-      maybeToList ((M.lookup i >=> M.lookup n) donePassiveIni) >>=
-      M.elems >>=
-      -- maybeToList . M.lookup x >>=
-        ( \m -> do
-            p <-
-              [ (q, priWeight e)
-              | (q, e) <- M.toList m
-              , q ^. dagID == x ]
-            return p )
+provideBegIni = Chart.provideBegIni automat chart
 
 
--- | Return all auxiliary passive items which:
--- * provide a given DAG label,
--- * begin on the given position.
---
--- TODO: Should be optimized.
+-- | See `Chart.provideBegAux`.
 provideBegAux
     :: (Ord n, Ord t) => DID -> Pos
     -> P.ListT (Earley n t) (Passive n t, Weight)
-provideBegAux x i = do
-    hype@Hype{..} <- lift RWS.get
-    let n = nonTerm (Right x) hype
-    each $ case M.lookup i donePassiveAuxNoTop >>= M.lookup n of
-      Nothing -> []
-      Just m ->
-        [ (q, priWeight e)
-        | (q, e) <- (M.elems >=> M.toList) m
-        , q ^. dagID == Right x ]
+provideBegAux = Chart.provideBegAux automat chart
 
 
--- -- | Return all processed passive items which:
--- -- * provide a given label,
--- -- * begin on the given position.
--- provideBeg
---     :: (Ord n, Ord t) => Either n DID -> Pos
---     -> P.ListT (Earley n t) (Passive n t, Weight)
--- provideBeg x i = do
---     hype@Hype{..} <- lift RWS.get
---     P.Select $ do
---       let n = nonTerm x hype
---       P.each $ case M.lookup i donePassiveIni >>= M.lookup n of
---         Nothing -> []
---         Just m ->
--- --           map
--- --             (Arr.second priWeight)
--- --             ((M.elems >=> M.toList) m)
---           [ (q, priWeight e)
---           | (q, e) <- (M.elems >=> M.toList) m
---           -- , q ^. spanP ^. beg == i
---           , q ^. dagID == x ]
--- --     hype <- lift RWS.get
--- --     each
--- --         [ (q, priWeight e) | (q, e) <- listPassive hype
--- --         , q ^. spanP ^. beg == i
--- --         , q ^. dagID == x ]
---       P.each $ case M.lookup i donePassiveAuxNoTop >>= M.lookup n of
---         Nothing -> []
---         Just m ->
---           [ (q, priWeight e)
---           | (q, e) <- (M.elems >=> M.toList) m
---           -- , q ^. spanP ^. beg == i
---           , q ^. dagID == x ]
-
-
--- | Return all fully parsed items:
--- * top-level and representing auxiliary trees,
--- * modifying the given source non-terminal,
--- * with the given gap.
+-- | See `Chart.auxModifyGap`.
 auxModifyGap
     :: Ord n => n -> (Pos, Pos)
     -> P.ListT (Earley n t) (Passive n t, Weight)
-auxModifyGap x (i, j) = do
-    Hype{..} <- lift RWS.get
-    each $ case (M.lookup i >=> M.lookup x >=> M.lookup j) donePassiveAuxTop of
-        Nothing -> []
-        Just m -> -- map (Arr.second priWeight) (M.toList m)
-          [ (p, priWeight e)
-          | (p, e) <- M.toList m ]
---     hype <- lift RWS.get
---     each
---         [ (q, priWeight e) | (q, e) <- listPassive hype
---         , q ^. spanP ^. gap == Just gapSpan
---         , q ^. dagID == Left x ]
-
-
--- -- | List all processed passive items.
--- listPassive :: Hype n t -> [(Passive n t, ExtWeight n t)]
--- listPassive Hype{..}
---   =  (M.elems >=> M.elems >=> M.elems >=> M.toList) donePassiveIni
---   ++ (M.elems >=> M.elems >=> M.elems >=> M.toList) donePassiveAuxNoTop
---   ++ (M.elems >=> M.elems >=> M.elems >=> M.toList) donePassiveAuxTop
+auxModifyGap = Chart.auxModifyGap chart
 
 
 --------------------------------------------------
@@ -1673,7 +915,6 @@ tryAdjoinInit p _cost = void $ P.runListT $ do
 --     lift $ pushInduced q' $ Foot q p -- -- $ nonTerm foot
 #ifdef DebugOn
     -- print logging information
-    hype <- RWS.get
     liftIO $ do
         endTime <- Time.getCurrentTime
         putStr "[A]  " >> printPassive p hype
@@ -1732,7 +973,6 @@ tryAdjoinInit' q cost = void $ P.runListT $ do
              (Foot q (nonTerm (p ^. dagID) hype) tranCost)
 #ifdef DebugOn
     -- print logging information
-    hype <- RWS.get
     liftIO $ do
         endTime <- Time.getCurrentTime
         putStr "[A'] " >> printActive q
@@ -2041,309 +1281,6 @@ parsedTrees hype start n
     $ finalFrom start n hype
 
 
--- ---------------------------
--- -- Extracting Derivation Trees
--- --
--- -- Experimental version
--- ---------------------------
--- 
--- 
--- -- | Derivation tree is similar to `O.Tree` but additionally includes
--- -- potential modifications aside the individual nodes.  Modifications
--- -- themselves take the form of derivation trees.  Whether the modification
--- -- represents a substitution or an adjunction can be concluded on the basis of
--- -- the type (leaf or internal) of the node.
--- type Deriv n t = R.Tree (DerivNode n t)
--- 
--- 
--- -- | A node of a derivation tree.
--- data DerivNode n t = DerivNode
---   { node  :: O.Node n t
---   , modif :: [Deriv n t] }
--- 
--- 
--- -- | Extract derivation trees obtained on the given input sentence. Should be
--- -- run on the final result of the earley parser.
--- derivTrees
---     :: (Ord n, Ord t)
---     => Hype n t     -- ^ Final state of the earley parser
---     -> n            -- ^ The start symbol
---     -> Int          -- ^ Length of the input sentence
---     -> [Deriv n t]
--- derivTrees hype start n
---     = concatMap (`derivFromPassive` hype)
---     $ finalFrom start n hype
--- 
--- 
--- -- | Extract the set of the parsed trees w.r.t. to the given passive item.
--- derivFromPassive :: forall n t. (Ord n, Ord t) => Passive n t -> Hype n t -> [Deriv n t]
--- derivFromPassive passive hype = concat
--- 
---   [ fromPassiveTrav passive trav
---   | ext <- maybeToList $ passiveTrav passive hype
---   , trav <- S.toList (prioTrav ext) ]
--- 
---   where
--- 
---     passiveDerivs = flip derivFromPassive hype
--- 
---     fromPassiveTrav p (Scan q t _) =
---         [ mkTree p (termNode t) ts
---         | ts <- activeDerivs q ]
---     fromPassiveTrav p (Foot q _p' _) =
---         [ mkTree p (footNode p) ts
---         | ts <- activeDerivs q ]
---     fromPassiveTrav p (Subst qp qa _) =
---         [ mkTree p (substNode t) ts
---         | ts <- activeDerivs qa
---         , t  <- passiveDerivs qp ]
---     fromPassiveTrav _p (Adjoin qa qm) =
---         [ adjoinTree ini aux
---         | aux <- passiveDerivs qa
---         , ini <- passiveDerivs qm ]
--- 
---     -- Construct a derivation tree on the basis of the underlying passive
---     -- item, current child derivation and previous children derivations.
---     mkTree p t ts = R.Node
---       { R.rootLabel = mkRoot p
---       , R.subForest = reverse $ t : ts }
--- 
---     -- Extract the set of the parsed trees w.r.t. to the given active item.
---     activeDerivs active = case activeTrav active hype of
---       Nothing  -> error "activeDerivs: unknown active item"
---       Just ext -> if S.null (prioTrav ext)
---         then [[]]
---         else concatMap
---              (fromActiveTrav active)
---              (S.toList (prioTrav ext))
--- 
---     fromActiveTrav _p (Scan q t _) =
---         [ termNode t : ts
---         | ts <- activeDerivs q ]
---     fromActiveTrav _p (Foot q p _) =
---         [ footNode p : ts
---         | ts <- activeDerivs q ]
---     fromActiveTrav _p (Subst qp qa _) =
---         [ substNode t : ts
---         | ts <- activeDerivs qa
---         , t  <- passiveDerivs qp ]
---     fromActiveTrav _p (Adjoin _ _) =
---         error "activeDerivs.fromActiveTrav: called on a passive item"
--- 
---     -- Construct substitution node stemming from the given derivation.
---     substNode t = flip R.Node [] $ DerivNode
---       { node = O.NonTerm (derivRoot t)
---       , modif   = [t] }
--- 
---     -- Add the auxiliary derivation to the list of modifications of the
---     -- initial derivation.
---     adjoinTree ini aux = R.Node
---       { R.rootLabel = let root = R.rootLabel ini in DerivNode
---         { node = node root
---         , modif = aux : modif root }
---       , R.subForest = R.subForest ini }
--- 
---     -- Construct a derivation node with no modifier.
---     only x = DerivNode {node = x, modif =  []}
--- 
---     -- Several constructors which allow to build non-modified nodes.
---     mkRoot p = only . O.NonTerm $ nonTerm (getL dagID p) hype
---     mkFoot p = only . O.Foot $ nonTerm (getL dagID p) hype
---     mkTerm = only . O.Term
--- 
---     -- Build non-modified nodes of different types.
---     footNode p = R.Node (mkFoot p) []
---     termNode x = R.Node (mkTerm x) []
--- 
---     -- Retrieve root non-terminal of a derivation tree.
---     derivRoot :: Deriv n t -> n
---     derivRoot R.Node{..} = case node rootLabel of
---       O.NonTerm x -> x
---       O.Foot _ -> error "passiveDerivs.getRoot: got foot"
---       O.Term _ -> error "passiveDerivs.getRoot: got terminal"
-
-
--- ---------------------------
--- -- Extracting Derivation Trees
--- ---------------------------
---
---
--- -- | Derivation tree.
--- data Deriv = Deriv
---   { root :: DID
---   -- ^ Root of the derivation tree
---   , subtrees :: S.Set Deriv
---   -- ^ Subtrees of the root node; eventually should also
---   -- contain Gorn addresses telling where the children
---   -- derivation trees are attached.
---   } deriving (Show, Eq, Ord)
--- 
--- 
--- -- -- | Derivation tree.
--- -- data Deriv = Deriv
--- --   { root :: DID
--- --   -- ^ Root of the derivation tree
--- --   , subtrees :: M.Map GornAddr Deriv
--- --   -- ^ Subtrees of the root node
--- --   } deriving (Show, Eq, Ord)
--- -- 
--- -- 
--- -- -- | Empty list represents the current node. The first element of a non-empty
--- -- -- list represents the position of the child, while the taile of the list
--- -- -- represents the Gorn address w.r.t. this child.
--- -- type GornAddr = [Int]
--- 
--- 
--- -- | Construct a rose tree from a derivation tree.
--- deriv2tree :: Deriv -> R.Tree DID
--- deriv2tree Deriv{..} = R.Node root (map deriv2tree $ S.toList subtrees)
--- 
--- 
--- -- | Expand a derivation tree by attaching, to each node and as the first child,
--- -- the corresponding grammar tree.
--- expandDeriv :: DAG (O.Node n t) w -> R.Tree DID -> R.Tree (Either DID (O.Node n t))
--- expandDeriv dag R.Node{..} = R.Node (Left rootLabel) $
---   toTree rootLabel :
---   map (expandDeriv dag) subForest
---   where
---     toTree x = case DAG.toTree x dag of
---       Nothing -> error "expandDeriv: incorrect DID"
---       Just t  -> fmap Right t
--- 
--- 
--- -- | Extract the set of the parsed trees w.r.t. to the given active item.
--- -- fromActive' :: (Ord n, Ord t) => Active -> Hype n t -> [[Deriv n t]]
--- -- fromActive' :: (Ord n, Ord t) => Active -> Hype n t -> P.ListT (Earley n t) [Deriv n t]
--- fromActive' :: (Ord n, Ord t) => Active -> Hype n t -> P.ListT (Earley n t) [Deriv]
--- fromActive' p hype =
---   case activeTrav p hype of
---     Nothing  -> error "fromActive: unknown active item"
---     Just ext ->
---       if S.null (prioTrav ext)
---       then return []
---       else do
---         trav <- each $ S.toList (prioTrav ext)
---         fromActiveTrav p trav
---   where
---     fromActiveTrav _p (Scan q _t _)  = fromActive' q hype
---     fromActiveTrav _p (Foot q _p' _) = fromActive' q hype
---     fromActiveTrav _p (Subst qp qa _) = do
---       ts <- fromActive'  qa hype
---       tt <- fromPassive' qp hype
---       return $ case tt of
---         Left t  -> t :  ts
---         Right s -> s ++ ts
---     fromActiveTrav _p (Adjoin _ _) =
---         error "fromActive': fromActiveTrav called on an effectively passive item"
--- 
--- 
--- -- | Extract derived trees w.r.t. to the given passive item.
--- --
--- -- For top-level passive items (i.e. items which represent fully parsed
--- -- elementary trees), `fromPassive'` should return a derivation tree.
--- --
--- -- (1) For partial passive items, on the other hand, the result should be a list
--- -- of derivation trees attached somewhere to the subtree represented by the
--- -- passive item.
--- --
--- -- (2) For partial passive items, on the other hand, the result should be a map
--- -- which represents attachement positions of the derivations trees attached
--- -- somewhere to the subtree represented by the passive item.
--- --
--- -- Let us consider the `Scan` traversal. In this case, when we get a list of
--- -- `Deriv`s for the underlying (preceding) active item, ... TODO
--- fromPassive'
---   :: (Ord n, Ord t)
---   => Passive n t
---   -> Hype n t
---   -> P.ListT (Earley n t)
---        (Either Deriv [Deriv])
---        -- (Either (R.Tree DID) [R.Tree DID])
--- fromPassive' p hype = do
---   ext  <- some $ passiveTrav p hype
---   trav <- each $ S.toList (prioTrav ext)
---   fromPassiveTrav p trav
---   where
---     fromPassiveTrav p trav@(Scan q t _) = do
---       ts <- fromActive' q hype
---       case p ^. dagID of
---         Right _ -> return $ Right ts
---         Left x -> do
---           di <- didFrom x trav
---           -- return . Left $ R.Node di ts
---           return . Left $ Deriv di (S.fromList ts)
---     fromPassiveTrav p trav@(Foot q _p' _) = do
---       ts <- fromActive' q hype
---       case p ^. dagID of
---         Right _ -> return $ Right ts
---         Left x -> do
---           di <- didFrom x trav
---           return . Left $ Deriv di (S.fromList ts)
---     fromPassiveTrav p trav@(Subst qp qa _) = do
---       ts <- fromActive' qa hype
---       tt <- fromPassive' qp hype
---       sts <- return $ case tt of
---         Right s -> s ++ ts
---         Left t  -> t :  ts
---       case p ^. dagID of
---         Right _  -> return $ Right sts
---         Left x -> do
---           di <- didFrom x trav
---           return . Left $ Deriv di (S.fromList sts)
---     fromPassiveTrav _p (Adjoin qa qm) = do
---       aux <- fromPassive' qa hype
---       ini <- fromPassive' qm hype
---       return $ case (ini, aux) of
---         -- (Left it , Left at) -> Left  $ it {R.subForest = at : R.subForest it}
---         (Left it , Left at) -> Left  $ it {subtrees = S.insert at (subtrees it)}
---         (Right is, Left at) -> Right $ at : is
---         (_, Right _) -> error "fromPassive': adjunction of a partial ET"
--- 
--- 
--- -- | Extract the set of derivation trees w.r.t. to the given passive item.
--- -- See `fromPassive'` for details.
--- derivFromPassive
---   :: (Ord n, Ord t)
---   => Passive n t
---   -> Hype n t     -- ^ Current state of the earley parser
---   -> Input t      -- ^ Input sentence
---   -> IO (S.Set (Either Deriv [Deriv]))
--- derivFromPassive p h input = do
---   r <- P.runEffect $ RWS.evalRWST doit input h >-> P.drain
---   return $ S.fromList (fst r)
---   where
---   doit = P.toListM . P.enumerate $ do
---     t <- fromPassive' p h
---     return t
--- 
--- 
--- -- | Extract the set of parsed trees obtained on the given input
--- -- sentence.  Should be run on the result of the earley parser.
--- --
--- -- NOTE: we need info about the input here because we are using
--- -- the Earley monad.  Otherwise, it would be better to unify
--- -- the interface with the `parsedTrees` function.
--- derivTrees
---     :: (Ord n, Ord t)
---     => Hype n t     -- ^ Final state of the earley parser
---     -> n            -- ^ The start symbol
---     -> Input t      -- ^ Input sentence
---     -> IO (S.Set Deriv)
---     -- -> IO [R.Tree DID]
--- derivTrees h start input = do
---   r <- P.runEffect $ RWS.evalRWST doit input h >-> P.drain
---   return $ S.fromList (fst r)
---   -- return (fst r)
---   where
---   doit = P.toListM . P.enumerate $ do
---     let n = length (inputSent input)
---     p <- each $ finalFrom start n h
---     t <- fromPassive' p h
---     return $ case t of
---       Left t  -> t
---       Right _ -> error "derivTrees: final tree not a full ET"
-
-
 --------------------------------------------------
 -- EARLEY
 --------------------------------------------------
@@ -2539,6 +1476,13 @@ earleyAutoGen =
     loop = popItem >>= \mp -> case mp of
         Nothing -> RWS.get
         Just p  -> do
+#ifdef DebugOn
+          let item :-> e = p
+          hype <- RWS.get
+          liftIO $ do
+            putStr "POP: " >> printItem item hype
+            putStr " :>  " >> print (priWeight e, estWeight e)
+#endif
           step p >> loop
 
 
@@ -2589,6 +1533,24 @@ step (ItemA p :-> e) = do
 --------------------------------------------------
 
 
+-- | Return the corresponding set of traversals for an active item.
+activeTrav
+  :: (Ord n, Ord t)
+  => Active
+  -> Hype n t
+  -> Maybe (ExtWeight n t)
+activeTrav p h = Chart.activeTrav p (chart h)
+
+
+-- | Return the corresponding set of traversals for a passive item.
+passiveTrav
+  :: (Ord n, Ord t)
+  => Passive n t
+  -> Hype n t
+  -> Maybe (ExtWeight n t)
+passiveTrav p h = Chart.passiveTrav p (automat h) (chart h)
+
+
 -- | Return the list of final, initial, passive chart items.
 finalFrom
     :: (Ord n, Eq t)
@@ -2596,13 +1558,7 @@ finalFrom
     -> Int          -- ^ The length of the input sentence
     -> Hype n t     -- ^ Result of the earley computation
     -> [Passive n t]
-finalFrom start n Hype{..} =
-    case M.lookup 0 donePassiveIni >>= M.lookup start >>= M.lookup n of
-        Nothing -> []
-        Just m ->
-            [ p
-            | p <- M.keys m
-            , p ^. dagID == Left start ]
+finalFrom start n hype = Chart.finalFrom start n (chart hype)
 
 
 -- -- -- | Return the list of final passive chart items.
@@ -2687,110 +1643,4 @@ over i j = take (j - i) . drop i
 
 -- | Take the non-terminal of the underlying DAG node.
 nonTerm :: Either n DID -> Hype n t -> n
-nonTerm i =
-    check . nonTerm' i . gramDAG . automat
-  where
-    check Nothing  = error "nonTerm: not a non-terminal ID"
-    check (Just x) = x
-
-
--- | Take the non-terminal of the underlying DAG node.
-nonTerm' :: Either n DID -> DAG (O.Node n t) w -> Maybe n
-nonTerm' i dag = case i of
-    Left rootNT -> Just rootNT
-    Right did   -> labNonTerm =<< DAG.label did dag
-    -- Right did   -> labNonTerm . DAG.label did -- . gramDAG . automat
-
-
--- | Take the non-terminal of the underlying DAG node.
-labNonTerm :: O.Node n t -> Maybe n
-labNonTerm (O.NonTerm y) = Just y
-labNonTerm (O.Foot y) = Just y
-labNonTerm _ = Nothing
-
-
---------------------------------------------------
--- 4-key map operations
---------------------------------------------------
-
-
--- | Lookup a 4-element key in the map.
-lookup4
-  :: (Ord a, Ord b, Ord c, Ord d)
-  => a -> b -> c -> d
-  -> M.Map a (M.Map b (M.Map c (M.Map d e)))
-  -> Maybe e
-lookup4 x y z p =
-  M.lookup x >=>
-  M.lookup y >=>
-  M.lookup z >=>
-  M.lookup p
-
-
--- | Insert a 4-element key and the corresponding value in the map.
--- Use the combining function if value already present in the map.
-insertWith4
-  :: (Ord a, Ord b, Ord c, Ord d)
-  => (e -> e -> e)
-  -> a -> b -> c -> d -> e
-  -> M.Map a (M.Map b (M.Map c (M.Map d e)))
-  -> M.Map a (M.Map b (M.Map c (M.Map d e)))
-insertWith4 f x y z p q =
-  M.insertWith
-    ( M.unionWith
-      ( M.unionWith
-        ( M.unionWith f )
-      )
-    )
-    x
-    ( M.singleton
-      y
-      ( M.singleton
-        z
-        ( M.singleton p q )
-      )
-    )
-
-
--- -- | Lookup a 5-element key in the map.
--- lookup5
---   :: (Ord a, Ord b, Ord c, Ord d, Ord e)
---   => a -> b -> c -> d -> e
---   -> M.Map a (M.Map b (M.Map c (M.Map d (M.Map e f))))
---   -> Maybe f
--- lookup5 x y z w p =
---   M.lookup x >=>
---   M.lookup y >=>
---   M.lookup z >=>
---   M.lookup w >=>
---   M.lookup p
-
-
--- -- | Insert a 5-element key and the corresponding value in the map.
--- -- Use the combining function if value already present in the map.
--- insertWith5
---   :: (Ord a, Ord b, Ord c, Ord d, Ord e)
---   => (f -> f -> f)
---   -> a -> b -> c -> d -> e -> f
---   -> M.Map a (M.Map b (M.Map c (M.Map d (M.Map e f))))
---   -> M.Map a (M.Map b (M.Map c (M.Map d (M.Map e f))))
--- insertWith5 f x y z w p q =
---   M.insertWith
---     ( M.unionWith
---       ( M.unionWith
---         ( M.unionWith
---           ( M.unionWith f )
---         )
---       )
---     )
---     x
---     ( M.singleton
---       y
---       ( M.singleton
---         z
---         ( M.singleton
---           w
---           ( M.singleton p q )
---         )
---       )
---     )
+nonTerm i = Base.nonTerm i . automat

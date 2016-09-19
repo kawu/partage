@@ -77,6 +77,11 @@ library
       , NLP.Partage.AStar.Heuristic.Dummy
       , NLP.Partage.AStar.Heuristic.Base
 
+      , NLP.Partage.AStar.Base
+      , NLP.Partage.AStar.Item
+      , NLP.Partage.AStar.ExtWeight
+      , NLP.Partage.AStar.Chart
+
     ghc-options: -Wall
     -- cpp-options: -DDebugOn
 
