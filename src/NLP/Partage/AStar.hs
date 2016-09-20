@@ -49,7 +49,8 @@ module NLP.Partage.AStar
 , beg
 , end
 , gap
-, ExtWeight (priWeight, estWeight)
+, ExtWeight (priWeight, gapWeight, estWeight)
+, totalWeight
 , HypeModif (..)
 , ModifType (..)
 -- ** Extracting parsed trees
@@ -68,6 +69,8 @@ module NLP.Partage.AStar
 -- ** Stats
 , hyperNodesNum
 , hyperEdgesNum
+, doneNodesNum
+, doneEdgesNum
 , waitingNodesNum
 , waitingEdgesNum
 -- -- ** Printing
@@ -85,9 +88,9 @@ module NLP.Partage.AStar
 , finalFrom
 , isRoot
 
-#ifdef DebugOn
+-- #ifdef DebugOn
 , printItem
-#endif
+-- #endif
 ) where
 
 
@@ -160,7 +163,7 @@ data Item n t
     deriving (Show, Eq, Ord)
 
 
-#ifdef DebugOn
+-- #ifdef DebugOn
 -- | Print a passive item.
 printPassive :: (Show n, Show t) => Passive n t -> Hype n t -> IO ()
 printPassive p hype = Item.printPassive p (automat hype)
@@ -170,7 +173,7 @@ printPassive p hype = Item.printPassive p (automat hype)
 printItem :: (Show n, Show t) => Item n t -> Hype n t -> IO ()
 printItem (ItemP p) h = printPassive p h
 printItem (ItemA p) _ = printActive p
-#endif
+-- #endif
 
 
 --------------------------------------------------
@@ -220,7 +223,13 @@ data HypeModif n t = HypeModif
     -- just the target (if `modifType = NewArcs`) of the newly added
     -- hyperarcs.
   , modifTrav :: ExtWeight n t
-    -- ^ New arcs (if any) being added to the passive part of the hypergraph
+    -- ^ New arcs (if any) being added to the passive part of the hypergraph;
+    -- IMPORTANT: this (extended) weight is guaranteed to be optimal only in
+    -- case of the `NewNode` modifications. In case of the `NewArcs`
+    -- modifications, `modifTrav` corresponds to the new traversal and thus
+    -- the resulting `priWeight` value might be higher than beta (weight
+    -- of the optimal inside derivation) which, by the way, is already
+    -- computed and stored in the hypergraph.
   }
 
 
@@ -345,6 +354,11 @@ listWaiting =
    in map toPair . Q.toList . waiting
 
 
+-- | Number of nodes in the parsing hypergraph.
+doneNodesNum :: (Ord n, Ord t) => Hype n t -> Int
+doneNodesNum e = Chart.doneNodesNum (chart e)
+
+
 -- | Number of waiting nodes in the parsing hypergraph.
 waitingNodesNum :: (Ord n, Ord t) => Hype n t -> Int
 waitingNodesNum = length . listWaiting
@@ -352,7 +366,12 @@ waitingNodesNum = length . listWaiting
 
 -- | Number of nodes in the parsing hypergraph.
 hyperNodesNum :: (Ord n, Ord t) => Hype n t -> Int
-hyperNodesNum e = Chart.doneNodesNum (chart e) + waitingNodesNum e
+hyperNodesNum e = doneNodesNum e + waitingNodesNum e
+
+
+-- | Number of nodes in the parsing hypergraph.
+doneEdgesNum :: (Ord n, Ord t) => Hype n t -> Int
+doneEdgesNum e = Chart.doneEdgesNum (chart e)
 
 
 -- | Number of edges outgoing from waiting nodes in the underlying hypergraph.
@@ -362,7 +381,7 @@ waitingEdgesNum = sumTrav . listWaiting
 
 -- | Number of edges in the parsing hypergraph.
 hyperEdgesNum :: (Ord n, Ord t) => Hype n t -> Int
-hyperEdgesNum e = Chart.doneEdgesNum (chart e) + waitingEdgesNum e
+hyperEdgesNum e = doneEdgesNum e + waitingEdgesNum e
 
 
 -- | Sum up traversals.
@@ -449,7 +468,7 @@ hasPassiveTrav p travSet = do
 pushActive :: (SOrd t, SOrd n)
            => Active
            -- -> ExtWeight n t
-           -> Weight           -- ^ Weight of reaching the new item
+           -> DuoWeight        -- ^ Weight of reaching the new item
            -> Maybe (Trav n t) -- ^ Traversal leading to the new item (if any)
            -> Earley n t ()
 pushActive p newWeight newTrav = do
@@ -493,8 +512,7 @@ pushActive p newWeight newTrav = do
 -- is not already in the set of processed (`done') states.
 pushPassive :: (SOrd t, SOrd n)
             => Passive n t
-            -- -> ExtWeight n t
-            -> Weight        -- ^ Weight of reaching the new item
+            -> DuoWeight     -- ^ Weight of reaching the new item
             -> Trav n t      -- ^ Traversal leading to the new item
             -> Earley n t ()
 pushPassive p newWeight newTrav = do
@@ -538,7 +556,7 @@ pushPassive p newWeight newTrav = do
 pushInduced
   :: (SOrd t, SOrd n)
   => Active
-  -> Weight        -- ^ Weight of reaching the new item
+  -> DuoWeight     -- ^ Weight of reaching the new item
   -> Trav n t      -- ^ Traversal leading to the new item
   -> Earley n t ()
 pushInduced q newWeight newTrav = do
@@ -560,14 +578,17 @@ pushInduced q newWeight newTrav = do
         --         { priWeight = priWeight new + headCost
         --         , estWeight = estDist }
         -- lift $ pushPassive p ext'
-        lift $ pushPassive p (newWeight + headCost) newTrav
+        let finalWeight = DuoWeight
+              { duoBeta = duoBeta newWeight + headCost
+              , duoGap = duoGap newWeight }
+        lift $ pushPassive p finalWeight newTrav
 #ifdef DebugOn
         -- print logging information
         hype <- RWS.get
         liftIO $ do
             putStr "[DE] " >> printActive q
             putStr "  :  " >> printPassive p hype
-            putStr " #W  " >> print (newWeight + headCost)
+            putStr " #W  " >> print (duoBeta finalWeight)
             -- putStr " #E  " >> print estDis
 #endif
 
@@ -617,15 +638,25 @@ estimateDistA q = do
 --     return $ esti (q ^. state) tbag
 
 
+-- | Compute the amortized weight of the given passive item.
+amortizedWeight :: Passive n t -> Earley n t Weight
+amortizedWeight p = do
+  dagAmort <- RWS.gets (H.dagAmort . estiCost . automat)
+  return $ case p ^. dagID of
+    Left _  -> zeroWeight
+    Right i -> dagAmort i
+
+
 -- | Compute the bag of terminals for the given span.
 bagOfTerms :: (Ord t) => Span -> Earley n t (H.Bag t)
 bagOfTerms span = do
     n <- sentLen
     x <- estOn 0 (span ^. beg)
     y <- estOn (span ^. end) n
-    z <- case span ^. gap of
-        Nothing -> return H.bagEmpty
-        Just (i, j) -> estOn i j
+    let z = H.bagEmpty
+    -- z <- case span ^. gap of
+    --     Nothing -> return H.bagEmpty
+    --     Just (i, j) -> estOn i j
     return $ x `H.bagAdd` y `H.bagAdd` z
   where
     sentLen = length <$> RWS.asks inputSent
@@ -637,35 +668,10 @@ bagOfTerms span = do
 ---------------------------------
 
 
--- -- | Return all active processed items which:
--- -- * expect a given label,
--- -- * end on the given position.
--- expectEnd
---     :: (Ord n, Ord t) => Lab n t -> Pos
---     -> P.ListT (Earley n t) Active
--- expectEnd sym i = do
---     Hype{..} <- lift RWS.get
---     -- determine items which end on the given position
---     doneEnd <- some $ M.lookup i doneActive
---     -- determine automaton states from which the given label
---     -- leaves as a body transition
---     stateSet <- some $ M.lookup sym withBody
---     -- pick one of the states
---     stateID <- each $ S.toList stateSet
---     --
---     -- ALTERNATIVE: state <- each . S.toList $
---     --      stateSet `S.intersection` M.keySet doneEnd
---     --
---     -- determine items which refer to the chosen states
---     doneEndLab <- some $ M.lookup stateID doneEnd
---     -- return them all!
---     each $ M.keys doneEndLab
-
-
 -- | See `Chart.expectEnd`.
 expectEnd
     :: (HOrd n, HOrd t) => DID -> Pos
-    -> P.ListT (Earley n t) (Active, Weight)
+    -> P.ListT (Earley n t) (Active, DuoWeight)
 expectEnd = Chart.expectEnd automat chart
 
 
@@ -674,35 +680,35 @@ expectEnd = Chart.expectEnd automat chart
 -- * the given span
 rootSpan
     :: Ord n => n -> (Pos, Pos)
-    -> P.ListT (Earley n t) (Passive n t, Weight)
+    -> P.ListT (Earley n t) (Passive n t, DuoWeight)
 rootSpan = Chart.rootSpan chart
 
 
 -- | See `Chart.provideBeg'`.
 provideBeg'
     :: (Ord n, Ord t) => n -> Pos
-    -> P.ListT (Earley n t) (Passive n t, Weight)
+    -> P.ListT (Earley n t) (Passive n t, DuoWeight)
 provideBeg' = Chart.provideBeg' chart
 
 
 -- | See `Chart.provideBegIni`.
 provideBegIni
     :: (Ord n, Ord t) => Either n DID -> Pos
-    -> P.ListT (Earley n t) (Passive n t, Weight)
+    -> P.ListT (Earley n t) (Passive n t, DuoWeight)
 provideBegIni = Chart.provideBegIni automat chart
 
 
 -- | See `Chart.provideBegAux`.
 provideBegAux
     :: (Ord n, Ord t) => DID -> Pos
-    -> P.ListT (Earley n t) (Passive n t, Weight)
+    -> P.ListT (Earley n t) (Passive n t, DuoWeight)
 provideBegAux = Chart.provideBegAux automat chart
 
 
 -- | See `Chart.auxModifyGap`.
 auxModifyGap
     :: Ord n => n -> (Pos, Pos)
-    -> P.ListT (Earley n t) (Passive n t, Weight)
+    -> P.ListT (Earley n t) (Passive n t, DuoWeight)
 auxModifyGap = Chart.auxModifyGap chart
 
 
@@ -712,37 +718,39 @@ auxModifyGap = Chart.auxModifyGap chart
 
 
 -- | Try to perform SCAN on the given active state.
-tryScan :: (SOrd t, SOrd n) => Active -> Weight -> Earley n t ()
-tryScan p cost = void $ P.runListT $ do
+tryScan :: (SOrd t, SOrd n) => Active -> DuoWeight -> Earley n t ()
+tryScan p duo = void $ P.runListT $ do
 #ifdef DebugOn
-    begTime <- liftIO $ Time.getCurrentTime
+  begTime <- liftIO $ Time.getCurrentTime
 #endif
-    -- read the word immediately following the ending position of
-    -- the state
-    tok <- readInput $ getL (spanA >>> end) p
-    -- follow appropriate terminal transition outgoing from the
-    -- given automaton state
-    (termCost, j) <- followTerm (getL state p) (terminal tok)
-    -- construct the resultant active item
-    let q = setL state j
-          . modL' (spanA >>> end) (+1)
-          $ p
-    -- compute the estimated distance for the resulting item
-    -- estDist <- lift . estimateDistA $ q
-    -- push the resulting state into the waiting queue
-    lift $ pushInduced q
-             (addWeight cost termCost)
-             (Scan p tok termCost)
-         -- . extWeight (addWeight cost termCost) estDist
+  -- read the word immediately following the ending position of
+  -- the state
+  tok <- readInput $ getL (spanA >>> end) p
+  -- follow appropriate terminal transition outgoing from the
+  -- given automaton state
+  (termCost, j) <- followTerm (getL state p) (terminal tok)
+  -- construct the resultant active item
+  let q = setL state j
+        . modL' (spanA >>> end) (+1)
+        $ p
+  -- compute the estimated distance for the resulting item
+  -- estDist <- lift . estimateDistA $ q
+  -- push the resulting state into the waiting queue
+  let newBeta = addWeight (duoBeta duo) termCost
+      newGap = duoGap duo
+      newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
+  lift $ pushInduced q newDuo
+           (Scan p tok termCost)
+       -- . extWeight (addWeight cost termCost) estDist
 #ifdef DebugOn
-    -- print logging information
-    liftIO $ do
-        endTime <- Time.getCurrentTime
-        putStr "[S]  " >> printActive p
-        putStr "  :  " >> printActive q
-        putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
-        putStr " #W  " >> print (addWeight cost termCost)
-        -- putStr " #E  " >> print estDist
+  -- print logging information
+  liftIO $ do
+      endTime <- Time.getCurrentTime
+      putStr "[S]  " >> printActive p
+      putStr "  :  " >> printActive q
+      putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
+      putStr " #W  " >> print newBeta
+      -- putStr " #E  " >> print estDist
 #endif
 
 
@@ -756,9 +764,9 @@ tryScan p cost = void $ P.runListT $ do
 trySubst
     :: (SOrd t, SOrd n)
     => Passive n t
-    -> Weight
+    -> DuoWeight
     -> Earley n t ()
-trySubst p cost = void $ P.runListT $ do
+trySubst p pw = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- liftIO $ Time.getCurrentTime
 #endif
@@ -777,7 +785,7 @@ trySubst p cost = void $ P.runListT $ do
         Right did -> return did
     -- find active items which end where `p' begins and which
     -- expect the non-terminal provided by `p' (ID included)
-    (q, cost') <- expectEnd theDID (getL beg pSpan)
+    (q, qw) <- expectEnd theDID (getL beg pSpan)
     -- follow the transition symbol
     (tranCost, j) <- follow (q ^. state) theDID
     -- construct the resultant state
@@ -788,9 +796,10 @@ trySubst p cost = void $ P.runListT $ do
     -- compute the estimated distance for the resulting state
     -- estDist <- lift . estimateDistA $ q'
     -- push the resulting state into the waiting queue
-    lift $ pushInduced q'
-             (sumWeight [cost, cost', tranCost])
-             (Subst p q tranCost)
+    let newBeta = sumWeight [duoBeta pw, duoBeta qw, tranCost]
+        newGap = duoGap qw
+        newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
+    lift $ pushInduced q' newDuo (Subst p q tranCost)
 #ifdef DebugOn
     -- print logging information
     hype <- RWS.get
@@ -800,7 +809,7 @@ trySubst p cost = void $ P.runListT $ do
         putStr "  +  " >> printActive q
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
-        putStr " #W  " >> print (sumWeight [cost, cost', tranCost])
+        putStr " #W  " >> print newBeta
         -- putStr " #E  " >> print estDist
 #endif
 
@@ -810,9 +819,9 @@ trySubst p cost = void $ P.runListT $ do
 trySubst'
     :: (SOrd t, SOrd n)
     => Active
-    -> Weight
+    -> DuoWeight
     -> Earley n t ()
-trySubst' q cost = void $ P.runListT $ do
+trySubst' q qw = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- liftIO $ Time.getCurrentTime
 #endif
@@ -833,7 +842,7 @@ trySubst' q cost = void $ P.runListT $ do
               else return (Right qDID)
     -- Find processed items which begin where `q` ends and which
     -- provide the non-terminal expected by `q`.
-    (p, cost') <- provideBegIni qNT (q ^. spanA ^. end)
+    (p, pw) <- provideBegIni qNT (q ^. spanA ^. end)
     let pSpan = p ^. spanP
     -- construct the resultant state
     let q' = setL state j
@@ -842,9 +851,10 @@ trySubst' q cost = void $ P.runListT $ do
     -- compute the estimated distance for the resulting state
     -- estDist <- lift . estimateDistA $ q'
     -- push the resulting state into the waiting queue
-    lift $ pushInduced q'
-             (sumWeight [cost, cost', tranCost])
-             (Subst p q tranCost)
+    let newBeta = sumWeight [duoBeta pw, duoBeta qw, tranCost]
+        newGap = duoGap qw
+        newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
+    lift $ pushInduced q' newDuo (Subst p q tranCost)
 #ifdef DebugOn
     -- print logging information
     hype <- RWS.get
@@ -854,7 +864,7 @@ trySubst' q cost = void $ P.runListT $ do
         putStr "  +  " >> printPassive p hype
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
-        putStr " #W  " >> print (sumWeight [cost, cost', tranCost])
+        putStr " #W  " >> print newBeta
         -- putStr " #E  " >> print estDist
 #endif
 
@@ -871,9 +881,9 @@ trySubst' q cost = void $ P.runListT $ do
 tryAdjoinInit
     :: (SOrd n, SOrd t)
     => Passive n t
-    -> Weight
+    -> DuoWeight
     -> Earley n t ()
-tryAdjoinInit p _cost = void $ P.runListT $ do
+tryAdjoinInit p pw = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- liftIO $ Time.getCurrentTime
 #endif
@@ -895,7 +905,7 @@ tryAdjoinInit p _cost = void $ P.runListT $ do
     footID <- some $ M.lookup footNT footMap
     -- find all active items which expect a foot with the given
     -- symbol and which end where `p` begins
-    (q, cost) <- expectEnd footID (pSpan ^. beg)
+    (q, qw) <- expectEnd footID (pSpan ^. beg)
     -- follow the foot
     (tranCost, j) <- follow (q ^. state) footID
     -- construct the resultant state
@@ -906,10 +916,14 @@ tryAdjoinInit p _cost = void $ P.runListT $ do
                 , pSpan ^. end ))
            $ q
     -- compute the estimated distance for the resulting state
-    -- estDist <- lift . estimateDistA $ q'
+    -- -- estDist <- lift . estimateDistA $ q'
+    -- compute the amortized weight of item `p`
+    amortWeight <- lift $ amortizedWeight p
     -- push the resulting state into the waiting queue
-    lift $ pushInduced q'
-             (addWeight cost tranCost)
+    let newBeta = addWeight (duoBeta qw) tranCost
+        newGap = duoBeta pw + duoGap pw + amortWeight
+        newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
+    lift $ pushInduced q' newDuo
              (Foot q (nonTerm (p ^. dagID) hype) tranCost)
 --     -- push the resulting state into the waiting queue
 --     lift $ pushInduced q' $ Foot q p -- -- $ nonTerm foot
@@ -921,7 +935,7 @@ tryAdjoinInit p _cost = void $ P.runListT $ do
         putStr "  +  " >> printActive q
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
-        putStr " #W  " >> print (addWeight cost tranCost)
+        putStr " #W  " >> print newBeta
         -- putStr " #E  " >> print estDist
 #endif
 
@@ -934,9 +948,9 @@ tryAdjoinInit p _cost = void $ P.runListT $ do
 tryAdjoinInit'
     :: (SOrd n, SOrd t)
     => Active
-    -> Weight
+    -> DuoWeight
     -> Earley n t ()
-tryAdjoinInit' q cost = void $ P.runListT $ do
+tryAdjoinInit' q qw = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- liftIO $ Time.getCurrentTime
 #endif
@@ -953,7 +967,7 @@ tryAdjoinInit' q cost = void $ P.runListT $ do
         return x
     -- Find all passive items which provide the given source
     -- non-terminal and which begin where `q` ends.
-    (p, _cost) <- provideBeg' qNT (q ^. spanA ^. end)
+    (p, pw) <- provideBeg' qNT (q ^. spanA ^. end)
     let pDID = p ^. dagID
         pSpan = p ^. spanP
     -- The retrieved items must not be auxiliary top-level.
@@ -965,11 +979,14 @@ tryAdjoinInit' q cost = void $ P.runListT $ do
                 , pSpan ^. end ))
            $ q
     -- compute the estimated distance for the resulting state
-    -- estDist <- lift . estimateDistA $ q'
+    -- -- estDist <- lift . estimateDistA $ q'
+    -- compute the amortized weight of item `p`
+    amortWeight <- lift $ amortizedWeight p
     -- push the resulting state into the waiting queue
-    lift $ pushInduced q'
-             (addWeight cost tranCost)
-             -- (Foot q p tranCost)
+    let newBeta = addWeight (duoBeta qw) tranCost
+        newGap = duoBeta pw + duoGap pw + amortWeight
+        newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
+    lift $ pushInduced q' newDuo
              (Foot q (nonTerm (p ^. dagID) hype) tranCost)
 #ifdef DebugOn
     -- print logging information
@@ -979,7 +996,7 @@ tryAdjoinInit' q cost = void $ P.runListT $ do
         putStr "  +  " >> printPassive p hype
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
-        putStr " #W  " >> print (addWeight cost tranCost)
+        putStr " #W  " >> print newBeta
         -- putStr " #E  " >> print estDist
 #endif
 
@@ -995,9 +1012,9 @@ tryAdjoinInit' q cost = void $ P.runListT $ do
 tryAdjoinCont
     :: (SOrd n, SOrd t)
     => Passive n t
-    -> Weight
+    -> DuoWeight
     -> Earley n t ()
-tryAdjoinCont p cost = void $ P.runListT $ do
+tryAdjoinCont p pw = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- liftIO $ Time.getCurrentTime
 #endif
@@ -1013,7 +1030,8 @@ tryAdjoinCont p cost = void $ P.runListT $ do
         Right i -> Just i
     -- find all items which expect a spine non-terminal provided
     -- by `p' and which end where `p' begins
-    (q, cost') <- expectEnd theDID (pSpan ^. beg)
+    -- (q, cost') <- expectEnd theDID (pSpan ^. beg)
+    (q, qw) <- expectEnd theDID (pSpan ^. beg)
     -- follow the spine non-terminal
     (tranCost, j) <- follow (q ^. state) theDID
     -- construct the resulting state; the span of the gap of the
@@ -1025,9 +1043,10 @@ tryAdjoinCont p cost = void $ P.runListT $ do
     -- compute the estimated distance for the resulting state
     -- estDist <- lift . estimateDistA $ q'
     -- push the resulting state into the waiting queue
-    lift $ pushInduced q'
-             (sumWeight [cost, cost', tranCost])
-             (Subst p q tranCost)
+    let newBeta = sumWeight [duoBeta pw, duoBeta qw, tranCost]
+        newGap = duoGap pw
+        newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
+    lift $ pushInduced q' newDuo (Subst p q tranCost)
 --     -- push the resulting state into the waiting queue
 --     lift $ pushInduced q' $ Subst p q
 #ifdef DebugOn
@@ -1039,7 +1058,7 @@ tryAdjoinCont p cost = void $ P.runListT $ do
         putStr "  +  " >> printActive q
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
-        putStr " #W  " >> print (sumWeight [cost, cost', tranCost])
+        putStr " #W  " >> print newBeta
         -- putStr " #E  " >> print estDist
 #endif
 
@@ -1048,9 +1067,9 @@ tryAdjoinCont p cost = void $ P.runListT $ do
 tryAdjoinCont'
     :: (SOrd n, SOrd t)
     => Active
-    -> Weight
+    -> DuoWeight
     -> Earley n t ()
-tryAdjoinCont' q cost = void $ P.runListT $ do
+tryAdjoinCont' q qw = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- liftIO $ Time.getCurrentTime
 #endif
@@ -1064,7 +1083,7 @@ tryAdjoinCont' q cost = void $ P.runListT $ do
     guard $ spine qDID && not (DAG.isLeaf qDID dag)
     -- Find all fully parsed items which provide the given label
     -- and which begin where `q` ends.
-    (p, cost') <- provideBegAux qDID (q ^. spanA ^. end)
+    (p, pw) <- provideBegAux qDID (q ^. spanA ^. end)
     let pSpan = p ^. spanP
     -- construct the resulting state; the span of the gap of the
     -- inner state `p' is copied to the outer state based on `q'
@@ -1075,9 +1094,10 @@ tryAdjoinCont' q cost = void $ P.runListT $ do
     -- compute the estimated distance for the resulting state
     -- estDist <- lift . estimateDistA $ q'
     -- push the resulting state into the waiting queue
-    lift $ pushInduced q'
-             (sumWeight [cost, cost', tranCost])
-             (Subst p q tranCost)
+    let newBeta = sumWeight [duoBeta pw, duoBeta qw, tranCost]
+        newGap = duoGap pw
+        newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
+    lift $ pushInduced q' newDuo (Subst p q tranCost)
 #ifdef DebugOn
     -- logging info
     hype <- RWS.get
@@ -1087,7 +1107,7 @@ tryAdjoinCont' q cost = void $ P.runListT $ do
         putStr "  +  " >> printPassive p hype
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
-        putStr " #W  " >> print (sumWeight [cost, cost', tranCost])
+        putStr " #W  " >> print newBeta
         -- putStr " #E  " >> print estDist
 #endif
 
@@ -1102,9 +1122,9 @@ tryAdjoinCont' q cost = void $ P.runListT $ do
 tryAdjoinTerm
     :: (SOrd t, SOrd n)
     => Passive n t
-    -> Weight
+    -> DuoWeight
     -> Earley n t ()
-tryAdjoinTerm q cost = void $ P.runListT $ do
+tryAdjoinTerm q qw = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- liftIO $ Time.getCurrentTime
 #endif
@@ -1123,7 +1143,7 @@ tryAdjoinTerm q cost = void $ P.runListT $ do
     -- a top-level auxiliary item (which should be guaranteed
     -- by `rootSpan`)
     qNonTerm <- some (nonTerm' qDID dag)
-    (p, cost') <- rootSpan qNonTerm (gapBeg, gapEnd)
+    (p, pw) <- rootSpan qNonTerm (gapBeg, gapEnd)
     let p' = setL (spanP >>> beg) (qSpan ^. beg)
            . setL (spanP >>> end) (qSpan ^. end)
            $ p
@@ -1131,9 +1151,10 @@ tryAdjoinTerm q cost = void $ P.runListT $ do
     -- compute the estimated distance for the resulting state
     -- estDist <- lift . estimateDistP $ p'
     -- push the resulting state into the waiting queue
-    lift $ pushPassive p'
-             (addWeight cost cost')
-             (Adjoin q p)
+    let newBeta = addWeight (duoBeta pw) (duoBeta qw)
+        newGap = duoGap pw
+        newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
+    lift $ pushPassive p' newDuo (Adjoin q p)
 #ifdef DebugOn
     hype <- RWS.get
     liftIO $ do
@@ -1142,7 +1163,7 @@ tryAdjoinTerm q cost = void $ P.runListT $ do
         putStr "  +  " >> printPassive p hype
         putStr "  :  " >> printPassive p' hype
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
-        putStr " #W  " >> print (addWeight cost cost')
+        putStr " #W  " >> print newBeta
         -- putStr " #E  " >> print estDist
 #endif
 
@@ -1151,9 +1172,9 @@ tryAdjoinTerm q cost = void $ P.runListT $ do
 tryAdjoinTerm'
     :: (SOrd t, SOrd n)
     => Passive n t
-    -> Weight
+    -> DuoWeight
     -> Earley n t ()
-tryAdjoinTerm' p cost = void $ P.runListT $ do
+tryAdjoinTerm' p pw = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- liftIO $ Time.getCurrentTime
 #endif
@@ -1168,7 +1189,7 @@ tryAdjoinTerm' p cost = void $ P.runListT $ do
     -- Retrieve all completed, top-level items representing auxiliary
     -- trees which have a specific gap and modify a specific source
     -- non-terminal.
-    (q, cost') <- auxModifyGap pNT
+    (q, qw) <- auxModifyGap pNT
         -- (nonTerm $ p ^. label)
         ( p ^. spanP ^. beg
         , p ^. spanP ^. end )
@@ -1180,9 +1201,10 @@ tryAdjoinTerm' p cost = void $ P.runListT $ do
     -- compute the estimated distance for the resulting state
     -- estDist <- lift . estimateDistP $ p'
     -- push the resulting state into the waiting queue
-    lift $ pushPassive p'
-             (addWeight cost cost')
-             (Adjoin q p)
+    let newBeta = addWeight (duoBeta pw) (duoBeta qw)
+        newGap = duoGap pw
+        newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
+    lift $ pushPassive p' newDuo (Adjoin q p)
 #ifdef DebugOn
     hype <- RWS.get
     liftIO $ do
@@ -1191,7 +1213,7 @@ tryAdjoinTerm' p cost = void $ P.runListT $ do
         putStr "  +  " >> printPassive q hype
         putStr "  :  " >> printPassive p' hype
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
-        putStr " #W  " >> print (addWeight cost cost')
+        putStr " #W  " >> print newBeta
         -- putStr " #E  " >> print estDist
 #endif
 
@@ -1470,7 +1492,7 @@ earleyAutoGen =
               { _beg   = i
               , _end   = i
               , _gap   = Nothing }
-      lift $ pushActive q zeroWeight Nothing
+      lift $ pushActive q (DuoWeight zeroWeight zeroWeight) Nothing
     -- the computation is performed as long as the waiting queue
     -- is non-empty.
     loop = popItem >>= \mp -> case mp of
@@ -1481,7 +1503,7 @@ earleyAutoGen =
           hype <- RWS.get
           liftIO $ do
             putStr "POP: " >> printItem item hype
-            putStr " :>  " >> print (priWeight e, estWeight e)
+            putStr " :>  " >> print (priWeight e, gapWeight e, estWeight e)
 #endif
           step p >> loop
 
@@ -1506,7 +1528,7 @@ step (ItemP p :-> e) = do
       , modifType = NewNode
       , modifItem = ItemP p
       , modifTrav = e}
-    mapM_ (\f -> f p $ priWeight e)
+    mapM_ (\f -> f p $ duoWeight e)
       [ trySubst
       , tryAdjoinInit
       , tryAdjoinCont
@@ -1521,7 +1543,7 @@ step (ItemA p :-> e) = do
       , modifType = NewNode
       , modifItem = ItemA p
       , modifTrav = e }
-    mapM_ (\f -> f p $ priWeight e)
+    mapM_ (\f -> f p $ duoWeight e)
       [ tryScan
       , trySubst'
       , tryAdjoinInit'

@@ -17,10 +17,10 @@ module NLP.Partage.AStar.Item
   , auxiliary
   , isRoot
 
-#ifdef DebugOn
+-- #ifdef DebugOn
   , printActive
   , printPassive
-#endif
+-- #endif
   )
 where
 
@@ -35,10 +35,10 @@ import           NLP.Partage.AStar.Base (Pos)
 import           NLP.Partage.DAG        (DID)
 import qualified NLP.Partage.DAG as DAG
 
-#ifdef DebugOn
+-- #ifdef DebugOn
 import           NLP.Partage.AStar.Base (nonTerm)
 import           NLP.Partage.AStar.Auto (Auto (..))
-#endif
+-- #endif
 
 
 data Span = Span {
@@ -85,7 +85,7 @@ isRoot x = case x of
     Right _ -> False
 
 
-#ifdef DebugOn
+-- #ifdef DebugOn
 -- | Print an active item.
 printSpan :: Span -> IO ()
 printSpan span = do
@@ -124,4 +124,4 @@ printPassive p auto = do
     putStr ", "
     printSpan $ getL spanP p
     putStrLn ")"
-#endif
+-- #endif

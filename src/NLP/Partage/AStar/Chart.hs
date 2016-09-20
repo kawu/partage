@@ -374,7 +374,7 @@ expectEnd
     -> (s -> Chart n t)
     -> DAG.DID
     -> Pos
-    -> P.ListT m (Active, Weight)
+    -> P.ListT m (Active, DuoWeight)
 expectEnd getAuto getChart did i = do
   compState <- lift MS.get
   let Chart{..} = getChart compState
@@ -392,7 +392,7 @@ expectEnd getAuto getChart did i = do
   -- return them all!
   -- each $ M.keys doneEndLab
   each $
-    [ (p, priWeight e)
+    [ (p, duoWeight e)
     | (p, e) <- M.toList doneEndLab ]
 
 
@@ -403,17 +403,17 @@ rootSpan
     :: (Ord n, MS.MonadState s m)
     => (s -> Chart n t)
     -> n -> (Pos, Pos)
-    -> P.ListT m (Passive n t, Weight)
+    -> P.ListT m (Passive n t, DuoWeight)
 rootSpan getChart x (i, j) = do
   Chart{..} <- getChart <$> lift MS.get
   P.Select $ do
     P.each $ case M.lookup i donePassiveIni >>= M.lookup x >>= M.lookup j of
       Nothing -> []
-      Just m -> map (Arr.second priWeight) (M.toList m)
+      Just m -> map (Arr.second duoWeight) (M.toList m)
                  -- ((M.elems >=> M.toList) m)
     P.each $ case M.lookup i donePassiveAuxNoTop >>= M.lookup x >>= M.lookup j of
       Nothing -> []
-      Just m -> map (Arr.second priWeight) (M.toList m)
+      Just m -> map (Arr.second duoWeight) (M.toList m)
 
 
 -- | Return all processed items which:
@@ -430,7 +430,7 @@ provideBeg'
     :: (Ord n, Ord t, MS.MonadState s m)
     => (s -> Chart n t)
     -> n -> Pos
-    -> P.ListT m (Passive n t, Weight)
+    -> P.ListT m (Passive n t, DuoWeight)
 provideBeg' getChart x i = do
     Chart{..} <- getChart <$> lift MS.get
     P.Select $ do
@@ -438,14 +438,14 @@ provideBeg' getChart x i = do
         Nothing -> []
         Just m ->
           map
-            (Arr.second priWeight)
+            (Arr.second duoWeight)
             ((M.elems >=> M.toList) m)
             -- ((M.elems >=> M.elems >=> M.toList) m)
       P.each $ case M.lookup i donePassiveAuxNoTop >>= M.lookup x of
         Nothing -> []
         Just m ->
           map
-            (Arr.second priWeight)
+            (Arr.second duoWeight)
             ((M.elems >=> M.toList) m)
 
 
@@ -459,7 +459,7 @@ provideBegIni
     => (s -> Auto n t)
     -> (s -> Chart n t)
     -> Either n DAG.DID -> Pos
-    -> P.ListT m (Passive n t, Weight)
+    -> P.ListT m (Passive n t, DuoWeight)
 provideBegIni getAuto getChart x i = do
   compState <- lift MS.get
   let Chart{..} = getChart compState
@@ -471,7 +471,7 @@ provideBegIni getAuto getChart x i = do
     -- maybeToList . M.lookup x >>=
       ( \m -> do
           p <-
-            [ (q, priWeight e)
+            [ (q, duoWeight e)
             | (q, e) <- M.toList m
             , q ^. dagID == x ]
           return p )
@@ -487,7 +487,7 @@ provideBegAux
     => (s -> Auto n t)
     -> (s -> Chart n t)
     -> DAG.DID -> Pos
-    -> P.ListT m (Passive n t, Weight)
+    -> P.ListT m (Passive n t, DuoWeight)
 provideBegAux getAuto getChart x i = do
   compState <- lift MS.get
   let Chart{..} = getChart compState
@@ -496,7 +496,7 @@ provideBegAux getAuto getChart x i = do
   each $ case M.lookup i donePassiveAuxNoTop >>= M.lookup n of
     Nothing -> []
     Just m ->
-      [ (q, priWeight e)
+      [ (q, duoWeight e)
       | (q, e) <- (M.elems >=> M.toList) m
       , q ^. dagID == Right x ]
 
@@ -509,13 +509,13 @@ auxModifyGap
     :: (Ord n, MS.MonadState s m)
     => (s -> Chart n t)
     -> n -> (Pos, Pos)
-    -> P.ListT m (Passive n t, Weight)
+    -> P.ListT m (Passive n t, DuoWeight)
 auxModifyGap getChart x (i, j) = do
     Chart{..} <- getChart <$> lift MS.get
     each $ case (M.lookup i >=> M.lookup x >=> M.lookup j) donePassiveAuxTop of
         Nothing -> []
         Just m -> -- map (Arr.second priWeight) (M.toList m)
-          [ (p, priWeight e)
+          [ (p, duoWeight e)
           | (p, e) <- M.toList m ]
 --     hype <- lift RWS.get
 --     each

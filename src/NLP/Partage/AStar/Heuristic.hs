@@ -59,6 +59,8 @@ data Esti t = Esti
   , dagEsti  :: D.DID -> Bag t -> D.Weight
   -- ^ Bags of terminals and the corresponding (minimal) weights
   -- for the individual super-trees surrounding the given DAG node.
+  , dagAmort :: D.DID -> D.Weight
+  -- ^ Amortized weight of the dag node.
   }
 
 
@@ -72,14 +74,19 @@ mkEsti
 mkEsti _memoElem D.Gram{..} autoGram = Esti
   { termEsti = estiTerm
   , trieEsti = estiCost2 autoGram dagGram estiTerm
-  , dagEsti  = estiNode }
+  , dagEsti  = estiNode
+  , dagAmort = amortDag }
   where
     -- estiTerm = estiCost1 memoElem termWei
     estiTerm = estiCost1 termWei
-    estiNode i bag = minimumInf
-      [ estiTerm (bag `bagDiff` bag') + w
-      | (bag', w) <- M.toList (cost i)
-      , bag' `bagSubset` bag ]
+--     estiNode i bag = minimumInf
+--       [ estiTerm (bag `bagDiff` bag') + w
+--       | (bag', w) <- M.toList (cost i)
+--       , bag' `bagSubset` bag ]
+    estiNode i bag = amortDag i + estiTerm bag
+    amortDag i = minimumInf
+      [ w - estiTerm bag
+      | (bag, w) <- M.toList (cost i) ]
     cost = supCost dagGram
 
 
@@ -165,10 +172,14 @@ estiCost2
 estiCost2 weiAuto@A.WeiAuto{..} weiDag estiTerm =
     esti
   where
-    esti i bag = minimumInf
-      [ estiTerm (bag `bagDiff` bag') + w
-      | (bag', w) <- M.toList (cost i)
-      , bag' `bagSubset` bag ]
+--     esti i bag = minimumInf
+--       [ estiTerm (bag `bagDiff` bag') + w
+--       | (bag', w) <- M.toList (cost i)
+--       , bag' `bagSubset` bag ]
+    esti i bag = amortDag i + estiTerm bag
+    amortDag i = minimumInf
+      [ w - estiTerm bag
+      | (bag, w) <- M.toList (cost i) ]
     cost = trieCost weiDag weiAuto
 
 

@@ -1,3 +1,6 @@
+{-# LANGUAGE RecordWildCards #-}
+
+
 module NLP.Partage.AStar.ExtWeight
   ( Trav (..)
 
@@ -9,10 +12,15 @@ module NLP.Partage.AStar.ExtWeight
 
   -- * Extended Weight
   , ExtWeight (..)
+  , totalWeight
   , extWeight0
   , extWeight
   , joinExtWeight
   , joinExtWeight'
+
+  -- * Double Weight
+  , DuoWeight (..)
+  , duoWeight
   )
 where
 
@@ -124,45 +132,73 @@ data ExtWeight n t = ExtWeight
     -- individual "elementary rules".
     , estWeight :: Weight
     -- ^ Estimated weight to the "end"
+    , gapWeight :: Weight
+    -- ^ Estimated eight of the gap
     , prioTrav  :: S.Set (Trav n t)
     -- ^ Traversal leading to the underlying chart item
     } deriving (Show)
 
+
+-- | Total weight of an item.
+totalWeight :: ExtWeight n t -> Weight
+totalWeight ExtWeight{..} = priWeight `addWeight` estWeight `addWeight` gapWeight
+
+
 instance (Eq n, Eq t) => Eq (ExtWeight n t) where
-    (==) = (==) `on` (addWeight <$> priWeight <*> estWeight)
+    (==) = (==) `on` totalWeight
 instance (Ord n, Ord t) => Ord (ExtWeight n t) where
-    compare = compare `on` (addWeight <$> priWeight <*> estWeight)
+    compare = compare `on` totalWeight
 
 
 -- | Construct an initial `ExtWeight`.  With an empty set of input
 -- traversals, it corresponds to a start node in the underlying
 -- hyper-graph.
-extWeight0 :: Weight -> Weight -> ExtWeight n t
-extWeight0 p initEst = ExtWeight p initEst S.empty
+extWeight0 :: DuoWeight -> Weight -> ExtWeight n t
+extWeight0 p initEst =
+  ExtWeight
+  { priWeight = duoBeta p
+  , estWeight = initEst
+  , gapWeight = duoGap p
+  , prioTrav = S.empty }
 
 
 -- | Construct an `ExtWeight` with one incoming traversal
--- (traversal=hyper-edge).
-extWeight :: Weight -> Weight -> Trav n t -> ExtWeight n t
-extWeight p est = ExtWeight p est . S.singleton
+-- (traversal=hyperarc).
+extWeight :: DuoWeight -> Weight -> Trav n t -> ExtWeight n t
+extWeight p est trav =
+  ExtWeight
+  { priWeight = duoBeta p
+  , estWeight = est
+  , gapWeight = duoGap p
+  , prioTrav = S.singleton trav }
 
 
--- | Join two extended priorities:
--- * The actual priority (cost) preserved is the lower of the two; we
--- are simply keeping the lowest cost of reaching the underlying
--- chart item.
+-- | Join two extended priorities.
+--
+-- * The actual priority (cost) preserved is the lower of the two; we are simply
+-- keeping the lowest cost of reaching the underlying chart item.
+--
 -- * The traversals are unioned.
+--
+-- NOTE: An `ExtWeight` is always assigned to some particular item and, if
+-- two `ExtWeight`s are joined, they correspond to the same item.  Therefore,
+-- the individual `gapWeight`s corresponds to the same gap.  It follows (I hope)
+-- that `gapWeight` is independent from `priWeight` and thus we can minimize
+-- them independently.  Estimated weight is not minimized because it should be
+-- equal in both items -- otherwise the function throws an error.
+--
 joinExtWeight
     :: (Ord n, Ord t)
     => ExtWeight n t
     -> ExtWeight n t
     -> ExtWeight n t
 joinExtWeight x y = if estWeight x /= estWeight y
-    then error "joinExtWeight: estimation costs differ!"
-    else ExtWeight
-        (minWeight (priWeight x) (priWeight y))
-        (estWeight x)
-        (S.union (prioTrav x) (prioTrav y))
+  then error "joinExtWeight: estimation costs differ!"
+  else ExtWeight
+       { priWeight = minWeight (priWeight x) (priWeight y)
+       , estWeight = estWeight x
+       , gapWeight = minWeight (gapWeight x) (gapWeight y)
+       , prioTrav  = S.union (prioTrav x) (prioTrav y) }
 
 
 joinExtWeight'
@@ -170,14 +206,43 @@ joinExtWeight'
     => ExtWeight n t
     -> ExtWeight n t
     -> ExtWeight n t
-joinExtWeight' new old =
-  if estWeight new /= estWeight old
-  then error "joinExtWeight[save active/passive]: estimation costs differ!"
-  else
-    if priWeight new < priWeight old
-    then error "joinExtWeight[save active/passive]: new beta value lower than the old!"
-    else
-      ExtWeight
-      (minWeight (priWeight new) (priWeight old))
-      (estWeight new)
-      (S.union (prioTrav new) (prioTrav old))
+joinExtWeight' = joinExtWeight
+
+
+-- joinExtWeight'
+--     :: (Ord n, Ord t)
+--     => ExtWeight n t
+--     -> ExtWeight n t
+--     -> ExtWeight n t
+-- joinExtWeight' new old =
+--   if estWeight new /= estWeight old
+--   then error "joinExtWeight[save active/passive]: estimation costs differ!"
+--   else
+--     if priWeight new < priWeight old
+--     then error "joinExtWeight[save active/passive]: new beta value lower than the old!"
+--     else
+--       ExtWeight
+--       (minWeight (priWeight new) (priWeight old))
+--       (estWeight new)
+--       (S.union (prioTrav new) (prioTrav old))
+
+
+--------------------------------------------------
+-- Double Weights
+--------------------------------------------------
+
+
+-- | The `DuoWeight` type represents a combined priority weight (beta value --
+-- weight of the optimal derivation) with gap weight.
+data DuoWeight = DuoWeight
+  { duoBeta :: Weight
+  , duoGap  :: Weight }
+  deriving (Show, Eq, Ord)
+
+
+-- | Extract `DuoWeight` from the `ExtWeight` corresponding to some chart item.
+duoWeight :: ExtWeight n t -> DuoWeight
+duoWeight ExtWeight{..} =
+  DuoWeight
+  { duoBeta = priWeight
+  , duoGap  = gapWeight }

@@ -472,7 +472,7 @@ testTree modName TagParser{..} =
         testFlyingDerivsIsSet gram test
         testDerivsEqual gram test
         testEachDerivEncoded gram test
-        -- testWeightsAscend gram test
+        testWeightsAscend gram test
 
     -- Check if the recognition result is as expected
     testRecognition gram Test{..} = case recognize of
@@ -535,9 +535,16 @@ testTree modName TagParser{..} =
           let pipe = mkPipe gram startSym testSent
           void $ P.runEffect . P.for pipe $ \(hypeModif, _derivs) -> lift $ do
             let trav = AStar.modifTrav hypeModif
-                newWeight = AStar.priWeight trav + AStar.estWeight trav
+                -- newWeight = AStar.priWeight trav + AStar.estWeight trav
+                newWeight = AStar.totalWeight trav
             curWeight <- readIORef weightRef
-            newWeight >= curWeight @?= True
+--             if newWeight < curWeight then do
+--               putStr "NEW: " >> print newWeight
+--               putStr "NEW: " >> print (roundTo newWeight 10)
+--               putStr "CUR: " >> print curWeight
+--               putStr "CUR: " >> print (curWeight `roundTo` 10)
+--               else return ()
+            newWeight `roundTo` 10 >= curWeight `roundTo` 10 @?= True
             writeIORef weightRef newWeight
         _ -> return ()
 
@@ -561,3 +568,8 @@ mx @@?= y = do
 -- | Remove duplicates (not stable).
 nub :: Ord a => [a] -> [a]
 nub = S.toList . S.fromList
+
+
+-- | Round the floiting-point number to the given number of decimal digits.
+roundTo :: Double -> Int -> Double
+roundTo f n = (fromInteger $ round $ f * (10^n)) / (10.0^^n)
