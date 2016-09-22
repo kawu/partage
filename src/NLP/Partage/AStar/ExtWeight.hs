@@ -1,4 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE CPP #-}
 
 
 module NLP.Partage.AStar.ExtWeight
@@ -141,7 +142,11 @@ data ExtWeight n t = ExtWeight
 
 -- | Total weight of an item.
 totalWeight :: ExtWeight n t -> Weight
+#ifdef NewHeuristic
 totalWeight ExtWeight{..} = priWeight `addWeight` estWeight `addWeight` gapWeight
+#else
+totalWeight ExtWeight{..} = priWeight `addWeight` estWeight
+#endif
 
 
 instance (Eq n, Eq t) => Eq (ExtWeight n t) where

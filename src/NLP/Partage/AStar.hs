@@ -134,7 +134,11 @@ import qualified NLP.Partage.DAG as DAG
 import           NLP.Partage.AStar.Auto (Auto(..), mkAuto)
 -- import qualified NLP.Partage.AStar.Heuristic.Base as H
 -- import qualified NLP.Partage.AStar.Heuristic.Dummy as H
-import qualified NLP.Partage.AStar.Heuristic as H
+#ifdef NewHeuristic
+import qualified NLP.Partage.AStar.HeuristicNew as H
+#else
+import qualified NLP.Partage.AStar.HeuristicOld as H
+#endif
 
 import           NLP.Partage.AStar.Base hiding (nonTerm)
 import qualified NLP.Partage.AStar.Base as Base
@@ -640,11 +644,15 @@ estimateDistA q = do
 
 -- | Compute the amortized weight of the given passive item.
 amortizedWeight :: Passive n t -> Earley n t Weight
+#ifdef NewHeuristic
 amortizedWeight p = do
   dagAmort <- RWS.gets (H.dagAmort . estiCost . automat)
   return $ case p ^. dagID of
     Left _  -> zeroWeight
     Right i -> dagAmort i
+#else
+amortizedWeight = const $ return zeroWeight
+#endif
 
 
 -- | Compute the bag of terminals for the given span.
@@ -653,10 +661,13 @@ bagOfTerms span = do
     n <- sentLen
     x <- estOn 0 (span ^. beg)
     y <- estOn (span ^. end) n
+#ifdef NewHeuristic
     let z = H.bagEmpty
-    -- z <- case span ^. gap of
-    --     Nothing -> return H.bagEmpty
-    --     Just (i, j) -> estOn i j
+#else
+    z <- case span ^. gap of
+        Nothing -> return H.bagEmpty
+        Just (i, j) -> estOn i j
+#endif
     return $ x `H.bagAdd` y `H.bagAdd` z
   where
     sentLen = length <$> RWS.asks inputSent
