@@ -112,7 +112,7 @@ test-suite test
       , HUnit                   >= 1.2
       , data-memocombinators    >= 0.5  && < 0.6
       , pipes                   >= 4.1      && < 4.2
-      , transformers            >= 0.3      && < 0.5
+      , transformers            >= 0.3      && < 0.6
 
 
 executable test-partage
