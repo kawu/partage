@@ -34,7 +34,7 @@ library
         base                >= 4.8      && < 5
       , containers          >= 0.5      && < 0.6
       , mtl                 >= 2.1      && < 2.3
-      , transformers        >= 0.3      && < 0.5
+      , transformers        >= 0.3      && < 0.6
       , pipes               >= 4.1      && < 4.2
       , PSQueue             >= 1.1      && < 1.2
       , data-partition      >= 0.3      && < 0.4
