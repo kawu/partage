@@ -73,6 +73,8 @@ library
       , NLP.Partage.Earley.AutoAP
       , NLP.Partage.AStar.Auto
       , NLP.Partage.AStar.Heuristic
+      , NLP.Partage.AStar.HeuristicNew
+      , NLP.Partage.AStar.HeuristicOld
       , NLP.Partage.AStar.Heuristic.Bag
       , NLP.Partage.AStar.Heuristic.Dummy
       , NLP.Partage.AStar.Heuristic.Base
@@ -84,6 +86,7 @@ library
 
     ghc-options: -Wall
     -- cpp-options: -DDebugOn
+    -- cpp-options: -DNewHeuristic
 
 
 source-repository head

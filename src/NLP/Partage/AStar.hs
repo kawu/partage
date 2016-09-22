@@ -134,11 +134,7 @@ import qualified NLP.Partage.DAG as DAG
 import           NLP.Partage.AStar.Auto (Auto(..), mkAuto)
 -- import qualified NLP.Partage.AStar.Heuristic.Base as H
 -- import qualified NLP.Partage.AStar.Heuristic.Dummy as H
-#ifdef NewHeuristic
-import qualified NLP.Partage.AStar.HeuristicNew as H
-#else
-import qualified NLP.Partage.AStar.HeuristicOld as H
-#endif
+import qualified NLP.Partage.AStar.Heuristic as H
 
 import           NLP.Partage.AStar.Base hiding (nonTerm)
 import qualified NLP.Partage.AStar.Base as Base

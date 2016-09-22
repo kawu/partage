@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP               #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE TupleSections     #-}
@@ -26,9 +27,10 @@ module TestSet
 
 import           Control.Applicative       ((<$>), (<*>))
 import           Control.Arrow             (first)
-import           Control.Monad             (forM_, void)
+import           Control.Monad             (forM_, guard, void)
 -- import           Control.Monad.Morph       as Morph
 import           Control.Monad.Trans.Class (lift)
+import           Control.Monad.Trans.Maybe (MaybeT (..))
 
 import           Data.IORef
 import qualified Data.Map.Strict           as M
@@ -180,15 +182,15 @@ mouse = Branch "NP"
 --       [ Branch "P" [Leaf "po"]
 --       , Branch "NP" [] ]
 --     ]) [0]
--- 
--- 
+--
+--
 -- prostuPL :: Tr
 -- prostuPL = Branch "NP"
 --     [ Branch "N"
 --         [Leaf "prostu"]
 --     ]
--- 
--- 
+--
+--
 -- poProstuPL :: AuxTr
 -- poProstuPL = AuxTree (Branch "V"
 --     [ Branch "V" []
@@ -533,19 +535,27 @@ testTree modName TagParser{..} =
         Just mkPipe -> do
           weightRef <- newIORef 0.0
           let pipe = mkPipe gram startSym testSent
-          void $ P.runEffect . P.for pipe $ \(hypeModif, _derivs) -> lift $ do
+          void $ P.runEffect . P.for pipe $ \(hypeModif, _derivs) -> void . lift . runMaybeT $ do
+            guard $ AStar.modifType hypeModif == AStar.NewNode
+#ifdef NewHeuristic
+#else
+            guard $ case AStar.modifItem hypeModif of
+              AStar.ItemA q -> AStar._gap (AStar._spanA q) == Nothing
+              AStar.ItemP p -> AStar._gap (AStar._spanP p) == Nothing
+#endif
             let trav = AStar.modifTrav hypeModif
                 -- newWeight = AStar.priWeight trav + AStar.estWeight trav
                 newWeight = AStar.totalWeight trav
-            curWeight <- readIORef weightRef
+            lift $ do
+              curWeight <- readIORef weightRef
 --             if newWeight < curWeight then do
 --               putStr "NEW: " >> print newWeight
 --               putStr "NEW: " >> print (roundTo newWeight 10)
 --               putStr "CUR: " >> print curWeight
 --               putStr "CUR: " >> print (curWeight `roundTo` 10)
 --               else return ()
-            newWeight `roundTo` 10 >= curWeight `roundTo` 10 @?= True
-            writeIORef weightRef newWeight
+              newWeight `roundTo` 10 >= curWeight `roundTo` 10 @?= True
+              writeIORef weightRef newWeight
         _ -> return ()
 
     simplify No         = False
