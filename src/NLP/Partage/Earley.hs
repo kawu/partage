@@ -30,8 +30,8 @@ module NLP.Partage.Earley
 -- ** Stats
 , hyperNodesNum
 , hyperEdgesNum
--- ** Printing
-, printHype
+-- -- ** Printing
+-- , printHype
 ) where
 
 

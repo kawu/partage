@@ -62,7 +62,13 @@ library
       , NLP.Partage.Auto.DAWG
       , NLP.Partage.Auto.Set
       , NLP.Partage.Auto.WeiTrie
+
       , NLP.Partage.Earley
+      , NLP.Partage.Earley.Base
+      , NLP.Partage.Earley.Auto
+      , NLP.Partage.Earley.Item
+      , NLP.Partage.Earley.ExtWeight
+
       , NLP.Partage.AStar
       , NLP.Partage.AStar.Deriv
       , NLP.Partage.AStar.Deriv.Gorn

@@ -38,8 +38,8 @@ module NLP.Partage.Earley.AutoAP
 -- ** Stats
 , hyperNodesNum
 , hyperEdgesNum
--- ** Printing
-, printHype
+-- -- ** Printing
+-- , printHype
 
 -- * Sentence position
 , Pos
@@ -78,287 +78,22 @@ import           Data.DAWG.Ord (ID)
 import           NLP.Partage.SOrd
 import           NLP.Partage.DAG (Gram(..), DID(..), DAG)
 import qualified NLP.Partage.DAG as DAG
+import           NLP.Partage.Earley.Auto (Auto(..), mkAuto)
 import qualified NLP.Partage.Auto as A
 import qualified NLP.Partage.Auto.DAWG  as D
 import qualified NLP.Partage.Tree.Other as O
 import qualified NLP.Partage.Tree       as T
 
+import           NLP.Partage.Earley.Base hiding (nonTerm)
+import qualified NLP.Partage.Earley.Base as Base
+import           NLP.Partage.Earley.Item hiding (printPassive)
+import qualified NLP.Partage.Earley.Item as Item
+import           NLP.Partage.Earley.ExtWeight
+
 -- For debugging purposes
 #ifdef DebugOn
 import qualified Data.Time              as Time
 #endif
-
-
---------------------------------------------------
--- Input
---------------------------------------------------
-
-
--- | Input of the parser.
-newtype Input t = Input {
-      inputSent :: V.Vector (S.Set t)
-    -- ^ The input sentence
-    }
-
-
--- -- | Input of the parser.
--- data Input t = Input {
---       inputSent :: V.Vector (S.Set t)
---     -- ^ The input sentence
---     , lexGramI  :: t -> S.Set t
---     -- ^ Lexicon grammar interface: each terminal @t@ in the
---     -- `inputSent` can potentially represent several different
---     -- terminals (anchors) at the level of the grammar.
---     -- If equivalent to `id`, no lexicon-grammar interface is used.
---     -- Otherwise, type @t@ represents both anchors and real terminals
---     -- (words from input sentences).
---     }
-
-
--- | Construct `Input` from a list of terminals.
-fromList :: [t] -> Input t
-fromList = fromSets . map S.singleton
-
-
--- | Construct `Input` from a list of sets of terminals, each set
--- representing all possible interpretations of a given word.
-fromSets :: [S.Set t] -> Input t
--- fromSets xs = Input (V.fromList xs) (\t -> S.singleton t)
-fromSets xs = Input (V.fromList xs)
-
-
--- -- | Set the lexicon-grammar interface to
--- setLexGramI :: Input t ->
-
-
---------------------------------------------------
--- BASE TYPES
---------------------------------------------------
-
-
--- | A position in the input sentence.
-type Pos = Int
-
-
-data Span = Span {
-    -- | The starting position.
-      _beg   :: Pos
-    -- | The ending position (or rather the position of the dot).
-    , _end   :: Pos
-    -- | Coordinates of the gap (if applies)
-    , _gap   :: Maybe (Pos, Pos)
-    } deriving (Show, Eq, Ord)
-$( makeLenses [''Span] )
-
-
--- | Does it represent regular rules?
-regular :: Span -> Bool
-regular = isNothing . getL gap
-
-
--- | Does it represent auxiliary rules?
-auxiliary :: Span -> Bool
-auxiliary = isJust . getL gap
-
-
--- | Print an active item.
-printSpan :: Span -> IO ()
-printSpan span = do
-    putStr . show $ getL beg span
-    putStr ", "
-    case getL gap span of
-        Nothing -> return ()
-        Just (p, q) -> do
-            putStr $ show p
-            putStr ", "
-            putStr $ show q
-            putStr ", "
-    putStr . show $ getL end span
-
-
--- | Active chart item : state reference + span.
-data Active = Active {
-      _state :: ID
-    , _spanA :: Span
-    } deriving (Show, Eq, Ord)
-$( makeLenses [''Active] )
-
-
--- | Passive chart item : label + span.
--- UPDATE: instead of a label, DAG node ID.
--- TODO: remove the redundant 't' parameter
-data Passive n t = Passive {
-      -- _label :: Lab n t
-      _dagID :: Either n DID
-      -- ^ We store non-terminal 'n' for items representing
-      -- fully recognized elementary trees.
-    , _spanP :: Span
-    } deriving (Show, Eq, Ord)
-$( makeLenses [''Passive] )
-
-
--- | Does it represent a root?
-isRoot :: Either n DID -> Bool
-isRoot x = case x of
-    Left _  -> True
-    Right _ -> False
-
-
--- | Print an active item.
-printActive :: Active -> IO ()
-printActive p = do
-    putStr "("
-    putStr . show $ getL state p
-    putStr ", "
-    printSpan $ getL spanA p
-    putStrLn ")"
-
-
--- | Print a passive item.
-printPassive :: (Show n, Show t) => Hype n t -> Passive n t -> IO ()
-printPassive hype p = do
-    putStr "("
-    -- putStr . viewLab $ getL label p
-    putStr $ case getL dagID p of
-        Left rootNT -> show rootNT
-        Right did   ->
-          show (DAG.unDID did) ++ "[" ++
-          show (nonTerm (getL dagID p) hype) ++ "]"
-    putStr ", "
-    printSpan $ getL spanP p
-    putStrLn ")"
-
-
---------------------------------------------------
--- Traversal
---------------------------------------------------
-
-
--- | Traversal represents an action of inducing a new item on the
--- basis of one or two other chart items.  It can be seen as an
--- application of one of the inference rules specifying the parsing
--- algorithm.
---
--- TODO: Sometimes there is no need to store all the arguments of the
--- inference rules, it seems.  From one of the arguments the other
--- one could be derived.
-data Trav n t
-    = Scan
-        { _scanFrom :: Active
-        -- ^ The input active state
-        , _scanTerm :: t
-        -- ^ The scanned terminal
-        }
-    | Subst
-        { _passArg  :: Passive n t
-        -- ^ The passive argument of the action
-        , _actArg   :: Active
-        -- ^ The active argument of the action
-        }
-    -- ^ Pseudo substitution
-    | Foot
-        { _actArg   :: Active
-        -- ^ The passive argument of the action
-        -- , theFoot  :: n
-        , _theFoot  :: Passive n t
-        -- ^ The foot non-terminal
-        }
-    -- ^ Foot adjoin
-    | Adjoin
-        { _passAdj  :: Passive n t
-        -- ^ The adjoined item
-        , _passMod  :: Passive n t
-        -- ^ The modified item
-        }
-    -- ^ Adjoin terminate with two passive arguments
-    deriving (Show, Eq, Ord)
-
-
--- | Print a traversal.
-printTrav :: (Show n, Show t) => Hype n t -> Item n t -> Trav n t -> IO ()
-printTrav h q' (Scan p x) = do
-    putStr "# " >> printActive p
-    putStr "+ " >> print x
-    putStr "= " >> printItem h q'
-printTrav h q' (Subst p q) = do
-    putStr "# " >> printActive q
-    putStr "+ " >> printPassive h p
-    putStr "= " >> printItem h q'
-printTrav h q' (Foot q p) = do
-    putStr "# " >> printActive q
-    putStr "+ " >> printPassive h p
-    putStr "= " >> printItem h q'
-printTrav h q' (Adjoin p s) = do
-    putStr "# " >> printPassive h p
-    putStr "+ " >> printPassive h s
-    putStr "= " >> printItem h q'
-
-
---------------------------------------------------
--- Priority
---------------------------------------------------
-
-
--- | Priority type.
---
--- NOTE: Priority has to be composed from two elements because
--- otherwise `tryAdjoinTerm` could work incorrectly.  That is,
--- the modified item could be popped from the queue after the
--- modifier (auxiliary) item and, as a result, adjunction would
--- not be considered.
-type Prio = (Int, Int)
-
-
--- | Priority of an active item.  Crucial for the algorithm --
--- states have to be removed from the queue in a specific order.
-prioA :: Active -> Prio
-prioA p =
-    let i = getL (beg . spanA) p
-        j = getL (end . spanA) p
-    in  (j, j - i)
-
-
--- | Priority of a passive item.  Crucial for the algorithm --
--- states have to be removed from the queue in a specific order.
-prioP :: Passive n t -> Prio
-prioP p =
-    let i = getL (beg . spanP) p
-        j = getL (end . spanP) p
-    in  (j, j - i)
-
-
--- | Extended priority which preservs information about the traversal
--- leading to the underlying chart item.
-data ExtPrio n t = ExtPrio
-    { prioVal   :: Prio
-    -- ^ The actual priority
-    , prioTrav  :: S.Set (Trav n t)
-    -- ^ Traversal leading to the underlying chart item
-    } deriving (Show)
-
-instance (Eq n, Eq t) => Eq (ExtPrio n t) where
-    (==) = (==) `on` prioVal
-instance (Ord n, Ord t) => Ord (ExtPrio n t) where
-    compare = compare `on` prioVal
-
-
--- | Construct a new `ExtPrio`.
-extPrio :: Prio -> ExtPrio n t
-extPrio p = ExtPrio p S.empty
-
-
--- | Join two priorities:
--- * The actual priority preserved is the lower of the two,
--- * The traversals are unioned.
---
--- NOTE: at the moment, priority is strictly specified by the
--- underlying chart item itself so we know that both priorities must
--- be equal.  Later when we start using probabilities this statement
--- will no longer hold.
-joinPrio :: (Ord n, Ord t) => ExtPrio n t -> ExtPrio n t -> ExtPrio n t
-joinPrio x y = ExtPrio
-    (min (prioVal x) (prioVal y))
-    (S.union (prioTrav x) (prioTrav y))
 
 
 --------------------------------------------------
@@ -373,10 +108,17 @@ data Item n t
     deriving (Show, Eq, Ord)
 
 
+-- #ifdef DebugOn
+-- | Print a passive item.
+printPassive :: (Show n, Show t) => Passive n t -> Hype n t -> IO ()
+printPassive p hype = Item.printPassive p (automat hype)
+
+
 -- | Print an active item.
-printItem :: (Show n, Show t) => Hype n t -> Item n t -> IO ()
-printItem h (ItemP p) = printPassive h p
-printItem _ (ItemA p) = printActive p
+printItem :: (Show n, Show t) => Item n t -> Hype n t -> IO ()
+printItem (ItemP p) h = printPassive p h
+printItem (ItemA p) _ = printActive p
+-- #endif
 
 
 -- | Priority of an active item.  Crucial for the algorithm --
@@ -508,14 +250,14 @@ hyperEdges earSt =
         , trav <- S.toList travSet ]
 
 
--- | Print the hypergraph edges.
-printHype :: (Show n, Show t) => Hype n t -> IO ()
-printHype hype =
-    forM_ edges $ \(p, trav) ->
-        printTrav hype p trav
-  where
-    edges  = sortIt (hyperEdges hype)
-    sortIt = sortBy (comparing $ prio.fst)
+-- -- | Print the hypergraph edges.
+-- printHype :: (Show n, Show t) => Hype n t -> IO ()
+-- printHype hype =
+--     forM_ edges $ \(p, trav) ->
+--         printTrav hype p trav
+--   where
+--     edges  = sortIt (hyperEdges hype)
+--     sortIt = sortBy (comparing $ prio.fst)
 
 
 
@@ -1307,105 +1049,6 @@ earley DAG.Gram{..} input = do
 
 
 --------------------------------------------------
--- Local automaton type
---------------------------------------------------
-
-
--- | Local automaton type based on `A.GramAuto`.
-data Auto n t = Auto
-    { gramDAG   :: DAG (O.Node n t) ()
-    -- ^ The underlying grammar DAG
-    , gramAuto  :: A.GramAuto
-    -- ^ The underlying automaton
-    , withBody  :: M.Map DID (S.Set ID)
-    -- , withBody :: H.CuckooHashTable (Lab n t) (S.Set ID)
-    -- ^ A data structure which, for each label, determines the
-    -- set of automaton states from which this label goes out
-    -- as a body transition.
-    , termDID   :: M.Map t DID
-    -- ^ A map which assigns DAG IDs to the corresponding terminals.
-    -- Note that each grammar terminal is represented by exactly
-    -- one grammar DAG node.
-    , footDID   :: M.Map n DID
-    -- ^ A map which assigns DAG IDs to the corresponding foot
-    -- non-terminals.  Note that each grammar foot non-terminal
-    -- is represented by exactly one grammar DAG node.
-    , leafDID   :: M.Map n DID
-    -- ^ A map which assigns DAG IDs to the corresponding leaf
-    -- non-terminals.  Note that each grammar foot non-terminal
-    -- is represented by exactly one grammar DAG node.
-    --
-    -- TODO: Consider using hashtables to reresent termDID and
-    -- footDID.
-    }
-
-
--- | Construct `Auto` based on the underlying `A.GramAuto`.
-mkAuto
-    -- :: (Hashable t, Ord t, Hashable n, Ord n)
-    :: (Ord t, Ord n)
-    => DAG (O.Node n t) w
-    -> A.GramAuto
-    -> Auto n t
-    -- -> IO Auto
-mkAuto dag auto = Auto
-    { gramDAG  = dag'
-    , gramAuto = auto
-    , withBody = mkWithBody auto
-    , termDID  = mkTermDID dag'
-    , footDID  = mkFootDID dag'
-    , leafDID  = mkLeafDID dag' }
-    where dag' = fmap (const ()) dag
-
-
--- | Create the `withBody` component based on the automaton.
-mkWithBody :: A.GramAuto -> M.Map DID (S.Set ID)
-mkWithBody dag = M.fromListWith S.union
-    [ (x, S.singleton i)
-    | (i, A.Body x, _j) <- A.allEdges dag ]
-
-
--- | Create the `termDID` component of the hypergraph.
-mkTermDID
-    :: (Ord t)
-    => DAG (O.Node n t) ()
-    -> M.Map t DID
-mkTermDID dag = M.fromListWith
-  (const $ error "Auto.mkTermDID: multiple nodes")
-  -- the error above is related to the assumption of the parser that
-  -- there is at most one DAG node with a given terminal; the same
-  -- applies to `mkFootDID` and `mkLeafDID`
-    [ (t, i)
-    | i <- S.toList (DAG.nodeSet dag)
-    , O.Term t <- maybeToList (DAG.label i dag) ]
-
-
--- | Create the `footDID` component of the hypergraph.
-mkFootDID
-    :: (Ord n)
-    => DAG (O.Node n t) ()
-    -> M.Map n DID
-mkFootDID dag = M.fromListWith
-  (const $ error "Auto.mkFootDID: multiple nodes")
-    [ (x, i)
-    | i <- S.toList (DAG.nodeSet dag)
-    , O.Foot x <- maybeToList (DAG.label i dag) ]
-
-
--- | Create the `leafDID` component of the hypergraph.
-mkLeafDID
-    :: (Ord n)
-    => DAG (O.Node n t) ()
-    -> M.Map n DID
-mkLeafDID dag = M.fromListWith
-  (const $ error "Auto.mkLeafDID: multiple nodes")
-    [ (x, i)
-    | i <- S.toList (DAG.nodeSet dag)
-    , DAG.isLeaf i dag
-    , O.NonTerm x <- maybeToList (DAG.label i dag) ]
-
-
---------------------------------------------------
 -- Parsing with automaton
 --------------------------------------------------
 
@@ -1589,42 +1232,6 @@ some :: Monad m => Maybe a -> P.ListT m a
 some = each . maybeToList
 
 
--- -- | Take the non-terminal of the underlying DAG node.
--- nonTerm :: Either n DID -> Hype n t -> n
--- nonTerm i hype =
---     case i of
---         Left rootNT -> rootNT
---         Right did   -> check $
---             DAG.label did (gramDAG $ automat hype)
---   where
---     check Nothing  = error "nonTerm: not a non-terminal ID"
---     check (Just x) = x
-
-
--- | Take the non-terminal of the underlying DAG node.
-nonTerm :: Either n DID -> Hype n t -> n
-nonTerm i =
-    check . nonTerm' i . gramDAG . automat
-  where
-    check Nothing  = error "nonTerm: not a non-terminal ID"
-    check (Just x) = x
-
-
--- | Take the non-terminal of the underlying DAG node.
-nonTerm' :: Either n DID -> DAG (O.Node n t) () -> Maybe n
-nonTerm' i dag = case i of
-    Left rootNT -> Just rootNT
-    Right did   -> labNonTerm =<< DAG.label did dag
-    -- Right did   -> labNonTerm . DAG.label did -- . gramDAG . automat
-
-
--- | Take the non-terminal of the underlying DAG node.
-labNonTerm :: O.Node n t -> Maybe n
-labNonTerm (O.NonTerm y) = Just y
-labNonTerm (O.Foot y) = Just y
-labNonTerm _ = Nothing
-
-
 -- -- | Is the rule with the given head top-level?
 -- topLevel :: Lab n t -> Bool
 -- topLevel x = case x of
@@ -1641,3 +1248,8 @@ labNonTerm _ = Nothing
 -- listValues x m = each $ case M.lookup x m of
 --     Nothing -> []
 --     Just s -> S.toList s
+
+
+-- | Take the non-terminal of the underlying DAG node.
+nonTerm :: Either n DID -> Hype n t -> n
+nonTerm i = Base.nonTerm i . automat
