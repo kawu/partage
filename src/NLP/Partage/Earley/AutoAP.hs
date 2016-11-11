@@ -89,6 +89,7 @@ import qualified NLP.Partage.Earley.Base as Base
 import           NLP.Partage.Earley.Item hiding (printPassive)
 import qualified NLP.Partage.Earley.Item as Item
 import           NLP.Partage.Earley.ExtWeight
+import qualified NLP.Partage.Earley.Chart as Chart
 
 -- For debugging purposes
 #ifdef DebugOn
@@ -145,16 +146,8 @@ data Hype n t = Hype
 --     -- set of automaton states from which this label goes out
 --     -- as a body transition.
 
-    -- , doneActive  :: M.Map (ID, Pos) (S.Set (Active n t))
-    , doneActive  :: M.Map Pos (M.Map ID
-        (M.Map Active (S.Set (Trav n t))))
-    -- ^ Processed active items partitioned w.r.t ending
-    -- positions and state IDs.
-
-    -- , donePassive :: S.Set (Passive n t)
-    , donePassive :: M.Map (Pos, n, Pos)
-        (M.Map (Passive n t) (S.Set (Trav n t)))
-    -- ^ Processed passive items.
+    , chart :: Chart.Chart n t
+    -- ^ The underlying chart
 
     , waiting     :: Q.PSQ (Item n t) (ExtPrio n t)
     -- ^ The set of states waiting on the queue to be processed.
@@ -178,10 +171,8 @@ mkHype
     -> S.Set Active
     -> Hype n t
 mkHype auto s = Hype
-    { automat  = auto
-    -- , withBody = theBody -- mkWithBody dag
-    , doneActive  = M.empty
-    , donePassive = M.empty
+    { automat = auto
+    , chart   = Chart.empty
     , waiting = Q.fromList
         [ ItemA p :-> extPrio (prioA p)
         | p <- S.toList s ] }
@@ -216,40 +207,40 @@ readInput i = do
 --------------------------------------------------
 
 
--- | Number of nodes in the parsing hypergraph.
-hyperNodesNum :: Hype n t -> Int
-hyperNodesNum e
-    = length (listPassive e)
-    + length (listActive e)
+-- -- | Number of nodes in the parsing hypergraph.
+-- hyperNodesNum :: Hype n t -> Int
+-- hyperNodesNum e
+--     = length (listPassive e)
+--     + length (listActive e)
+-- 
+-- 
+-- -- | Number of edges in the parsing hypergraph.
+-- hyperEdgesNum :: forall n t. Hype n t -> Int
+-- hyperEdgesNum earSt
+--     = sumOver listPassive
+--     + sumOver listActive
+--   where
+--     sumOver :: (Hype n t -> [(a, S.Set (Trav n t))]) -> Int
+--     sumOver listIt = sum
+--         [ S.size travSet
+--         | (_, travSet) <- listIt earSt ]
 
 
--- | Number of edges in the parsing hypergraph.
-hyperEdgesNum :: forall n t. Hype n t -> Int
-hyperEdgesNum earSt
-    = sumOver listPassive
-    + sumOver listActive
-  where
-    sumOver :: (Hype n t -> [(a, S.Set (Trav n t))]) -> Int
-    sumOver listIt = sum
-        [ S.size travSet
-        | (_, travSet) <- listIt earSt ]
-
-
--- | Extract hypergraph (hyper)edges.
-hyperEdges :: Hype n t -> [(Item n t, Trav n t)]
-hyperEdges earSt =
-    passiveEdges ++ activeEdges
-  where
-    passiveEdges =
-        [ (ItemP p, trav)
-        | (p, travSet) <- listPassive earSt
-        , trav <- S.toList travSet ]
-    activeEdges =
-        [ (ItemA p, trav)
-        | (p, travSet) <- listActive earSt
-        , trav <- S.toList travSet ]
-
-
+-- -- | Extract hypergraph (hyper)edges.
+-- hyperEdges :: Hype n t -> [(Item n t, Trav n t)]
+-- hyperEdges earSt =
+--     passiveEdges ++ activeEdges
+--   where
+--     passiveEdges =
+--         [ (ItemP p, trav)
+--         | (p, travSet) <- listPassive earSt
+--         , trav <- S.toList travSet ]
+--     activeEdges =
+--         [ (ItemA p, trav)
+--         | (p, travSet) <- listActive earSt
+--         , trav <- S.toList travSet ]
+-- 
+-- 
 -- -- | Print the hypergraph edges.
 -- printHype :: (Show n, Show t) => Hype n t -> IO ()
 -- printHype hype =
@@ -260,42 +251,85 @@ hyperEdges earSt =
 --     sortIt = sortBy (comparing $ prio.fst)
 
 
+-- | List all waiting items together with the corresponding
+-- traversals.
+listWaiting :: (Ord n, Ord t) => Hype n t -> [(Item n t, ExtPrio n t)]
+listWaiting =
+  let toPair (p :-> w) = (p, w)
+   in map toPair . Q.toList . waiting
+
+
+-- | Number of nodes in the parsing hypergraph.
+doneNodesNum :: (Ord n, Ord t) => Hype n t -> Int
+doneNodesNum e = Chart.doneNodesNum (chart e)
+
+
+-- | Number of waiting nodes in the parsing hypergraph.
+waitingNodesNum :: (Ord n, Ord t) => Hype n t -> Int
+waitingNodesNum = length . listWaiting
+
+
+-- | Number of nodes in the parsing hypergraph.
+hyperNodesNum :: (Ord n, Ord t) => Hype n t -> Int
+hyperNodesNum e = doneNodesNum e + waitingNodesNum e
+
+
+-- | Number of nodes in the parsing hypergraph.
+doneEdgesNum :: (Ord n, Ord t) => Hype n t -> Int
+doneEdgesNum e = Chart.doneEdgesNum (chart e)
+
+
+-- | Number of edges outgoing from waiting nodes in the underlying hypergraph.
+waitingEdgesNum :: (Ord n, Ord t) => Hype n t -> Int
+waitingEdgesNum = sumTrav . listWaiting
+
+
+-- | Number of edges in the parsing hypergraph.
+hyperEdgesNum :: (Ord n, Ord t) => Hype n t -> Int
+hyperEdgesNum e = doneEdgesNum e + waitingEdgesNum e
+
+
+-- | Sum up traversals.
+sumTrav :: [(a, ExtPrio n t)] -> Int
+sumTrav xs = sum
+    [ S.size (prioTrav ext)
+    | (_, ext) <- xs ]
 
 --------------------
 -- Active items
 --------------------
 
 
--- | List all active done items together with the corresponding
--- traversals.
-listActive :: Hype n t -> [(Active, S.Set (Trav n t))]
-listActive = (M.elems >=> M.elems >=> M.toList) . doneActive
-
-
--- | Return the corresponding set of traversals for an active item.
-activeTrav
-    :: (Ord n, Ord t)
-    => Active -> Hype n t
-    -> Maybe (S.Set (Trav n t))
-activeTrav p
-    = (   M.lookup (p ^. spanA ^. end)
-      >=> M.lookup (p ^. state)
-      >=> M.lookup p )
-    . doneActive
-
-
--- | Check if the active item is not already processed.
-_isProcessedA :: (Ord n, Ord t) => Active -> Hype n t -> Bool
-_isProcessedA p =
-    check . activeTrav p
-  where
-    check (Just _) = True
-    check _        = False
+-- -- | List all active done items together with the corresponding
+-- -- traversals.
+-- listActive :: Hype n t -> [(Active, S.Set (Trav n t))]
+-- listActive = (M.elems >=> M.elems >=> M.toList) . doneActive
+-- 
+-- 
+-- -- | Return the corresponding set of traversals for an active item.
+-- activeTrav
+--     :: (Ord n, Ord t)
+--     => Active -> Hype n t
+--     -> Maybe (S.Set (Trav n t))
+-- activeTrav p
+--     = (   M.lookup (p ^. spanA ^. end)
+--       >=> M.lookup (p ^. state)
+--       >=> M.lookup p )
+--     . doneActive
+-- 
+-- 
+-- -- | Check if the active item is not already processed.
+-- _isProcessedA :: (Ord n, Ord t) => Active -> Hype n t -> Bool
+-- _isProcessedA p =
+--     check . activeTrav p
+--   where
+--     check (Just _) = True
+--     check _        = False
 
 
 -- | Check if the active item is not already processed.
 isProcessedA :: (Ord n, Ord t) => Active -> Earley n t Bool
-isProcessedA p = _isProcessedA p <$> RWS.get
+isProcessedA p = Chart.isProcessedA p . chart <$> RWS.get
 
 
 -- | Mark the active item as processed (`done').
@@ -305,16 +339,36 @@ saveActive
     -> S.Set (Trav n t)
     -> Earley n t ()
 saveActive p ts =
-    RWS.state $ \s -> ((), s {doneActive = newDone s})
-  where
-    newDone st =
-        M.insertWith
-            ( M.unionWith
-                ( M.unionWith S.union ) )
-            ( p ^. spanA ^. end )
-            ( M.singleton (p ^. state)
-                ( M.singleton p ts ) )
-            ( doneActive st )
+  RWS.modify' $ \h -> h {chart = Chart.saveActive p ts (chart h)}
+
+-- -- | Mark the active item as processed (`done').
+-- saveActive
+--     :: (Ord t, Ord n)
+--     => Active
+--     -> S.Set (Trav n t)
+--     -> Earley n t ()
+-- saveActive p ts =
+--     RWS.state $ \s -> ((), s {doneActive = newDone s})
+--   where
+--     newDone st =
+--         M.insertWith
+--             ( M.unionWith
+--                 ( M.unionWith S.union ) )
+--             ( p ^. spanA ^. end )
+--             ( M.singleton (p ^. state)
+--                 ( M.singleton p ts ) )
+--             ( doneActive st )
+
+
+-- | Check if, for the given active item, the given transitions are already
+-- present in the hypergraph.
+hasActiveTrav
+    :: (Ord t, Ord n)
+    => Active
+    -> S.Set (Trav n t)
+    -> Earley n t Bool
+hasActiveTrav p travSet =
+  Chart.hasActiveTrav p travSet . chart <$> RWS.get
 
 
 --------------------
@@ -322,37 +376,39 @@ saveActive p ts =
 --------------------
 
 
--- | List all passive done items together with the corresponding
--- traversals.
-listPassive :: Hype n t -> [(Passive n t, S.Set (Trav n t))]
-listPassive = (M.elems >=> M.toList) . donePassive
-
-
--- | Return the corresponding set of traversals for a passive item.
-passiveTrav
-    :: (Ord n, Ord t)
-    => Passive n t -> Hype n t
-    -> Maybe (S.Set (Trav n t))
-passiveTrav p hype =
-    ( M.lookup
-        ( p ^. spanP ^. beg
-        , nonTerm (p ^. dagID) hype
-        , p ^. spanP ^. end ) >=> M.lookup p )
-    ( donePassive hype )
-
-
--- | Check if the state is not already processed.
-_isProcessedP :: (Ord n, Ord t) => Passive n t -> Hype n t -> Bool
-_isProcessedP x =
-    check . passiveTrav x
-  where
-    check (Just _) = True
-    check _        = False
+-- -- | List all passive done items together with the corresponding
+-- -- traversals.
+-- listPassive :: Hype n t -> [(Passive n t, S.Set (Trav n t))]
+-- listPassive = (M.elems >=> M.toList) . donePassive
+-- 
+-- 
+-- -- | Return the corresponding set of traversals for a passive item.
+-- passiveTrav
+--     :: (Ord n, Ord t)
+--     => Passive n t -> Hype n t
+--     -> Maybe (S.Set (Trav n t))
+-- passiveTrav p hype =
+--     ( M.lookup
+--         ( p ^. spanP ^. beg
+--         , nonTerm (p ^. dagID) hype
+--         , p ^. spanP ^. end ) >=> M.lookup p )
+--     ( donePassive hype )
+-- 
+-- 
+-- -- | Check if the state is not already processed.
+-- _isProcessedP :: (Ord n, Ord t) => Passive n t -> Hype n t -> Bool
+-- _isProcessedP x =
+--     check . passiveTrav x
+--   where
+--     check (Just _) = True
+--     check _        = False
 
 
 -- | Check if the passive item is not already processed.
 isProcessedP :: (Ord n, Ord t) => Passive n t -> Earley n t Bool
-isProcessedP p = _isProcessedP p <$> RWS.get
+isProcessedP p = do
+  h <- RWS.get
+  return $ Chart.isProcessedP p (automat h) (chart h)
 
 
 -- | Mark the passive item as processed (`done').
@@ -362,16 +418,39 @@ savePassive
     -> S.Set (Trav n t)
     -> Earley n t ()
 savePassive p ts =
-    RWS.state $ \s -> ((), s {donePassive = newDone s})
-  where
-    newDone hype =
-        M.insertWith
-            ( M.unionWith S.union )
-            ( p ^. spanP ^. beg
-            , nonTerm (p ^. dagID) hype
-            , p ^. spanP ^. end )
-            ( M.singleton p ts )
-            ( donePassive hype )
+  -- RWS.state $ \s -> ((), s {donePassive = newDone s})
+  RWS.modify' $ \h -> h {chart = Chart.savePassive p ts (automat h) (chart h)}
+
+
+-- -- | Mark the passive item as processed (`done').
+-- savePassive
+--     :: (Ord t, Ord n)
+--     => Passive n t
+--     -> S.Set (Trav n t)
+--     -> Earley n t ()
+-- savePassive p ts =
+--     RWS.state $ \s -> ((), s {donePassive = newDone s})
+--   where
+--     newDone hype =
+--         M.insertWith
+--             ( M.unionWith S.union )
+--             ( p ^. spanP ^. beg
+--             , nonTerm (p ^. dagID) hype
+--             , p ^. spanP ^. end )
+--             ( M.singleton p ts )
+--             ( donePassive hype )
+
+
+-- | Check if, for the given active item, the given transitions are already
+-- present in the hypergraph.
+hasPassiveTrav
+    :: (Ord t, Ord n)
+    => Passive n t
+    -> S.Set (Trav n t)
+    -> Earley n t Bool
+hasPassiveTrav p travSet = do
+  h <- RWS.get
+  return $ Chart.hasPassiveTrav p travSet (automat h) (chart h)
 
 
 --------------------
@@ -448,47 +527,86 @@ popItem = RWS.state $ \st -> case Q.minView (waiting st) of
 ---------------------------------
 
 
+-- | See `Chart.expectEnd`.
+expectEnd
+    :: (Ord n, Ord t) => DID -> Pos
+    -> P.ListT (Earley n t) Active
+expectEnd = Chart.expectEnd automat chart
+
+
+-- | Return all passive items with:
+-- * the given root non-terminal value (but not top-level auxiliary)
+-- * the given span
+rootSpan
+    :: Ord n => n -> (Pos, Pos)
+    -> P.ListT (Earley n t) (Passive n t)
+rootSpan = Chart.rootSpan chart
+
+
+-- -- -- | Return all active processed items which:
+-- -- -- * expect a given label,
+-- -- -- * end on the given position.
+-- -- expectEnd
+-- --     :: (Ord n, Ord t) => Lab n t -> Pos
+-- --     -> P.ListT (Earley n t) Active
+-- -- expectEnd sym i = do
+-- --     Hype{..} <- lift RWS.get
+-- --     -- determine items which end on the given position
+-- --     doneEnd <- some $ M.lookup i doneActive
+-- --     -- determine automaton states from which the given label
+-- --     -- leaves as a body transition
+-- --     stateSet <- some $ M.lookup sym withBody
+-- --     -- pick one of the states
+-- --     stateID <- each $ S.toList stateSet
+-- --     --
+-- --     -- ALTERNATIVE: state <- each . S.toList $
+-- --     --      stateSet `S.intersection` M.keySet doneEnd
+-- --     --
+-- --     -- determine items which refer to the chosen states
+-- --     doneEndLab <- some $ M.lookup stateID doneEnd
+-- --     -- return them all!
+-- --     each $ M.keys doneEndLab
+-- 
+-- 
+-- -- -- | Return all active processed items which:
+-- -- -- * expect a given label,
+-- -- -- * end on the given position.
+-- -- expectEnd
+-- --     :: (HOrd n, HOrd t) => Lab n t -> Pos
+-- --     -> P.ListT (Earley n t) Active
+-- -- expectEnd sym i = do
+-- --     Hype{..} <- lift RWS.get
+-- --     -- determine items which end on the given position
+-- --     doneEnd <- some $ M.lookup i doneActive
+-- --     -- determine automaton states from which the given label
+-- --     -- leaves as a body transition
+-- --     stateSet <- do
+-- --         maybeSet <- lift . lift $
+-- --             H.lookup (withBody automat) sym
+-- --         some maybeSet
+-- --     -- pick one of the states
+-- --     stateID <- each . S.toList $
+-- --          stateSet `S.intersection` M.keysSet doneEnd
+-- --     -- determine items which refer to the chosen states
+-- --     doneEndLab <- some $ M.lookup stateID doneEnd
+-- --     -- return them all!
+-- --     each $ M.keys doneEndLab
+-- 
+-- 
 -- -- | Return all active processed items which:
 -- -- * expect a given label,
 -- -- * end on the given position.
 -- expectEnd
---     :: (Ord n, Ord t) => Lab n t -> Pos
+--     -- :: (HOrd n, HOrd t) => DID -> Pos
+--     :: (Ord n, Ord t) => DID -> Pos
 --     -> P.ListT (Earley n t) Active
--- expectEnd sym i = do
+-- expectEnd did i = do
 --     Hype{..} <- lift RWS.get
 --     -- determine items which end on the given position
 --     doneEnd <- some $ M.lookup i doneActive
 --     -- determine automaton states from which the given label
 --     -- leaves as a body transition
---     stateSet <- some $ M.lookup sym withBody
---     -- pick one of the states
---     stateID <- each $ S.toList stateSet
---     --
---     -- ALTERNATIVE: state <- each . S.toList $
---     --      stateSet `S.intersection` M.keySet doneEnd
---     --
---     -- determine items which refer to the chosen states
---     doneEndLab <- some $ M.lookup stateID doneEnd
---     -- return them all!
---     each $ M.keys doneEndLab
-
-
--- -- | Return all active processed items which:
--- -- * expect a given label,
--- -- * end on the given position.
--- expectEnd
---     :: (HOrd n, HOrd t) => Lab n t -> Pos
---     -> P.ListT (Earley n t) Active
--- expectEnd sym i = do
---     Hype{..} <- lift RWS.get
---     -- determine items which end on the given position
---     doneEnd <- some $ M.lookup i doneActive
---     -- determine automaton states from which the given label
---     -- leaves as a body transition
---     stateSet <- do
---         maybeSet <- lift . lift $
---             H.lookup (withBody automat) sym
---         some maybeSet
+--     stateSet <- some $ M.lookup did (withBody automat)
 --     -- pick one of the states
 --     stateID <- each . S.toList $
 --          stateSet `S.intersection` M.keysSet doneEnd
@@ -496,44 +614,21 @@ popItem = RWS.state $ \st -> case Q.minView (waiting st) of
 --     doneEndLab <- some $ M.lookup stateID doneEnd
 --     -- return them all!
 --     each $ M.keys doneEndLab
-
-
--- | Return all active processed items which:
--- * expect a given label,
--- * end on the given position.
-expectEnd
-    -- :: (HOrd n, HOrd t) => DID -> Pos
-    :: (Ord n, Ord t) => DID -> Pos
-    -> P.ListT (Earley n t) Active
-expectEnd did i = do
-    Hype{..} <- lift RWS.get
-    -- determine items which end on the given position
-    doneEnd <- some $ M.lookup i doneActive
-    -- determine automaton states from which the given label
-    -- leaves as a body transition
-    stateSet <- some $ M.lookup did (withBody automat)
-    -- pick one of the states
-    stateID <- each . S.toList $
-         stateSet `S.intersection` M.keysSet doneEnd
-    -- determine items which refer to the chosen states
-    doneEndLab <- some $ M.lookup stateID doneEnd
-    -- return them all!
-    each $ M.keys doneEndLab
-
-
--- | Check if a passive item exists with:
--- * the given root non-terminal value (but not top-level
---   auxiliary) (UPDATE: is this second part ensured?)
--- * the given span
-rootSpan
-    :: Ord n => n -> (Pos, Pos)
-    -> P.ListT (Earley n t) (Passive n t)
-rootSpan x (i, j) = do
-    Hype{..} <- lift RWS.get
-    -- listValues (i, x, j) donePassive
-    each $ case M.lookup (i, x, j) donePassive of
-        Nothing -> []
-        Just m -> M.keys m
+-- 
+-- 
+-- -- | Check if a passive item exists with:
+-- -- * the given root non-terminal value (but not top-level
+-- --   auxiliary) (UPDATE: is this second part ensured?)
+-- -- * the given span
+-- rootSpan
+--     :: Ord n => n -> (Pos, Pos)
+--     -> P.ListT (Earley n t) (Passive n t)
+-- rootSpan x (i, j) = do
+--     Hype{..} <- lift RWS.get
+--     -- listValues (i, x, j) donePassive
+--     each $ case M.lookup (i, x, j) donePassive of
+--         Nothing -> []
+--         Just m -> M.keys m
 
 
 -- -- | List all processed passive items.
@@ -1147,35 +1242,35 @@ earleyAuto auto input = do
 --------------------------------------------------
 
 
--- | Return the list of final passive chart items.
-finalFrom
-    :: (Ord n, Eq t)
-    => n            -- ^ The start symbol
-    -> Int          -- ^ The length of the input sentence
-    -> Hype n t     -- ^ Result of the earley computation
-    -> [Passive n t]
-finalFrom start n Hype{..} =
-    case M.lookup (0, start, n) donePassive of
-        Nothing -> []
-        Just m ->
-            [ p
-            | p <- M.keys m
-            , p ^. dagID == Left start ]
-
-
 -- -- | Return the list of final passive chart items.
--- final
+-- finalFrom
 --     :: (Ord n, Eq t)
+--     => n            -- ^ The start symbol
 --     -> Int          -- ^ The length of the input sentence
---     -> Hype n t    -- ^ Result of the earley computation
+--     -> Hype n t     -- ^ Result of the earley computation
 --     -> [Passive n t]
--- final start n Hype{..} =
+-- finalFrom start n Hype{..} =
 --     case M.lookup (0, start, n) donePassive of
 --         Nothing -> []
 --         Just m ->
 --             [ p
 --             | p <- M.keys m
---             , p ^. label == NonT start Nothing ]
+--             , p ^. dagID == Left start ]
+-- 
+-- 
+-- -- -- | Return the list of final passive chart items.
+-- -- final
+-- --     :: (Ord n, Eq t)
+-- --     -> Int          -- ^ The length of the input sentence
+-- --     -> Hype n t    -- ^ Result of the earley computation
+-- --     -> [Passive n t]
+-- -- final start n Hype{..} =
+-- --     case M.lookup (0, start, n) donePassive of
+-- --         Nothing -> []
+-- --         Just m ->
+-- --             [ p
+-- --             | p <- M.keys m
+-- --             , p ^. label == NonT start Nothing ]
 
 
 -- | Check whether the given sentence is recognized
@@ -1188,7 +1283,7 @@ isRecognized
 isRecognized input Hype{..} =
     (not . null)
     (complete
-        (agregate donePassive))
+        (agregate $ Chart.donePassive chart))
   where
     n = V.length (inputSent input)
     complete done =
@@ -1203,6 +1298,39 @@ isRecognized input Hype{..} =
     agregate = S.unions . map M.keysSet . M.elems
     -- isRoot (NonT _ Nothing) = True
     -- isRoot _ = False
+
+
+--------------------------------------------------
+-- New Utilities
+--------------------------------------------------
+
+
+-- | Return the corresponding set of traversals for an active item.
+activeTrav
+  :: (Ord n, Ord t)
+  => Active
+  -> Hype n t
+  -> Maybe (S.Set (Trav n t))
+activeTrav p h = Chart.activeTrav p (chart h)
+
+
+-- | Return the corresponding set of traversals for a passive item.
+passiveTrav
+  :: (Ord n, Ord t)
+  => Passive n t
+  -> Hype n t
+  -> Maybe (S.Set (Trav n t))
+passiveTrav p h = Chart.passiveTrav p (automat h) (chart h)
+
+
+-- | Return the list of final, initial, passive chart items.
+finalFrom
+    :: (Ord n, Eq t)
+    => n            -- ^ The start symbol
+    -> Int          -- ^ The length of the input sentence
+    -> Hype n t     -- ^ Result of the earley computation
+    -> [Passive n t]
+finalFrom start n hype = Chart.finalFrom start n (chart hype)
 
 
 --------------------------------------------------

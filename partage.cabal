@@ -68,6 +68,7 @@ library
       , NLP.Partage.Earley.Auto
       , NLP.Partage.Earley.Item
       , NLP.Partage.Earley.ExtWeight
+      , NLP.Partage.Earley.Chart
 
       , NLP.Partage.AStar
       , NLP.Partage.AStar.Deriv

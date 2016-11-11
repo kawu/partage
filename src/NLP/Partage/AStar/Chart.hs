@@ -141,14 +141,14 @@ listActive :: Chart n t -> [(Active, ExtWeight n t)]
 listActive = (M.elems >=> M.elems >=> M.toList) . doneActive
 
 
--- | Number of passive (done) nodes in the parsing hypergraph.
+-- | Number of chart nodes.
 doneNodesNum :: Chart n t -> Int
 doneNodesNum e
     = length (listPassive e)
     + length (listActive e)
 
 
--- | Number of edges outgoing from done nodes in the underlying hypergraph.
+-- | Number of edges outgoing from the nodes in the underlying chart.
 doneEdgesNum :: Chart n t -> Int
 doneEdgesNum e
     = sumTrav (listPassive e)
