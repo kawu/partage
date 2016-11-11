@@ -6,10 +6,6 @@ module NLP.Partage.Earley.Hypergraph
 -- ** Stats
 , hyperNodesNum
 , hyperEdgesNum
-
--- -- * Earley monad
--- , Earley
--- , readInput
 ) where
 
 

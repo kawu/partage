@@ -94,198 +94,12 @@ import qualified NLP.Partage.Earley.Item as Item
 import           NLP.Partage.Earley.ExtWeight
 import qualified NLP.Partage.Earley.Chart as Chart
 import           NLP.Partage.Earley.Hypergraph
+import           NLP.Partage.Earley.Monad
 
 -- For debugging purposes
 #ifdef DebugOn
 import qualified Data.Time              as Time
 #endif
-
-
---------------------------------------------------
--- Printing Item
---------------------------------------------------
-
-
--- #ifdef DebugOn
--- | Print a passive item.
-printPassive :: (Show n, Show t) => Passive n t -> Hype n t -> IO ()
-printPassive p hype = Item.printPassive p (automat hype)
-
-
--- | Print an active item.
-printItem :: (Show n, Show t) => Item n t -> Hype n t -> IO ()
-printItem (ItemP p) h = printPassive p h
-printItem (ItemA p) _ = printActive p
--- #endif
-
-
--- -- | Priority of an active item.  Crucial for the algorithm --
--- -- states have to be removed from the queue in a specific order.
--- prio :: Item n t -> Prio
--- prio (ItemP p) = prioP p
--- prio (ItemA p) = prioA p
-
-
--- --------------------------------------------------
--- -- Hypergraph stats
--- --------------------------------------------------
--- 
--- 
--- -- -- | Extract hypergraph (hyper)edges.
--- -- hyperEdges :: Hype n t -> [(Item n t, Trav n t)]
--- -- hyperEdges earSt =
--- --     passiveEdges ++ activeEdges
--- --   where
--- --     passiveEdges =
--- --         [ (ItemP p, trav)
--- --         | (p, travSet) <- listPassive earSt
--- --         , trav <- S.toList travSet ]
--- --     activeEdges =
--- --         [ (ItemA p, trav)
--- --         | (p, travSet) <- listActive earSt
--- --         , trav <- S.toList travSet ]
--- -- 
--- -- 
--- -- -- | Print the hypergraph edges.
--- -- printHype :: (Show n, Show t) => Hype n t -> IO ()
--- -- printHype hype =
--- --     forM_ edges $ \(p, trav) ->
--- --         printTrav hype p trav
--- --   where
--- --     edges  = sortIt (hyperEdges hype)
--- --     sortIt = sortBy (comparing $ prio.fst)
--- 
--- 
--- -- | List all waiting items together with the corresponding
--- -- traversals.
--- listWaiting :: (Ord n, Ord t) => Hype n t -> [(Item n t, ExtPrio n t)]
--- listWaiting =
---   let toPair (p :-> w) = (p, w)
---    in map toPair . Q.toList . waiting
--- 
--- 
--- -- | Number of nodes in the parsing hypergraph.
--- doneNodesNum :: (Ord n, Ord t) => Hype n t -> Int
--- doneNodesNum e = Chart.doneNodesNum (chart e)
--- 
--- 
--- -- | Number of waiting nodes in the parsing hypergraph.
--- waitingNodesNum :: (Ord n, Ord t) => Hype n t -> Int
--- waitingNodesNum = length . listWaiting
--- 
--- 
--- -- | Number of nodes in the parsing hypergraph.
--- hyperNodesNum :: (Ord n, Ord t) => Hype n t -> Int
--- hyperNodesNum e = doneNodesNum e + waitingNodesNum e
--- 
--- 
--- -- | Number of nodes in the parsing hypergraph.
--- doneEdgesNum :: (Ord n, Ord t) => Hype n t -> Int
--- doneEdgesNum e = Chart.doneEdgesNum (chart e)
--- 
--- 
--- -- | Number of edges outgoing from waiting nodes in the underlying hypergraph.
--- waitingEdgesNum :: (Ord n, Ord t) => Hype n t -> Int
--- waitingEdgesNum = sumTrav . listWaiting
--- 
--- 
--- -- | Number of edges in the parsing hypergraph.
--- hyperEdgesNum :: (Ord n, Ord t) => Hype n t -> Int
--- hyperEdgesNum e = doneEdgesNum e + waitingEdgesNum e
--- 
--- 
--- -- | Sum up traversals.
--- sumTrav :: [(a, ExtPrio n t)] -> Int
--- sumTrav xs = sum
---     [ S.size (prioTrav ext)
---     | (_, ext) <- xs ]
-
-
---------------------------------------------------
--- Earley monad
---------------------------------------------------
-
-
--- | Earley parser monad.  Contains the input sentence (reader)
--- and the state of the computation `Hype'.
-type Earley n t = RWS.RWST (Input t) () (Hype n t) IO
-
-
--- | Read word from the given position of the input.
-readInput :: Pos -> P.ListT (Earley n t) t
-readInput i = do
-    -- ask for the input
-    sent <- RWS.asks inputSent
-    -- just a safe way to retrieve the i-th element
-    -- each $ take 1 $ drop i xs
-    xs <- some $ sent V.!? i
-    each $ S.toList xs
-
-
---------------------
--- Active items
---------------------
-
-
--- | Check if the active item is not already processed.
-isProcessedA :: (Ord n, Ord t) => Active -> Earley n t Bool
-isProcessedA p = Chart.isProcessedA p . chart <$> RWS.get
-
-
--- | Mark the active item as processed (`done').
-saveActive
-    :: (Ord t, Ord n)
-    => Active
-    -> S.Set (Trav n t)
-    -> Earley n t ()
-saveActive p ts =
-  RWS.modify' $ \h -> h {chart = Chart.saveActive p ts (chart h)}
-
-
--- | Check if, for the given active item, the given transitions are already
--- present in the hypergraph.
-hasActiveTrav
-    :: (Ord t, Ord n)
-    => Active
-    -> S.Set (Trav n t)
-    -> Earley n t Bool
-hasActiveTrav p travSet =
-  Chart.hasActiveTrav p travSet . chart <$> RWS.get
-
-
---------------------
--- Passive items
---------------------
-
-
--- | Check if the passive item is not already processed.
-isProcessedP :: (Ord n, Ord t) => Passive n t -> Earley n t Bool
-isProcessedP p = do
-  h <- RWS.get
-  return $ Chart.isProcessedP p (automat h) (chart h)
-
-
--- | Mark the passive item as processed (`done').
-savePassive
-    :: (Ord t, Ord n)
-    => Passive n t
-    -> S.Set (Trav n t)
-    -> Earley n t ()
-savePassive p ts =
-  -- RWS.state $ \s -> ((), s {donePassive = newDone s})
-  RWS.modify' $ \h -> h {chart = Chart.savePassive p ts (automat h) (chart h)}
-
-
--- | Check if, for the given active item, the given transitions are already
--- present in the hypergraph.
-hasPassiveTrav
-    :: (Ord t, Ord n)
-    => Passive n t
-    -> S.Set (Trav n t)
-    -> Earley n t Bool
-hasPassiveTrav p travSet = do
-  h <- RWS.get
-  return $ Chart.hasPassiveTrav p travSet (automat h) (chart h)
 
 
 --------------------
@@ -1040,6 +854,24 @@ finalFrom
     -> Hype n t     -- ^ Result of the earley computation
     -> [Passive n t]
 finalFrom start n hype = Chart.finalFrom start n (chart hype)
+
+
+--------------------------------------------------
+-- Printing Item
+--------------------------------------------------
+
+
+-- #ifdef DebugOn
+-- | Print a passive item.
+printPassive :: (Show n, Show t) => Passive n t -> Hype n t -> IO ()
+printPassive p hype = Item.printPassive p (automat hype)
+
+
+-- | Print an active item.
+printItem :: (Show n, Show t) => Item n t -> Hype n t -> IO ()
+printItem (ItemP p) h = printPassive p h
+printItem (ItemA p) _ = printActive p
+-- #endif
 
 
 --------------------------------------------------
