@@ -16,6 +16,7 @@ module NLP.Partage.Earley.Item
 , regular
 , auxiliary
 , isRoot
+, Item (..)
 
 -- #ifdef DebugOn
 , printActive
@@ -74,6 +75,13 @@ data Passive n t = Passive {
     , _spanP :: Span
     } deriving (Show, Eq, Ord)
 $( makeLenses [''Passive] )
+
+
+-- | Passive or active item.
+data Item n t
+    = ItemP (Passive n t)
+    | ItemA Active
+    deriving (Show, Eq, Ord)
 
 
 -- | Does it represent regular rules?

@@ -5,6 +5,7 @@ module NLP.Partage.Earley.ExtWeight
 , Prio
 , prioA
 , prioP
+, prio
 , ExtPrio (..)
 , extPrio
 , joinPrio
@@ -119,6 +120,13 @@ prioP p =
     let i = getL (beg . spanP) p
         j = getL (end . spanP) p
     in  (j, j - i)
+
+
+-- | Priority of an active item.  Crucial for the algorithm --
+-- states have to be removed from the queue in a specific order.
+prio :: Item n t -> Prio
+prio (ItemP p) = prioP p
+prio (ItemA p) = prioA p
 
 
 -- | Extended priority which preservs information about the traversal

@@ -69,6 +69,7 @@ library
       , NLP.Partage.Earley.Item
       , NLP.Partage.Earley.ExtWeight
       , NLP.Partage.Earley.Chart
+      , NLP.Partage.Earley.Hypergraph
 
       , NLP.Partage.AStar
       , NLP.Partage.AStar.Deriv
