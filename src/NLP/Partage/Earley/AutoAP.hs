@@ -142,23 +142,23 @@ pushPassive p t = isProcessedP p >>= \b -> if b
 --     in  ((), s {waiting = waiting'})
 
 
--- | Add to the waiting queue all items induced from
--- the given active item.
-pushInduced :: (Ord t, Ord n) => Active -> Trav n t -> Earley n t ()
-pushInduced p t = do
-    dag <- RWS.gets (gramDAG . automat)
-    hasElems (getL state p) >>= \b -> when b
-        (pushActive p t)
-    P.runListT $ do
-        did <- heads (getL state p)
-        lift . flip pushPassive t $
-            if not (DAG.isRoot did dag)
-                then Passive (Right did) (getL spanA p)
-                else check $ do
-                    x <- labNonTerm =<< DAG.label did dag
-                    return $ Passive (Left x) (getL spanA p)
-                where check (Just x) = x
-                      check Nothing  = error "pushInduced: invalid DID"
+-- -- | Add to the waiting queue all items induced from
+-- -- the given active item.
+-- pushInduced :: (Ord t, Ord n) => Active -> Trav n t -> Earley n t ()
+-- pushInduced p t = do
+--     dag <- RWS.gets (gramDAG . automat)
+--     hasElems (getL state p) >>= \b -> when b
+--         (pushActive p t)
+--     P.runListT $ do
+--         did <- heads (getL state p)
+--         lift . flip pushPassive t $
+--             if not (DAG.isRoot did dag)
+--                 then Passive (Right did) (getL spanA p)
+--                 else check $ do
+--                     x <- labNonTerm =<< DAG.label did dag
+--                     return $ Passive (Left x) (getL spanA p)
+--                 where check (Just x) = x
+--                       check Nothing  = error "pushInduced: invalid DID"
 
 
 -- | Remove a state from the queue.
@@ -251,7 +251,7 @@ heads i = do
 --     each $ mapMaybe mayBody $ A.edges auto i
 
 
--- | Check if any element leaves the given state.
+-- | Check if any (body) element leaves the given state.
 hasElems :: ID -> Earley n t Bool
 hasElems i = do
     auto <- RWS.gets $ gramAuto . automat
@@ -287,7 +287,8 @@ tryScan p = void $ P.runListT $ do
           . modL' (spanA >>> end) (+1)
           $ p
     -- push the resulting state into the waiting queue
-    lift $ pushInduced q $ Scan p c
+    -- lift $ pushInduced q $ Scan p c
+    lift $ pushActive q $ Scan p c
 #ifdef DebugOn
     -- print logging information
     lift . lift $ do
@@ -296,6 +297,37 @@ tryScan p = void $ P.runListT $ do
         putStr "  :  " >> printActive q
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
 #endif
+
+
+--------------------------------------------------
+-- DEACTIVATE
+--------------------------------------------------
+
+
+-- | Try to perform DEACTIVATE on the given active state.
+tryDeactivate :: (SOrd t, SOrd n) => Active -> Earley n t ()
+tryDeactivate p = void $ P.runListT $ do
+#ifdef DebugOn
+    begTime <- lift . lift $ Time.getCurrentTime
+#endif
+    dag <- RWS.gets (gramDAG . automat)
+    did <- heads (getL state p)
+    let q = if not (DAG.isRoot did dag)
+            then Passive (Right did) (getL spanA p)
+            else check $ do
+                x <- labNonTerm =<< DAG.label did dag
+                return $ Passive (Left x) (getL spanA p)
+    lift . pushPassive q $ Deact p
+#ifdef DebugOn
+    -- print logging information
+    lift . lift $ do
+        endTime <- Time.getCurrentTime
+        putStr "[D]  " >> printActive p
+        putStr "  :  " >> printPassive q
+        putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
+#endif
+    where check (Just x) = x
+          check Nothing  = error "tryDeactivate: invalid DID"
 
 
 --------------------------------------------------
@@ -333,7 +365,8 @@ trySubst p = void $ P.runListT $ do
            . setL (end . spanA) (getL end pSpan)
            $ q
     -- push the resulting state into the waiting queue
-    lift $ pushInduced q' $ Subst p q
+    -- lift $ pushInduced q' $ Subst p q
+    lift $ pushActive q' $ Subst p q
 #ifdef DebugOn
     -- print logging information
     hype <- RWS.get
@@ -390,7 +423,8 @@ tryAdjoinInit p = void $ P.runListT $ do
                 , pSpan ^. end ))
            $ q
     -- push the resulting state into the waiting queue
-    lift $ pushInduced q' $ Foot q p -- -- $ nonTerm foot
+    -- lift $ pushInduced q' $ Foot q p -- -- $ nonTerm foot
+    lift $ pushActive q' $ Foot q p -- -- $ nonTerm foot
 #ifdef DebugOn
     -- print logging information
     hype <- RWS.get
@@ -442,7 +476,8 @@ tryAdjoinCont p = void $ P.runListT $ do
            . setL (spanA >>> gap) (pSpan ^. gap)
            $ q
     -- push the resulting state into the waiting queue
-    lift $ pushInduced q' $ Subst p q
+    -- lift $ pushInduced q' $ Subst p q
+    lift $ pushActive q' $ Subst p q
 #ifdef DebugOn
     -- logging info
     hype <- RWS.get
@@ -519,7 +554,8 @@ step (ItemP p :-> e) = do
     savePassive p $ prioTrav e
 step (ItemA p :-> e) = do
     mapM_ ($ p)
-      [ tryScan ]
+      [ tryScan
+      , tryDeactivate ]
     saveActive p $ prioTrav e
 
 
@@ -549,35 +585,44 @@ parsedTrees hype start n
         | travSet <- maybeToList $ passiveTrav p hype
         , trav <- S.toList travSet ]
 
-    fromPassiveTrav p (Scan q t) =
-        [ T.Branch
-            (nonTerm (getL dagID p) hype)
-            (reverse $ T.Leaf t : ts)
-        | ts <- fromActive q ]
-
---     fromPassiveTrav p (Foot q x) =
+--     fromPassiveTrav p (Scan q t) =
 --         [ T.Branch
---             (nonTerm $ getL dagID p)
---             (reverse $ T.Branch x [] : ts)
+--             (nonTerm (getL dagID p) hype)
+--             (reverse $ T.Leaf t : ts)
 --         | ts <- fromActive q ]
+-- 
+-- --     fromPassiveTrav p (Foot q x) =
+-- --         [ T.Branch
+-- --             (nonTerm $ getL dagID p)
+-- --             (reverse $ T.Branch x [] : ts)
+-- --         | ts <- fromActive q ]
+-- 
+--     fromPassiveTrav p (Foot q _p') =
+--         [ T.Branch
+--             (nonTerm (getL dagID p) hype)
+--             (reverse $ T.Branch (nonTerm (p ^. dagID) hype) [] : ts)
+--         | ts <- fromActive q ]
+-- 
+--     fromPassiveTrav p (Subst qp qa) =
+--         [ T.Branch
+--             (nonTerm (p ^. dagID) hype)
+--             (reverse $ t : ts)
+--         | ts <- fromActive qa
+--         , t  <- fromPassive qp ]
 
-    fromPassiveTrav p (Foot q _p') =
+    fromPassiveTrav p (Deact q) =
         [ T.Branch
             (nonTerm (getL dagID p) hype)
-            (reverse $ T.Branch (nonTerm (p ^. dagID) hype) [] : ts)
+            (reverse ts)
         | ts <- fromActive q ]
-
-    fromPassiveTrav p (Subst qp qa) =
-        [ T.Branch
-            (nonTerm (p ^. dagID) hype)
-            (reverse $ t : ts)
-        | ts <- fromActive qa
-        , t  <- fromPassive qp ]
 
     fromPassiveTrav _p (Adjoin qa qm) =
         [ replaceFoot ini aux
         | aux <- fromPassive qa
         , ini <- fromPassive qm ]
+
+    fromPassiveTrav _p _ =
+        error "parsedTrees: impossible fromPassiveTrav?"
 
     -- | Replace foot (the only non-terminal leaf) by the given
     -- initial tree.
@@ -613,7 +658,7 @@ parsedTrees hype start n
         , t  <- fromPassive qp ]
 
     fromActiveTrav _p (Adjoin _ _) =
-        error "parsedTrees: fromActiveTrav called on a passive item"
+        error "parsedTrees: fromActiveTrav called on a passive item?"
 
 
 --------------------------------------------------

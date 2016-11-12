@@ -44,6 +44,10 @@ data Trav n t
         , _scanTerm :: t
         -- ^ The scanned terminal
         }
+    | Deact
+        { _actArg   :: Active
+        -- ^ The active argument of the action
+        }
     | Subst
         { _passArg  :: Passive n t
         -- ^ The passive argument of the action
