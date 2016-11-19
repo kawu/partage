@@ -408,7 +408,7 @@ tryAdjoinInit p = void $ P.runListT $ do
 --         Left rootNT -> return rootNT
 --         Right did   -> some (nonTerm' =<< DAG.label did dag)
     -- what is the corresponding foot DAG ID?
-    footID <- some $ M.lookup footNT footMap 
+    footID <- some $ M.lookup footNT footMap
     -- find all active items which expect a foot with the given
     -- symbol and which end where `p` begins
     -- let foot = AuxFoot $ nonTerm pLab

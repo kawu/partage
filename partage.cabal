@@ -71,6 +71,8 @@ library
       , NLP.Partage.Earley.Chart
       , NLP.Partage.Earley.Hypergraph
       , NLP.Partage.Earley.Monad
+      , NLP.Partage.Tree.Comp
+      , NLP.Partage.CompDAG
 
       , NLP.Partage.AStar
       , NLP.Partage.AStar.Deriv
