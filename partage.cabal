@@ -54,46 +54,54 @@ library
         NLP.Partage.Tree
       , NLP.Partage.Tree.Other
       , NLP.Partage.EdgeTree
-      , NLP.Partage.DAG
       , NLP.Partage.Gen
       , NLP.Partage.Auto
       , NLP.Partage.Auto.List
       , NLP.Partage.Auto.Trie
       , NLP.Partage.Auto.DAWG
       , NLP.Partage.Auto.Set
-      , NLP.Partage.Auto.WeiTrie
+--       , NLP.Partage.Auto.WeiTrie
 
-      , NLP.Partage.Earley
-      , NLP.Partage.Earley.Base
+--       , NLP.Partage.Earley
+--       , NLP.Partage.Earley.Auto
+--       , NLP.Partage.Earley.Base
+--       , NLP.Partage.Earley.Item
+--       , NLP.Partage.Earley.ExtWeight
+--       , NLP.Partage.Earley.Chart
+--       , NLP.Partage.Earley.Hypergraph
+--       , NLP.Partage.Earley.Monad
+
+      , NLP.Partage.DAG
+      , NLP.Partage.Tree.Comp
       , NLP.Partage.Earley.Auto
+      , NLP.Partage.Earley.Base
       , NLP.Partage.Earley.Item
-      , NLP.Partage.Earley.ExtWeight
+      , NLP.Partage.Earley.Trav
       , NLP.Partage.Earley.Chart
       , NLP.Partage.Earley.Hypergraph
       , NLP.Partage.Earley.Monad
-      , NLP.Partage.Tree.Comp
-      , NLP.Partage.CompDAG
+      , NLP.Partage.Earley.Parser
 
-      , NLP.Partage.AStar
-      , NLP.Partage.AStar.Deriv
-      , NLP.Partage.AStar.Deriv.Gorn
-      , NLP.Partage.AStar.DepTree
+--       , NLP.Partage.AStar
+--       , NLP.Partage.AStar.Deriv
+--       , NLP.Partage.AStar.Deriv.Gorn
+--       , NLP.Partage.AStar.DepTree
 
     other-modules:
         NLP.Partage.SOrd
-      , NLP.Partage.Earley.AutoAP
-      , NLP.Partage.AStar.Auto
-      , NLP.Partage.AStar.Heuristic
-      , NLP.Partage.AStar.HeuristicNew
-      , NLP.Partage.AStar.HeuristicOld
-      , NLP.Partage.AStar.Heuristic.Bag
-      , NLP.Partage.AStar.Heuristic.Dummy
-      , NLP.Partage.AStar.Heuristic.Base
-
-      , NLP.Partage.AStar.Base
-      , NLP.Partage.AStar.Item
-      , NLP.Partage.AStar.ExtWeight
-      , NLP.Partage.AStar.Chart
+--       , NLP.Partage.Earley.AutoAP
+--       , NLP.Partage.AStar.Auto
+--       , NLP.Partage.AStar.Heuristic
+--       , NLP.Partage.AStar.HeuristicNew
+--       , NLP.Partage.AStar.HeuristicOld
+--       , NLP.Partage.AStar.Heuristic.Bag
+--       , NLP.Partage.AStar.Heuristic.Dummy
+--       , NLP.Partage.AStar.Heuristic.Base
+-- 
+--       , NLP.Partage.AStar.Base
+--       , NLP.Partage.AStar.Item
+--       , NLP.Partage.AStar.ExtWeight
+--       , NLP.Partage.AStar.Chart
 
     ghc-options: -Wall
     -- cpp-options: -DDebugOn
@@ -129,13 +137,13 @@ test-suite test
       , transformers            >= 0.3      && < 0.6
 
 
-executable test-partage
-    default-language:
-        Haskell2010
-    build-depends:
-        partage
-      , base                    >= 4        && < 5
-      , containers          	>= 0.5      && < 0.6
-    hs-source-dirs: tests
-    main-is: test-partage.hs
-    ghc-options: -Wall -O2 -threaded -rtsopts
+-- executable test-partage
+--     default-language:
+--         Haskell2010
+--     build-depends:
+--         partage
+--       , base                    >= 4        && < 5
+--       , containers          	>= 0.5      && < 0.6
+--     hs-source-dirs: tests
+--     main-is: test-partage.hs
+--     ghc-options: -Wall -O2 -threaded -rtsopts

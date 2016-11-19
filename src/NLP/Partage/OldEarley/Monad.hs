@@ -2,7 +2,7 @@
 
 
 module NLP.Partage.Earley.Monad
-(
+( 
 -- * Earley monad
   Earley
 , readInput
@@ -16,11 +16,6 @@ module NLP.Partage.Earley.Monad
 , isProcessedP
 , savePassive
 , hasPassiveTrav
-
--- -- * Top-passive items
--- , isProcessedT
--- , saveTopPassive
--- -- , hasTopPassiveTrav
 ) where
 
 
@@ -28,14 +23,13 @@ import qualified Control.Monad.RWS.Strict   as RWS
 import qualified Pipes                      as P
 import qualified Data.Vector                as V
 import qualified Data.Set                   as S
--- import qualified Data.Map.Strict            as M
 import           Data.Maybe (maybeToList)
 
 import           NLP.Partage.Earley.Base
 import qualified NLP.Partage.Earley.Chart as Chart
 import           NLP.Partage.Earley.Hypergraph (Hype(..))
 import           NLP.Partage.Earley.Item
-import qualified NLP.Partage.Earley.Trav as Ext
+import qualified NLP.Partage.Earley.ExtWeight as Ext
 
 
 --------------------------------------------------
@@ -45,11 +39,11 @@ import qualified NLP.Partage.Earley.Trav as Ext
 
 -- | Earley parser monad.  Contains the input sentence (reader)
 -- and the state of the computation `Hype'.
-type Earley n t v = RWS.RWST (Input t) () (Hype n t v) IO
+type Earley n t = RWS.RWST (Input t) () (Hype n t) IO
 
 
 -- | Read word from the given position of the input.
-readInput :: Pos -> P.ListT (Earley n t v) t
+readInput :: Pos -> P.ListT (Earley n t) t
 readInput i = do
     -- ask for the input
     sent <- RWS.asks inputSent
@@ -65,16 +59,16 @@ readInput i = do
 
 
 -- | Check if the active item is not already processed.
-isProcessedA :: Active -> Earley n t v Bool
+isProcessedA :: (Ord n, Ord t) => Active -> Earley n t Bool
 isProcessedA p = Chart.isProcessedA p . chart <$> RWS.get
 
 
 -- | Mark the active item as processed (`done').
 saveActive
-    :: (Ord t, Ord n, Ord v)
+    :: (Ord t, Ord n)
     => Active
-    -> S.Set (Ext.Trav n t v)
-    -> Earley n t v ()
+    -> S.Set (Ext.Trav n t)
+    -> Earley n t ()
 saveActive p ts =
   RWS.modify' $ \h -> h {chart = Chart.saveActive p ts (chart h)}
 
@@ -82,10 +76,10 @@ saveActive p ts =
 -- | Check if, for the given active item, the given transitions are already
 -- present in the hypergraph.
 hasActiveTrav
-    :: (Ord t, Ord n, Ord v)
+    :: (Ord t, Ord n)
     => Active
-    -> S.Set (Ext.Trav n t v)
-    -> Earley n t v Bool
+    -> S.Set (Ext.Trav n t)
+    -> Earley n t Bool
 hasActiveTrav p travSet =
   Chart.hasActiveTrav p travSet . chart <$> RWS.get
 
@@ -96,7 +90,7 @@ hasActiveTrav p travSet =
 
 
 -- | Check if the passive item is not already processed.
-isProcessedP :: (Ord n, Ord v) => NonActive n v -> Earley n t v Bool
+isProcessedP :: (Ord n, Ord t) => Passive n t -> Earley n t Bool
 isProcessedP p = do
   h <- RWS.get
   return $ Chart.isProcessedP p (automat h) (chart h)
@@ -104,10 +98,10 @@ isProcessedP p = do
 
 -- | Mark the passive item as processed (`done').
 savePassive
-    :: (Ord t, Ord n, Ord v)
-    => NonActive n v
-    -> S.Set (Ext.Trav n t v)
-    -> Earley n t v ()
+    :: (Ord t, Ord n)
+    => Passive n t
+    -> S.Set (Ext.Trav n t)
+    -> Earley n t ()
 savePassive p ts =
   -- RWS.state $ \s -> ((), s {donePassive = newDone s})
   RWS.modify' $ \h ->
@@ -117,48 +111,14 @@ savePassive p ts =
 -- | Check if, for the given active item, the given transitions are already
 -- present in the hypergraph.
 hasPassiveTrav
-    :: (Ord t, Ord n, Ord v)
-    => NonActive n v
-    -> S.Set (Ext.Trav n t v)
-    -> Earley n t v Bool
+    :: (Ord t, Ord n)
+    => Passive n t
+    -> S.Set (Ext.Trav n t)
+    -> Earley n t Bool
 hasPassiveTrav p travSet = do
   h <- RWS.get
   return $ Chart.hasPassiveTrav p travSet (automat h) (chart h)
 
-
--- --------------------
--- -- Top-passive items
--- --------------------
---
---
--- -- | Check if the passive item is not already processed.
--- isProcessedT :: (Ord n) => TopPassive n -> Earley n t a Bool
--- isProcessedT p = do
---   h <- RWS.get
---   return $ Chart.isProcessedT p (chart h)
---
---
--- -- | Mark the passive item as processed (`done').
--- saveTopPassive
---     :: (Ord t, Ord n, Ord a)
---     => TopPassive n
---     -> M.Map (Ext.Trav n t) (S.Set a)
---     -> Earley n t a ()
--- saveTopPassive p ts =
---   RWS.modify' $ \h ->
---     h {chart = Chart.saveTopPassive p ts (chart h)}
---
---
--- -- -- | Check if, for the given active item, the given transitions are already
--- -- -- present in the hypergraph.
--- -- hasTopPassiveTrav
--- --     :: (Ord t, Ord n)
--- --     => Passive
--- --     -> S.Set (Ext.Trav n t)
--- --     -> Earley n t a Bool
--- -- hasTopPassiveTrav p travSet = do
--- --   h <- RWS.get
--- --   return $ Chart.hasPassiveTrav p travSet (automat h) (chart h)
 
 --------------------------------------------------
 -- Utilities

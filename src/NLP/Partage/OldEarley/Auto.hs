@@ -21,7 +21,6 @@ import qualified NLP.Partage.Auto            as A
 import           NLP.Partage.DAG             (DAG, DID)
 import qualified NLP.Partage.DAG             as DAG
 import qualified NLP.Partage.Tree.Other      as O
-import qualified NLP.Partage.Tree.Comp       as C
 
 
 --------------------------------------------------
@@ -30,12 +29,13 @@ import qualified NLP.Partage.Tree.Comp       as C
 
 
 -- | Local automaton type based on `A.GramAuto`.
-data Auto n t a = Auto
-    { gramDAG  :: DAG (O.Node n t) (C.Comp a)
+data Auto n t = Auto
+    { gramDAG  :: DAG (O.Node n t) ()
     -- ^ The underlying grammar DAG
     , gramAuto :: A.GramAuto
     -- ^ The underlying grammar automaton
     , withBody :: M.Map DID (S.Set ID)
+    -- , withBody  :: H.CuckooHashTable (Lab n t) (S.Set ID)
     -- ^ A data structure which, for each label, determines the
     -- set of automaton states from which this label goes out
     -- as a body transition.
@@ -61,17 +61,18 @@ data Auto n t a = Auto
 mkAuto
     -- :: (Hashable t, Ord t, Hashable n, Ord n)
     :: (Ord t, Ord n)
-    => DAG (O.Node n t) (C.Comp a)
+    => DAG (O.Node n t) w
     -> A.GramAuto
-    -> Auto n t a
+    -> Auto n t
     -- -> IO Auto
 mkAuto dag auto = Auto
-    { gramDAG  = dag
+    { gramDAG  = dag'
     , gramAuto = auto
     , withBody = mkWithBody auto
-    , termDID  = mkTermDID dag
-    , footDID  = mkFootDID dag
-    , leafDID  = mkLeafDID dag }
+    , termDID  = mkTermDID dag'
+    , footDID  = mkFootDID dag'
+    , leafDID  = mkLeafDID dag' }
+    where dag' = fmap (const ()) dag
 
 
 -- | Create the `withBody` component based on the automaton.

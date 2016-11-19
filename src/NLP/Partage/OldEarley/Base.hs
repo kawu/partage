@@ -16,7 +16,7 @@ import qualified Data.Vector as V
 
 import qualified NLP.Partage.DAG             as DAG
 import qualified NLP.Partage.Tree.Other      as O
-import           NLP.Partage.Earley.Auto     (Auto (..))
+import           NLP.Partage.Earley.Auto      (Auto (..))
 
 
 -- | A position in the input sentence.
@@ -64,8 +64,7 @@ fromSets xs = Input (V.fromList xs)
 
 
 -- | Take the non-terminal of the underlying DAG node.
-nonTerm :: DAG.DID -> Auto n t a -> n
--- nonTerm :: Either n DAG.DID -> Auto n t a -> n
+nonTerm :: Either n DAG.DID -> Auto n t -> n
 nonTerm i =
     check . nonTerm' i . gramDAG
   where
@@ -74,13 +73,11 @@ nonTerm i =
 
 
 -- | Take the non-terminal of the underlying DAG node.
-nonTerm' :: DAG.DID -> DAG.DAG (O.Node n t) a -> Maybe n
--- nonTerm' :: Either n DAG.DID -> DAG.DAG (O.Node n t) a -> Maybe n
-nonTerm' did dag = labNonTerm =<< DAG.label did dag
--- nonTerm' i dag = case i of
---     Left rootNT -> Just rootNT
---     Right did   -> labNonTerm =<< DAG.label did dag
---     -- Right did   -> labNonTerm . DAG.label did -- . gramDAG . automat
+nonTerm' :: Either n DAG.DID -> DAG.DAG (O.Node n t) () -> Maybe n
+nonTerm' i dag = case i of
+    Left rootNT -> Just rootNT
+    Right did   -> labNonTerm =<< DAG.label did dag
+    -- Right did   -> labNonTerm . DAG.label did -- . gramDAG . automat
 
 
 -- | Take the non-terminal of the underlying DAG node.

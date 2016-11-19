@@ -29,7 +29,6 @@ module NLP.Partage.Earley.Item
 
 -- * NonActive
 , NonActive
-, isTop
 , spanN
 , labelN
 
@@ -115,13 +114,6 @@ $( makeLenses [''Top] )
 
 -- | One of the passive types.
 type NonActive n v = Either Passive (Top n v)
-
-
--- | Does it represent a top-passive item?
-isTop :: NonActive n v -> Bool
-isTop x = case x of
-  Left _ -> False
-  _ -> True
 
 
 -- | Span of a non-active item.

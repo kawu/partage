@@ -9,8 +9,8 @@ module NLP.Partage.Tree.Comp
 -- * Types
   Path
 , Comp
-, NodeVMap
-, LeafVMap
+, VMap
+-- , LeafVMap
 ) where
 
 
@@ -29,18 +29,30 @@ type Path = [Int]
 
 
 -- | Computation from the values assigned to individual nodes of an ET to a
--- value of this ET.  If the function returns `Nothing` then computation
--- fails and the corresponding ET cannot be inferred.
-type Comp a = NodeVMap a -> LeafVMap a -> Maybe a
+-- value of this ET.  If the function returns `Nothing`, then the computation
+-- fails and the corresponding ET cannot be "inferred".
+type Comp a = VMap a -> Maybe a
 
 
--- | A map assigning (pairs of) values to individual internal nodes of the tree.
--- Values need not be assigned to all internal nodes (adjunction is optional by
--- default). First element of the pair represents the computed top value for the
--- corresponding auxiliary tree, while the second element -- the bottom value.
-type NodeVMap a = M.Map Path (a, a)
+-- | A map assigning values to individual nodes of the tree.
+-- Values are required to be assigned to leaf nodes but not internal nodes
+-- (adjunction is optional).
+type VMap a = M.Map Path a
 
 
--- | A map assigning values to individual leaf nodes in the tree. To each leaf
--- some value has to be assigned (substitution is always obligatory).
-type LeafVMap a = M.Map Path a
+-- -- | Computation from the values assigned to individual nodes of an ET to a
+-- -- value of this ET.  If the function returns `Nothing` then computation
+-- -- fails and the corresponding ET cannot be inferred.
+-- type Comp a = NodeVMap a -> LeafVMap a -> Maybe a
+--
+--
+-- -- | A map assigning (pairs of) values to individual internal nodes of the tree.
+-- -- Values need not be assigned to all internal nodes (adjunction is optional by
+-- -- default). First element of the pair represents the computed top value for the
+-- -- corresponding auxiliary tree, while the second element -- the bottom value.
+-- type NodeVMap a = M.Map Path (a, a)
+--
+--
+-- -- | A map assigning values to individual leaf nodes in the tree. To each leaf
+-- -- some value has to be assigned (substitution is always obligatory).
+-- type LeafVMap a = M.Map Path a
