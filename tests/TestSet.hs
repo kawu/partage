@@ -70,8 +70,8 @@ data AC
   deriving (Show, Eq, Ord)
 
 instance Unify AC where
-  unify A A = Just A
-  unify _ _ = Nothing
+  unify _ NA = Nothing
+  unify _ A  = Just A
 
 
 ---------------------------------------------------------------------
