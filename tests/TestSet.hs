@@ -22,6 +22,9 @@ module TestSet
 , TagParser (..)
 , dummyParser
 , testTree
+
+-- * Adjunction constraints
+, AC (..)
 )  where
 
 
@@ -35,6 +38,7 @@ import           Control.Monad.Trans.Maybe (MaybeT (..))
 import           Data.IORef
 import qualified Data.Map.Strict           as M
 import qualified Data.Set                  as S
+import qualified Data.Tree                 as T
 
 import           Test.HUnit                (Assertion, (@?=))
 import           Test.Tasty                (TestTree, testGroup, withResource)
@@ -47,11 +51,27 @@ import qualified Pipes                     as P
 -- import qualified NLP.Partage.AStar.Deriv   as Deriv
 import           NLP.Partage.Tree          (AuxTree (..), Tree (..))
 import qualified NLP.Partage.Tree.Other    as O
+import qualified NLP.Partage.Tree.Comp     as C
+import           NLP.Partage.Earley.Base   (Unify(..))
 -- import           NLP.Partage.DAG           (Weight)
 
 
--- | Provisional...
-type Weight = Double
+---------------------------------------------------------------------
+-- Adjunction constraints
+---------------------------------------------------------------------
+
+
+-- | Adjunction constraint.
+data AC
+  = A
+    -- ^ Allow adjunction
+  | NA
+    -- ^ No adjunction
+  deriving (Show, Eq, Ord)
+
+instance Unify AC where
+  unify A A = Just A
+  unify _ _ = Nothing
 
 
 ---------------------------------------------------------------------
@@ -61,7 +81,11 @@ type Weight = Double
 
 type Tr    = Tree String String
 type AuxTr = AuxTree String String
-type Other = O.SomeTree String String
+type Some  = O.SomeTree String String
+type Other = O.Tree String String
+type CompTree = (Other, C.Comp AC)
+
+
 -- type Hype  = AStar.Hype String String
 -- type Deriv = Deriv.Deriv String (Tok String)
 -- type ModifDerivs = Deriv.ModifDerivs String String
@@ -107,6 +131,12 @@ data TestRes
 --     | WeightedTrees (M.Map Tr Cost)
 --     -- ^ Parsing results with weights
     deriving (Show, Eq, Ord)
+
+
+mkTree :: Some -> CompTree
+mkTree t =
+  ( O.encode t
+  , const (Just A) )
 
 
 ---------------------------------------------------------------------
@@ -222,8 +252,8 @@ dots = AuxTree (Branch "S"
 
 
 -- | Compile the first grammar.
-mkGram1 :: [(Other, Weight)]
-mkGram1 = map (,1) $
+mkGram1 :: [CompTree]
+mkGram1 = map mkTree $
     map Left [tom, sleeps, caught, a, mouse] ++ --, prostuPL] ++
     map Right [almost, quickly, quickly', with, dot, dots] --, poPL, poProstuPL ]
 
@@ -286,34 +316,51 @@ gram1Tests =
 ---------------------------------------------------------------------
 
 
-alpha :: Tr
-alpha = Branch "S"
-    [ Branch "X"
+alpha :: (Tr, C.Comp AC)
+alpha =
+  (tree, const $ Just A)
+  where
+    tree = Branch "S"
+      [ Branch "X"
         [Leaf "e"] ]
 
 
-beta1 :: AuxTr
-beta1 = AuxTree (Branch "X"
-    [ Leaf "a"
-    , Branch "X"
-        [ Branch "X" []
-        , Leaf "a" ] ]
-    ) [1,0]
+beta1 :: (AuxTr, C.Comp AC)
+beta1 =
+  (tree, comp)
+  where
+    tree = AuxTree
+      (Branch "X"
+        [ Leaf "a"
+        , Branch "X"
+          [ Branch "X" []
+          , Leaf "a" ] ]
+      ) [1,0]
+    comp t = case T.rootLabel t of
+      Nothing -> Just NA
+      Just _  -> Nothing
 
 
-beta2 :: AuxTr
-beta2 = AuxTree (Branch "X"
-    [ Leaf "b"
-    , Branch "X"
-        [ Branch "X" []
-        , Leaf "b" ] ]
-    ) [1,0]
+beta2 :: (AuxTr, C.Comp AC)
+beta2 =
+  (tree, comp)
+  where
+    tree = AuxTree
+      (Branch "X"
+        [ Leaf "b"
+        , Branch "X"
+          [ Branch "X" []
+          , Leaf "b" ] ]
+      ) [1,0]
+    comp t = case T.rootLabel t of
+      Nothing -> Just NA
+      Just _  -> Nothing
 
 
-mkGram2 :: [(Other, Weight)]
-mkGram2 = map (,1) $
-    map Left [alpha] ++
-    map Right [beta1, beta2]
+mkGram2 :: [CompTree]
+mkGram2 =
+    map (first $ O.encode . Left) [alpha] ++
+    map (first $ O.encode . Right) [beta1, beta2]
 
 
 ---------------------------------------------------------------------
@@ -323,7 +370,7 @@ mkGram2 = map (,1) $
 
 -- | What we test is not really a copy language but rather a
 -- language in which there is always the same number of `a`s and
--- `b`s on the left and on the right of the empty `e` symbol.
+-- `b`s on the left and on the right of the symbol empty `e`.
 -- To model the real copy language with a TAG we would need to
 -- use either adjunction constraints or feature structures.
 gram2Tests :: [Test]
@@ -332,7 +379,7 @@ gram2Tests =
     , Test "S" (words "a b e a a") No
     , Test "S" (words "a b a b a b a b e a b a b a b a b") Yes
     , Test "S" (words "a b a b a b a b e a b a b a b a  ") No
-    , Test "S" (words "a b e b a") Yes
+    , Test "S" (words "a b e b a") No
     , Test "S" (words "b e a") No
     , Test "S" (words "a b a b") No ]
 
@@ -342,8 +389,8 @@ gram2Tests =
 ---------------------------------------------------------------------
 
 
-mkGram3 :: [(Other, Weight)]
-mkGram3 = map (,1) $
+mkGram3 :: [CompTree]
+mkGram3 = map mkTree $
     map Left [sent] ++
     map Right [xtree]
   where
@@ -372,10 +419,10 @@ gram3Tests =
 ---------------------------------------------------------------------
 
 
-mkGram4 :: [(Other, Weight)]
-mkGram4 =
-    map (first Left) [(ztree, 1), (stree, 10)] ++
-    map (first Right) [(atree, 5)]
+mkGram4 :: [CompTree]
+mkGram4 = map mkTree $
+    map Left [ztree, stree] ++
+    map Right [atree]
   where
     stree = Branch "S"
         [ Branch "A"
@@ -406,10 +453,10 @@ gram4Tests =
 
 -- | Compiled grammars.
 data Res = Res
-    { gram1 :: [(Other, Weight)]
-    , gram2 :: [(Other, Weight)]
-    , gram3 :: [(Other, Weight)]
-    , gram4 :: [(Other, Weight)] }
+    { gram1 :: [CompTree]
+    , gram2 :: [CompTree]
+    , gram3 :: [CompTree]
+    , gram4 :: [CompTree] }
 
 
 -- | Construct the shared resource (i.e. the grammars) used in
@@ -427,9 +474,9 @@ mkGrams =
 
 -- | An abstract TAG parser.
 data TagParser = TagParser
-  { recognize   :: Maybe ([(Other, Weight)] -> String -> [String] -> IO Bool)
+  { recognize   :: Maybe ([CompTree] -> String -> [String] -> IO Bool)
     -- ^ Recognition function
-  , parsedTrees :: Maybe ([(Other, Weight)] -> String -> [String] -> IO (S.Set Tr))
+  , parsedTrees :: Maybe ([CompTree] -> String -> [String] -> IO (S.Set Tr))
     -- ^ Function which retrieves derived trees
 --   , derivTrees :: Maybe ([(Other, Weight)] -> String -> [String] -> IO [Deriv])
 --     -- ^ Function which retrieves derivation trees; the result is a set of

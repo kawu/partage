@@ -278,10 +278,11 @@ tryDeactivate p = void $ P.runListT $ do
     lift . pushPassive q $ Deact p
 #ifdef DebugOn
     -- print logging information
+    hype <- RWS.get
     lift . lift $ do
         endTime <- Time.getCurrentTime
         putStr "[D]  " >> printActive p
-        putStr "  :  " >> printPassive q
+        putStr "  :  " >> printPassive hype q
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
 #endif
 
@@ -309,10 +310,11 @@ tryFinilize p = void $ P.runListT $ do
   lift . pushTop q $ Fini p
 #ifdef DebugOn
     -- print logging information
+  hype <- RWS.get
   lift . lift $ do
     endTime <- Time.getCurrentTime
-    putStr "[F]  " >> printActive p
-    putStr "  :  " >> printPassive q
+    putStr "[F]  " >> printPassive hype p
+    putStr "  :  " >> printTop q
     putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
 #endif
 
@@ -365,7 +367,7 @@ trySubst p = void $ P.runListT $ do
     hype <- RWS.get
     lift . lift $ do
         endTime <- Time.getCurrentTime
-        putStr "[U]  " >> printPassive hype p
+        putStr "[U]  " >> printNonActive hype p
         putStr "  +  " >> printActive q
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
@@ -475,14 +477,14 @@ tryAdjoinCont p = void $ P.runListT $ do
 --------------------------------------------------
 
 
--- | A class of types over which the unification computation can be performed.
-class Unify v where
-  -- | Unification function.  It can fail with `Nothing`, which means that the
-  -- two given values do not unify.
-  unify :: v -> v -> Maybe v
-
-instance Unify () where
-  unify _ _ = Just ()
+-- -- | A class of types over which the unification computation can be performed.
+-- class Unify v where
+--   -- | Unification function.  It can fail with `Nothing`, which means that the
+--   -- two given values do not unify.
+--   unify :: v -> v -> Maybe v
+--
+-- instance Unify () where
+--   unify _ _ = Just ()
 
 
 -- | Adjoin a fully-parsed auxiliary tree represented by `q` to a partially
@@ -522,9 +524,11 @@ tryAdjoinTerm q = void $ P.runListT $ do
     hype <- RWS.get
     lift . lift $ do
         endTime <- Time.getCurrentTime
-        putStr "[C]  " >> printPassive hype q
+        putStr "[C]  " >> printTop q
         putStr "  +  " >> printPassive hype p
         putStr "  :  " >> printPassive hype p'
+        putStr "  OLD VALUE: " >> print pValueMaybe
+        putStr "  NEW VALUE: " >> print (Just newValue)
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
 #endif
 
@@ -893,17 +897,29 @@ finalFrom start n hype = Chart.finalFrom start n (chart hype)
 --------------------------------------------------
 
 
--- -- #ifdef DebugOn
+#ifdef DebugOn
 -- -- | Print a passive item.
--- printPassive :: (Show n, Show t) => Passive n t -> Hype n t -> IO ()
--- printPassive p hype = Item.printPassive p (automat hype)
---
---
+-- printTop :: (Show n, Show v) => Top n v -> IO ()
+-- printTop p = Item.printTop p
+
+
+-- | Print a passive item.
+printPassive :: (Show n, Show t) => Hype n t v -> Passive v -> IO ()
+printPassive hype p = Item.printPassive p (automat hype)
+
+
+-- | Print a passive item.
+printNonActive :: (Show n, Show t, Show v) => Hype n t v -> NonActive n v -> IO ()
+printNonActive hype x = case x of
+  Left  p -> Item.printPassive p (automat hype)
+  Right p -> printTop p
+
+
 -- -- | Print an active item.
 -- printItem :: (Show n, Show t) => Item n t -> Hype n t -> IO ()
 -- printItem (ItemP p) h = printPassive p h
 -- printItem (ItemA p) _ = printActive p
--- -- #endif
+#endif
 
 
 --------------------------------------------------

@@ -8,6 +8,8 @@ module NLP.Partage.Earley.Base
 , nonTerm
 , nonTerm'
 , labNonTerm
+-- * Unification
+, Unify (..)
 ) where
 
 
@@ -21,6 +23,22 @@ import           NLP.Partage.Earley.Auto     (Auto (..))
 
 -- | A position in the input sentence.
 type Pos = Int
+
+
+--------------------------------------------------
+-- Unificication type
+--------------------------------------------------
+
+
+-- | A class of types over which the unification computation can be performed.
+class Unify v where
+  -- | Unification function.  It can fail with `Nothing`, which means that the
+  -- two given values do not unify.
+  unify :: v -> v -> Maybe v
+
+instance Unify () where
+  unify _ _ = Just ()
+
 
 
 --------------------------------------------------
