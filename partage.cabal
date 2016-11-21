@@ -62,7 +62,6 @@ library
       , NLP.Partage.Auto.Set
 --       , NLP.Partage.Auto.WeiTrie
 
---       , NLP.Partage.Earley
 --       , NLP.Partage.Earley.Auto
 --       , NLP.Partage.Earley.Base
 --       , NLP.Partage.Earley.Item
@@ -81,6 +80,7 @@ library
       , NLP.Partage.Earley.Hypergraph
       , NLP.Partage.Earley.Monad
       , NLP.Partage.Earley.Parser
+      , NLP.Partage.Earley
 
 --       , NLP.Partage.AStar
 --       , NLP.Partage.AStar.Deriv

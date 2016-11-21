@@ -29,20 +29,20 @@ type Pos = Int
 
 
 -- | Input of the parser.
-newtype Input t = Input {
-      inputSent :: V.Vector (S.Set t)
+newtype Input t v = Input {
+      inputSent :: V.Vector (S.Set (t, v))
     -- ^ The input sentence
     }
 
 
 -- | Construct `Input` from a list of terminals.
-fromList :: [t] -> Input t
+fromList :: [(t, v)] -> Input t v
 fromList = fromSets . map S.singleton
 
 
 -- | Construct `Input` from a list of sets of terminals, each set
 -- representing all possible interpretations of a given word.
-fromSets :: [S.Set t] -> Input t
+fromSets :: [S.Set (t, v)] -> Input t v
 fromSets xs = Input (V.fromList xs)
 
 

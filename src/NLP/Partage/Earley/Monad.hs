@@ -45,11 +45,11 @@ import qualified NLP.Partage.Earley.Trav as Ext
 
 -- | Earley parser monad.  Contains the input sentence (reader)
 -- and the state of the computation `Hype'.
-type Earley n t v = RWS.RWST (Input t) () (Hype n t v) IO
+type Earley n t v = RWS.RWST (Input t v) () (Hype n t v) IO
 
 
 -- | Read word from the given position of the input.
-readInput :: Pos -> P.ListT (Earley n t v) t
+readInput :: Pos -> P.ListT (Earley n t v) (t, v)
 readInput i = do
     -- ask for the input
     sent <- RWS.asks inputSent
@@ -65,14 +65,14 @@ readInput i = do
 
 
 -- | Check if the active item is not already processed.
-isProcessedA :: Active -> Earley n t v Bool
+isProcessedA :: (Ord v) => Active v -> Earley n t v Bool
 isProcessedA p = Chart.isProcessedA p . chart <$> RWS.get
 
 
 -- | Mark the active item as processed (`done').
 saveActive
     :: (Ord t, Ord n, Ord v)
-    => Active
+    => Active v
     -> S.Set (Ext.Trav n t v)
     -> Earley n t v ()
 saveActive p ts =
@@ -83,7 +83,7 @@ saveActive p ts =
 -- present in the hypergraph.
 hasActiveTrav
     :: (Ord t, Ord n, Ord v)
-    => Active
+    => Active v
     -> S.Set (Ext.Trav n t v)
     -> Earley n t v Bool
 hasActiveTrav p travSet =

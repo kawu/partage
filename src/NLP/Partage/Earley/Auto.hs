@@ -32,7 +32,8 @@ import qualified NLP.Partage.Tree.Comp       as C
 -- | Local automaton type based on `A.GramAuto`.
 data Auto n t a = Auto
     { gramDAG  :: DAG (O.Node n t) (C.Comp a)
-    -- ^ The underlying grammar DAG
+    -- ^ The underlying grammar DAG; computations should be assigned
+    -- only to root nodes.
     , gramAuto :: A.GramAuto
     -- ^ The underlying grammar automaton
     , withBody :: M.Map DID (S.Set ID)

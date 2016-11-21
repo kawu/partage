@@ -5,6 +5,7 @@ module NLP.Partage.Earley.Trav
 , Prio
 , prioA
 , prioP
+, prioT
 , prio
 -- ** Extended
 , ExtPrio (..)
@@ -38,19 +39,23 @@ import           NLP.Partage.Earley.Item
 -- one could be derived.
 data Trav n t v
     = Scan
-        { _scanFrom :: Active
+        { _scanFrom :: Active v
         -- ^ The input active state
         , _scanTerm :: t
         -- ^ The scanned terminal
         }
     | Deact
-        { _actArg   :: Active
+        { _actArg   :: Active v
         -- ^ The active argument of the action
         }
-    | Subst
-        { _passArg  :: NonActive n v
+    | Fini
+        { _passArg  :: Passive v
         -- ^ The passive argument of the action
-        , _actArg   :: Active
+        }
+    | Subst
+        { _nonActiveArg  :: NonActive n v
+        -- ^ The non-active argument of the action
+        , _actArg   :: Active v
         -- ^ The active argument of the action
         }
 --     | Subst
@@ -67,17 +72,17 @@ data Trav n t v
 --         }
     -- ^ Pseudo substitution
     | Foot
-        { _actArg   :: Active
+        { _actArg   :: Active v
         -- ^ The passive argument of the action
         -- , theFoot  :: n
-        , _theFoot  :: NonActive n v
+        , _theFoot  :: Passive v
         -- ^ The foot non-terminal
         }
     -- ^ Foot adjoin
     | Adjoin
         { _passAdj  :: Top n v
         -- ^ The adjoined item
-        , _passMod  :: NonActive n v
+        , _passMod  :: Passive v
         -- ^ The modified item
         }
     -- ^ Adjoin terminate with two passive arguments
@@ -120,8 +125,8 @@ type Prio = (Int, Int)
 
 
 -- | Priority of an active item.
-prioA :: Active -> Prio
-prioA = prioGen . getL spanA
+prioA :: Active v -> Prio
+prioA = prioOn . getL spanA
 -- prioA p =
 --     let i = getL (beg . spanA) p
 --         j = getL (end . spanA) p
@@ -129,8 +134,8 @@ prioA = prioGen . getL spanA
 
 
 -- | Priority of a passive item.
-prioP :: Passive -> Prio
-prioP = prioGen . getL spanP
+prioP :: Passive v -> Prio
+prioP = prioOn . getL spanP
 -- prioP p =
 --     let i = getL (beg . spanP) p
 --         j = getL (end . spanP) p
@@ -139,7 +144,7 @@ prioP = prioGen . getL spanP
 
 -- | Priority of a top-passive item.
 prioT :: Top n v -> Prio
-prioT = prioGen . getL spanT
+prioT = prioOn . getL spanT
 -- prioT p =
 --     let i = getL (beg . spanT) p
 --         j = getL (end . spanT) p
@@ -155,8 +160,8 @@ prioT = prioGen . getL spanT
 
 -- | Priority of aan item depending on its span. Crucial for the algorithm --
 -- states have to be removed from the queue in a specific order.
-prioGen :: Span -> Prio
-prioGen s =
+prioOn :: Span -> Prio
+prioOn s =
   let i = getL beg s
       j = getL end s
   in  (j, j - i)

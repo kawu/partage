@@ -36,19 +36,21 @@ testEarley =
       , T.parsedTrees = Just parseFrom }
     recFrom gram start input = do
         let dag = mkGram gram
-        E.recognizeFrom dag start (E.fromList input)
+        E.recognizeFrom dag start . E.fromList . zip input $ repeat ()
     parseFrom gram start input = do
         let dag = mkGram gram
         fmap S.fromList
             . E.parse dag start
             . E.fromList
-            $ input
+            . zip input
+            $ repeat ()
     mkGram = DAG.mkGram . map mkTree
     -- mkGram = DAG.mkDummy . map mkTree
     -- <- dummy DAG cannot work with the current implementation of the Earley parser;
     --    the Earley parser assumes e.g. that there is at most one node with a given
     --    terminal, which is not true in dummy DAG.
-    mkTree (t, w) = (O.encode t, w)
+    mkTree (t, _w) = (O.encode t, const (Just ()))
+    -- mkTree (t, w) = (O.encode t, w)
 
 
 -- -- | All the tests of the parsing algorithm.

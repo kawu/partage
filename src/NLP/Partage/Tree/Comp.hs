@@ -5,16 +5,15 @@
 
 
 module NLP.Partage.Tree.Comp
-(
--- * Types
-  Path
-, Comp
-, VMap
--- , LeafVMap
+( Comp
+, Env
+, leaf
+, foot
 ) where
 
 
-import qualified Data.Map.Strict as M
+-- import qualified Data.Map.Strict as M
+import qualified Data.Tree as T
 
 
 ---------------------------------------------------------------------
@@ -22,22 +21,49 @@ import qualified Data.Map.Strict as M
 ---------------------------------------------------------------------
 
 
--- | A path unambiguously identyfying a node in the corresponding ET. The `[]`
--- value stands for the root of the tree, while `x : xs` stands for the
--- `xs`-addressed node in the `x`th subtree of the tree.
-type Path = [Int]
+-- -- | A path unambiguously identyfying a node in the corresponding ET. The `[]`
+-- -- value stands for the root of the tree, while `x : xs` stands for the
+-- -- `xs`-addressed node in the `x`th subtree of the tree.
+-- type Path = [Int]
+--
+--
+-- -- | A map assigning values to individual nodes of the tree.
+-- -- Values are required to be assigned to leaf nodes but not internal nodes
+-- -- (adjunction is optional).
+-- type VMap a = M.Map Path a
+--
+--
+-- -- | Computation from the values assigned to individual nodes of an ET to a
+-- -- value of this ET.  If the function returns `Nothing`, then the computation
+-- -- fails and the corresponding ET cannot be "inferred".
+-- type Comp a = VMap a -> Maybe a
+
+
+-- | A map assigning values to individual nodes of the tree. Values are required
+-- to be assigned to leaf nodes but not internal nodes (adjunction is optional).
+type Env a = T.Tree (Maybe a)
+
+
+-- | Create a leaf environment.
+leaf :: a -> Env a
+leaf x = T.Node (Just x) []
+
+
+-- | Create a foot environment.
+foot :: Env a
+foot = T.Node Nothing []
+
+
+-- -- | Create an internal node environment.
+-- node :: Maybe a -> [Env a] -> Env a
+-- node x xs = T.Node (Just x) []
 
 
 -- | Computation from the values assigned to individual nodes of an ET to a
 -- value of this ET.  If the function returns `Nothing`, then the computation
 -- fails and the corresponding ET cannot be "inferred".
-type Comp a = VMap a -> Maybe a
-
-
--- | A map assigning values to individual nodes of the tree.
--- Values are required to be assigned to leaf nodes but not internal nodes
--- (adjunction is optional).
-type VMap a = M.Map Path a
+-- Note that no node corresponding to the foot is present in the tree.
+type Comp a = Env a -> Maybe a
 
 
 -- -- | Computation from the values assigned to individual nodes of an ET to a

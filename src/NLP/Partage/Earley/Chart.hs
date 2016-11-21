@@ -42,6 +42,7 @@ import qualified Control.Monad.State.Class   as MS
 import           Control.Monad      ((>=>))
 
 import           Data.Maybe                  (isJust, maybeToList)
+import           Data.Either                 (lefts)
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import           Data.Lens.Light
@@ -61,7 +62,7 @@ data Chart n t v = Chart
     {
 
       doneActive  :: M.Map Pos (M.Map ID
-        (M.Map Active (S.Set (Trav n t v))))
+        (M.Map (Active v) (S.Set (Trav n t v))))
     -- ^ Processed active items partitioned w.r.t ending
     -- positions and state IDs.
 
@@ -106,7 +107,7 @@ listPassive = (M.elems >=> M.toList) . donePassive
 
 -- | List all active done items together with the corresponding
 -- traversals.
-listActive :: Chart n t v -> [(Active, S.Set (Trav n t v))]
+listActive :: Chart n t v -> [(Active v, S.Set (Trav n t v))]
 listActive = (M.elems >=> M.elems >=> M.toList) . doneActive
 
 
@@ -137,9 +138,7 @@ doneEdgesNum earSt
 
 
 -- | Return the set of traversals corresponding to an active item.
-activeTrav
-    :: Active -> Chart n t v
-    -> Maybe (S.Set (Trav n t v))
+activeTrav :: (Ord v) => Active v -> Chart n t v -> Maybe (S.Set (Trav n t v))
 activeTrav p
     = (   M.lookup (p ^. spanA ^. end)
       >=> M.lookup (p ^. state)
@@ -148,7 +147,7 @@ activeTrav p
 
 
 -- | Check if the active item is not already processed.
-isProcessedA :: Active -> Chart n t v -> Bool
+isProcessedA :: (Ord v) => Active v -> Chart n t v -> Bool
 isProcessedA p =
     check . activeTrav p
   where
@@ -159,7 +158,7 @@ isProcessedA p =
 -- | Mark the active item as processed (`done').
 saveActive
     :: (Ord t, Ord n, Ord v)
-    => Active
+    => Active v
     -> S.Set (Trav n t v)
     -> Chart n t v
     -> Chart n t v
@@ -180,7 +179,7 @@ saveActive p ts chart =
 -- present in the hypergraph.
 hasActiveTrav
     :: (Ord t, Ord n, Ord v)
-    => Active
+    => Active v
     -> S.Set (Trav n t v)
     -> Chart n t v
     -> Bool
@@ -402,7 +401,7 @@ expectEnd
     -> (s -> Chart n t v)
     -> DAG.DID
     -> Pos
-    -> P.ListT m Active
+    -> P.ListT m (Active v)
 expectEnd getAuto getChart did i = do
     compState <- lift MS.get
     let Chart{..} = getChart compState
@@ -421,20 +420,36 @@ expectEnd getAuto getChart did i = do
     each $ M.keys doneEndLab
 
 
+-- -- | Check if a passive item exists with:
+-- -- * the given root non-terminal value (but not top-level auxiliary)
+-- --   (BUG/WARNING: the second part is not checked!!!)
+-- -- * the given span
+-- rootSpan
+--     :: (Ord n, MS.MonadState s m)
+--     => (s -> Chart n t v)
+--     -> n -> (Pos, Pos)
+--     -> P.ListT m (NonActive n v)
+-- rootSpan getChart x (i, j) = do
+--   Chart{..} <- getChart <$> lift MS.get
+--   each $ case M.lookup (i, x, j) donePassive of
+--     Nothing -> []
+--     Just m -> M.keys m
+
+
 -- | Check if a passive item exists with:
--- * the given root non-terminal value (but not top-level
---   auxiliary) (WARNING: the second part is not checked!!!)
+-- * the given root non-terminal value (but not top-level auxiliary)
+--   (BUG/WARNING: the second part is not checked!!!)
 -- * the given span
 rootSpan
     :: (Ord n, MS.MonadState s m)
     => (s -> Chart n t v)
     -> n -> (Pos, Pos)
-    -> P.ListT m (NonActive n v)
+    -> P.ListT m (Passive v)
 rootSpan getChart x (i, j) = do
   Chart{..} <- getChart <$> lift MS.get
   each $ case M.lookup (i, x, j) donePassive of
     Nothing -> []
-    Just m -> M.keys m
+    Just m -> lefts (M.keys m)
 
 
 --------------------------------------------------

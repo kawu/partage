@@ -52,7 +52,7 @@ data Hype n t v = Hype
 mkHype
     :: (Ord n, Ord v)
     => Auto n t v
-    -> S.Set Active
+    -> S.Set (Active v)
     -> Hype n t v
 mkHype auto s = Hype
     { automat = auto
@@ -80,8 +80,8 @@ mkHype auto s = Hype
 --         [ (ItemA p, trav)
 --         | (p, travSet) <- listActive earSt
 --         , trav <- S.toList travSet ]
--- 
--- 
+--
+--
 -- -- | Print the hypergraph edges.
 -- printHype :: (Show n, Show t) => Hype n t -> IO ()
 -- printHype hype =

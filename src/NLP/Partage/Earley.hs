@@ -10,12 +10,12 @@ module NLP.Partage.Earley
 , fromSets
 -- ** With a factorized grammar
 -- $earley
-, recognize
+-- , recognize
 , recognizeFrom
 , parse
 , earley
 -- ** With automata precompiled
-, recognizeAuto
+-- , recognizeAuto
 , recognizeFromAuto
 , parseAuto
 , earleyAuto
@@ -26,7 +26,7 @@ module NLP.Partage.Earley
 -- * Parsing trace (hypergraph)
 , Hype
 -- ** Extracting parsed trees
-, parsedTrees
+-- , parsedTrees
 -- ** Stats
 , hyperNodesNum
 , hyperEdgesNum
@@ -35,7 +35,7 @@ module NLP.Partage.Earley
 ) where
 
 
-import           NLP.Partage.Earley.AutoAP
+import           NLP.Partage.Earley.Parser
 
 {- $earley
   All the parsing functions described in this section transform the

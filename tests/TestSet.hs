@@ -45,9 +45,13 @@ import qualified Pipes                     as P
 -- import           NLP.Partage.AStar         (Tok)
 -- import qualified NLP.Partage.AStar         as AStar
 -- import qualified NLP.Partage.AStar.Deriv   as Deriv
-import           NLP.Partage.DAG           (Weight)
 import           NLP.Partage.Tree          (AuxTree (..), Tree (..))
 import qualified NLP.Partage.Tree.Other    as O
+-- import           NLP.Partage.DAG           (Weight)
+
+
+-- | Provisional...
+type Weight = Double
 
 
 ---------------------------------------------------------------------
