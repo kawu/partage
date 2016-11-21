@@ -71,6 +71,8 @@ library
 --       , NLP.Partage.Earley.Monad
 
       , NLP.Partage.DAG
+      , NLP.Partage.Env
+      , NLP.Partage.FS
       , NLP.Partage.Tree.Comp
       , NLP.Partage.Earley.Auto
       , NLP.Partage.Earley.Base
