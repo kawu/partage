@@ -13,7 +13,9 @@ module NLP.Partage.Env
 , EnvT
 , EnvM
 -- * Primitives
+, var
 , get
+, rep
 , set
 , equal
 -- * Running
@@ -45,16 +47,27 @@ type Alt v = S.Set v
 
 
 -- | Variable name.
-type Var = Int
+newtype Var = Var {unVar :: Int}
+  deriving (Eq, Ord)
+
+instance Show Var where
+  show (Var i) = "V" ++ show i
 
 
 -- | Variable environment.
 data Env v = Env
-  { varMap :: M.Map Var (Alt v)
-    -- ^ Values assigned to individual variables
-  , varPar :: P.Partition Var
+  { varPar :: P.Partition Var
     -- ^ Disjoint set over variables
+  , varMap :: M.Map Var (Alt v)
+    -- ^ Values assigned to individual variables
+  , varNum :: Int
+    -- ^ Variable counter (needed to create new variables)
   } deriving (Show, Eq, Ord)
+
+
+-- | Empty environment.
+empty :: Env v
+empty = Env P.empty M.empty 0
 
 
 -- | Feature structure transformer.
@@ -70,9 +83,12 @@ type EnvM v = EnvT v I.Identity
 --------------------------------------------------
 
 
--- | Empty environment.
-empty :: Env v
-empty = Env M.empty P.empty
+-- | Create a new variable.
+var :: (Monad m) => EnvT v m Var
+var = do
+  i <- E.gets varNum
+  E.modify' $ \env -> env {varNum = varNum env + 1}
+  return $ Var i
 
 
 -- | Get value assigned to the variable.
@@ -81,6 +97,14 @@ get var = do
   Env{..} <- E.get
   let rep = P.rep varPar var
   return $ M.lookup rep varMap
+
+
+-- | Get the representant of the variable.
+rep :: Monad m => Var -> EnvT v m Var
+rep var = do
+  Env{..} <- E.get
+  let rep = P.rep varPar var
+  return rep
 
 
 -- | Assign value to the variable.
@@ -106,18 +130,23 @@ equal var1 var2 = do
     let alt1 = M.lookup rep1 varMap
         alt2 = M.lookup rep2 varMap
         par' = P.joinElems rep1 rep2 varPar
+        -- representant of the new partition
         rep  = P.rep par' rep1
+        -- element of {rep1, rep2} which is the resulting representant
+        nrep = if rep1 == rep then rep2 else rep1
+        -- the new variable map with not-a-representant removed
+        varMap' = M.delete nrep varMap
     case (alt1, alt2) of
       (Nothing, Nothing) -> do
-        E.put $ Env {varMap = varMap, varPar = par'}
+        E.put $ env {varMap = varMap', varPar = par'}
       (Just x1, Nothing) -> do
-        E.put $ Env {varMap = M.insert rep x1 varMap, varPar = par'}
+        E.put $ env {varMap = M.insert rep x1 varMap', varPar = par'}
       (Nothing, Just x2) -> do
-        E.put $ Env {varMap = M.insert rep x2 varMap, varPar = par'}
+        E.put $ env {varMap = M.insert rep x2 varMap', varPar = par'}
       (Just x1, Just x2) -> do
         let alt = S.intersection x1 x2
         guard . not $ S.null alt
-        E.put $ env {varMap = M.insert rep alt varMap, varPar = par'}
+        E.put $ env {varMap = M.insert rep alt varMap', varPar = par'}
 
 
 --------------------------------------------------
@@ -144,8 +173,10 @@ runEnvM = I.runIdentity . runEnvT
 
 envTest :: IO ()
 envTest = print $ runEnvM $ do
-  set 1 $ S.singleton 'a'
-  set 1 $ S.fromList ['a', 'b']
-  set 2 $ S.singleton 'b'
-  equal 1 2
-  get 2
+  i <- var
+  set i $ S.singleton 'a'
+  set i $ S.fromList ['a', 'b']
+  j <- var
+  set j $ S.fromList ['b']
+  equal i j
+  get i
