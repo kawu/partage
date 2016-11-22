@@ -1,6 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE FlexibleInstances #-}
 
 
 -- | A monad for defining elementary trees with FS unification.
@@ -11,51 +9,23 @@ module NLP.Partage.Test
 ) where
 
 
-import           Control.Monad (guard, foldM, forM_)
+-- import           Control.Monad (foldM)
 
 -- import qualified Control.Monad.State.Strict as E
 import qualified Data.Text as T
 import qualified Data.Tree as R
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
-import           Data.Maybe (fromJust, mapMaybe)
+import           Data.Maybe (mapMaybe)
 
 import qualified NLP.Partage.FS as FS
+import qualified NLP.Partage.FSTree as FST
+import           NLP.Partage.FSTree (FSTree, node, leaf, foot, term)
 import qualified NLP.Partage.Env as Env
 import qualified NLP.Partage.DAG as DAG
 import qualified NLP.Partage.Tree.Comp as C
 import qualified NLP.Partage.Tree.Other as O
-import           NLP.Partage.Earley.Base (Unify(..))
 import qualified NLP.Partage.Earley as Earley
-
-
---------------------------------------------------
--- Core
---------------------------------------------------
-
-
-compile :: Env.EnvM T.Text FSTree -> C.Comp ClosedFS
-compile ofsTreeM cfsTree = fst . Env.runEnvM $ do
-  ofsTree <- fmap snd <$> ofsTreeM
-  let fsTree = zipTree ofsTree cfsTree
-  fsTree' <- mapM (uncurry doit) fsTree
-  FS.close $ R.rootLabel fsTree'
-  where
-    doit ofs Nothing = return ofs
-    doit ofs (Just cfs) = do
-      ofs' <- FS.reopen cfs
-      FS.unifyFS ofs ofs'
-
-
-extract :: Env.EnvM T.Text FSTree -> Maybe Tree
-extract ofsTreeM = fst . Env.runEnvM $ do
-  fmap fst <$> ofsTreeM
-
-
-zipTree :: R.Tree a -> R.Tree b -> R.Tree (a, b)
-zipTree (R.Node x xs) (R.Node y ys) = R.Node
-  (x, y)
-  (map (uncurry zipTree) (zip xs ys))
 
 
 --------------------------------------------------
@@ -63,43 +33,26 @@ zipTree (R.Node x xs) (R.Node y ys) = R.Node
 --------------------------------------------------
 
 
--- | A closed feature structure.
-type FS = FS.FS T.Text T.Text
-type ClosedFS = FS.ClosedFS T.Text T.Text
+-- | Non-terminal.
+type N = T.Text
 
-instance Unify ClosedFS where
-  unify x0 y0 = fst . Env.runEnvM $ do
-    x <- FS.reopen x0
-    y <- FS.reopen y0
-    z <- FS.unifyFS x y
-    FS.close z
+-- | Terminal.
+type T = T.Text
 
+-- | FS key.
+type K = T.Text
 
--- | An elementary tree.
-type Tree = R.Tree (O.Node T.Text T.Text)
+-- | FS value.
+type V = T.Text
 
 
--- | An elementary tree with the accompanying feature structures.
-type FSTree = R.Tree (O.Node T.Text T.Text, FS)
-
-
--- | Some smart constructors.
-node x fs = R.Node (O.NonTerm x, fs)
-leaf x fs = R.Node (O.NonTerm x, fs) []
-term x fs = R.Node (O.Term x, fs) []
-foot x = R.Node (O.Foot x, M.empty) []
--- node x = R.Node (O.NonTerm x)
--- leaf x = R.Node (O.NonTerm x) []
--- term x = R.Node (O.Term x) []
--- foot x = R.Node (O.Foot x) []
-
-
-num, sg3 :: T.Text
+-- | Predefined keys
+num, sg3 :: K
 num = "num"
 sg3 = "sg3"
 
 
-girl :: Env.EnvM T.Text FSTree
+girl :: Env.EnvM V (FSTree N T K V)
 girl = do
   numVar <- FS.Var <$> Env.var
   sg3Var <- FS.Var <$> Env.var
@@ -113,17 +66,7 @@ girl = do
     ]
 
 
--- sleep :: Tree
--- sleep =
---   node "S"
---   [ leaf "NP"
---   , node "VP"
---     [ node "V"
---       [term "sleep"]
---     ]
---   ]
-
-sleep :: Env.EnvM T.Text FSTree
+sleep :: Env.EnvM V (FSTree N T K V)
 sleep = do
   sg3Var <- FS.Var <$> Env.var
   let no = M.empty
@@ -139,14 +82,7 @@ sleep = do
     ]
 
 
--- many :: Tree
--- many =
---   node "N"
---   [ node "Adj" [term "many"]
---   , foot "N"
---   ]
-
-many :: Env.EnvM T.Text FSTree
+many :: Env.EnvM V (FSTree N T K V)
 many = do
   numVar <- FS.Var <$> Env.var
   let fs = M.fromList [(num, numVar)]
@@ -158,13 +94,13 @@ many = do
 
 
 -- | A simple TAG grammar.
-gram :: [(Tree, C.Comp ClosedFS)]
+gram :: [(FST.Tree N T, C.Comp (FS.ClosedFS K V))]
 gram = mapMaybe process
   [girl, sleep, many]
   where
     process source = do
-      let comp = compile source
-      tree <- extract source
+      let comp = FST.compile source
+      tree <- FST.extract source
       return (tree, comp)
 
 
@@ -178,6 +114,7 @@ theTest = do
   mapM_ printTree trees
   where
     printTree = putStrLn . R.drawTree . fmap show . O.encode . Left
+    mkPair x y = (S.singleton x, Just $ S.singleton y)
 
 
 --------------------------------------------------
@@ -185,29 +122,26 @@ theTest = do
 --------------------------------------------------
 
 
-mkPair x y = (S.singleton x, Just $ S.singleton y)
-
-
--- | Get the FS under the given path.
-under :: [Int] -> R.Tree (Maybe [a]) -> [a]
-under path t = maybe [] id $ do
-  subTree <- follow path t
-  R.rootLabel subTree
-
-
--- | Follow the path to a particular subtree.
-follow :: [Int] -> R.Tree a -> Maybe (R.Tree a)
-follow = flip $ foldM step
-
-
--- | Follow one step of the `Path`.
-step :: R.Tree a -> Int -> Maybe (R.Tree a)
-step t k = R.subForest t !? k
-
-
--- | Maybe a k-th element of a list.
-(!?) :: [a] -> Int -> Maybe a
-(x:xs) !? k
-    | k > 0     = xs !? (k-1)
-    | otherwise = Just x
-[] !? _ = Nothing
+-- -- | Get the FS under the given path.
+-- under :: [Int] -> R.Tree (Maybe [a]) -> [a]
+-- under path t = maybe [] id $ do
+--   subTree <- follow path t
+--   R.rootLabel subTree
+--
+--
+-- -- | Follow the path to a particular subtree.
+-- follow :: [Int] -> R.Tree a -> Maybe (R.Tree a)
+-- follow = flip $ foldM step
+--
+--
+-- -- | Follow one step of the `Path`.
+-- step :: R.Tree a -> Int -> Maybe (R.Tree a)
+-- step t k = R.subForest t !? k
+--
+--
+-- -- | Maybe a k-th element of a list.
+-- (!?) :: [a] -> Int -> Maybe a
+-- (x:xs) !? k
+--     | k > 0     = xs !? (k-1)
+--     | otherwise = Just x
+-- [] !? _ = Nothing

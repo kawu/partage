@@ -1,5 +1,6 @@
--- {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 
 -- | Feature structure-related facilities.
@@ -35,6 +36,7 @@ import qualified Pipes.Prelude as P
 
 import           NLP.Partage.Env (EnvT)
 import qualified NLP.Partage.Env as Env
+import qualified NLP.Partage.Earley.Base as B
 
 
 --------------------------------------------------
@@ -92,6 +94,13 @@ unify val1 val2 = case (val1, val2) of
 
 -- | A closed feature structure.
 type ClosedFS k v = [(S.Set k, Maybe (Env.Alt v))]
+
+instance (Ord k, Ord v) => B.Unify (ClosedFS k v) where
+  unify x0 y0 = fst . Env.runEnvM $ do
+    x <- reopen x0
+    y <- reopen y0
+    z <- unifyFS x y
+    close z
 
 
 -- | Close a feature structure.
