@@ -11,6 +11,12 @@ module NLP.Partage.FS
 , Val (..)
 , unify
 
+-- * Closed
+, ClosedFS
+, close
+, reopen
+-- , unifyFS'
+
 -- * Provisional
 , fsTest
 ) where
@@ -68,8 +74,6 @@ unifyFS fs1 fs2 = fmap M.fromList . runListT $ do
     (Nothing, Just v2) -> pure v2
     _ -> error "unifyFS: impossible happened"
   return (key, val)
-  where
-    runListT = P.toListM . P.enumerate
 
 
 -- | Unify two values.
@@ -100,7 +104,6 @@ close openFS = do
 
   where
 
-    runListT = P.toListM . P.enumerate
     toList fs = runListT $ do
       (key, val) <- each $ M.toList fs
       case val of
@@ -118,12 +121,23 @@ close openFS = do
         return (keySet, alt)
 
 
+-- | Reopen a closed FS within the current environment.
+reopen :: (Monad m, Ord k, Ord v) => ClosedFS k v -> EnvT v m (FS k v)
+reopen closedFS = fmap M.fromList . runListT $ do
+  (keySet, val) <- each closedFS
+  var <- lift Env.var
+  case val of
+    Nothing -> return ()
+    Just v  -> lift $ Env.set var v
+  key <- each (S.toList keySet)
+  return (key, Var var)
 
--- -- | Unify two open feature structures.
+
+-- -- | Unify an open feature structure with a closed one.
 -- unifyFS' :: (Monad m, Ord k, Ord v) => FS k v -> ClosedFS k v -> EnvT v m (FS k v)
--- unifyFS' fs1 fs2 = fmap M.fromList . runListT $ do
---   where
---     runListT = P.toListM . P.enumerate
+-- unifyFS' fs1 fs2 = do
+--   fs2' <- reopen fs2
+--   unifyFS fs1 fs2'
 
 
 --------------------------------------------------
@@ -136,24 +150,32 @@ each :: Monad m => [a] -> P.ListT m a
 each = P.Select . P.each
 
 
+-- | Run a ListT computation (unidiomatic Haskell?).
+runListT :: (Monad m) => P.ListT m a -> m [a]
+runListT = P.toListM . P.enumerate
+
+
 --------------------------------------------------
 -- Tests
 --------------------------------------------------
 
 
 fsTest :: IO ()
-fsTest = print . fst $ Env.runEnvM $ do
+fsTest = print $ Env.runEnvM $ do
   x <- Env.var
   y <- Env.var
   z <- Env.var
+  q <- Env.var
   let alt = Val . S.fromList
       fs1 = M.fromList
         [ ("key1", alt ["a"])
-        , ("key2", Var x) ]
+        , ("key2", Var x)
+        , ("key4", Var q) ]
       fs2 = M.fromList
         [ ("key1", Var y)
         , ("key2", Var y)
-        , ("key3", Var z) ]
+        , ("key3", Var z)
+        , ("key5", Var q) ]
   Env.set y $ S.fromList ["a", "b"]
   Env.set z $ S.fromList ["a", "b"]
   Env.equal y z
