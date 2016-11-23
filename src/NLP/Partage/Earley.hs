@@ -26,7 +26,7 @@ module NLP.Partage.Earley
 -- * Parsing trace (hypergraph)
 , Hype
 -- ** Extracting parsed trees
--- , parsedTrees
+, parsedTrees
 -- ** Stats
 , hyperNodesNum
 , hyperEdgesNum

@@ -25,6 +25,8 @@ import qualified NLP.Partage.Env as Env
 import qualified NLP.Partage.DAG as DAG
 import qualified NLP.Partage.Tree.Comp as C
 import qualified NLP.Partage.Tree.Other as O
+
+import qualified NLP.Partage.Auto.Trie as Trie
 import qualified NLP.Partage.Earley as Earley
 
 
@@ -107,7 +109,9 @@ gram = mapMaybe process
 theTest :: IO ()
 theTest = do
   let dag = DAG.mkGram gram
-  trees <- Earley.parse dag "S" $ Earley.fromList
+      tri = Trie.fromGram (DAG.factGram dag)
+      aut = Earley.mkAuto (DAG.dagGram dag) tri
+  trees <- Earley.parseAuto aut "S" $ Earley.fromList
     [ ("many", [mkPair num "pl"])
     , ("girl", [mkPair sg3 "-", mkPair num "pl"])
     , ("sleep", [mkPair sg3 "-"]) ]

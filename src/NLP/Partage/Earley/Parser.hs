@@ -51,19 +51,13 @@ module NLP.Partage.Earley.Parser
 
 import           Prelude hiding             (span, (.))
 import           Control.Applicative        ((<$>))
-import           Control.Monad      (guard, void, (>=>), when, forM_)
+import           Control.Monad      (guard, void)
 import           Control.Monad.Trans.Class  (lift)
--- import           Control.Monad.Trans.Maybe  (MaybeT (..))
 import qualified Control.Monad.RWS.Strict   as RWS
 import           Control.Category ((>>>), (.))
 
-import           Data.Function              (on)
--- import           Data.Either                (isLeft)
-import           Data.Maybe     ( isJust, isNothing, mapMaybe
-                                , maybeToList )
+import           Data.Maybe     ( mapMaybe , maybeToList )
 import qualified Data.Map.Strict            as M
-import           Data.Ord       ( comparing )
-import           Data.List      ( sortBy )
 import qualified Data.Tree                  as Tree
 import qualified Data.Set                   as S
 import qualified Data.PSQueue               as Q
@@ -80,18 +74,16 @@ import           Data.DAWG.Ord (ID)
 -- import qualified Data.DAWG.Ord.Dynamic      as D
 
 import           NLP.Partage.SOrd
-import           NLP.Partage.DAG (Gram(..), DID(..), DAG)
+import           NLP.Partage.DAG (Gram(..), DID(..))
 import qualified NLP.Partage.DAG as DAG
 import           NLP.Partage.Earley.Auto (Auto(..), mkAuto)
 import qualified NLP.Partage.Auto as A
 import qualified NLP.Partage.Auto.Trie  as D
-import qualified NLP.Partage.Tree.Other as O
 import qualified NLP.Partage.Tree       as T
 import qualified NLP.Partage.Tree.Comp  as C
 
 import           NLP.Partage.Earley.Base -- hiding (nonTerm)
-import qualified NLP.Partage.Earley.Base as Base
-import           NLP.Partage.Earley.Item hiding (printPassive)
+import           NLP.Partage.Earley.Item hiding (printPassive, fromNonActive)
 import qualified NLP.Partage.Earley.Item as Item
 import           NLP.Partage.Earley.Trav
 import qualified NLP.Partage.Earley.Chart as Chart
@@ -131,7 +123,7 @@ pushNonActive p t = isProcessedP p >>= \b -> if b
       Left x -> ItemP x
       Right x -> ItemT x
     newWait = Q.insertWith joinPrio newItem newPrio
-    newPrio = ExtPrio (prio $ fromNonActive p) (S.singleton t)
+    newPrio = ExtPrio (prio $ Item.fromNonActive p) (S.singleton t)
 
 
 -- | Push passive item to the agenda.
