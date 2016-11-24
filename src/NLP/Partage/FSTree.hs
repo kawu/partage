@@ -17,6 +17,8 @@ module NLP.Partage.FSTree
 -- * Compilation
 , compile
 , extract
+-- * Utils
+, zipTree
 ) where
 
 

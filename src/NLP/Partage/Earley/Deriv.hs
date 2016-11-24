@@ -2,6 +2,7 @@
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections       #-}
+{-# LANGUAGE DeriveFunctor       #-}
 
 
 module NLP.Partage.Earley.Deriv
@@ -25,6 +26,8 @@ module NLP.Partage.Earley.Deriv
 -- import           Control.Monad.Trans.Class (lift)
 -- import           Control.Monad.Trans.Maybe (MaybeT (..))
 
+-- import           Data.Monoid              (Monoid)
+-- import qualified Data.Monoid              as Monoid
 -- import           Data.Function             (on)
 import           Data.Lens.Light
 -- import qualified Data.Map.Strict           as M
@@ -43,6 +46,7 @@ import           NLP.Partage.Earley.Trav   (Trav(..))
 import qualified NLP.Partage.Earley.Parser as P
 import qualified NLP.Partage.Earley.Item   as I
 import qualified NLP.Partage.Tree.Other    as O
+import           NLP.Partage.FSTree        (zipTree)
 
 
 ---------------------------
@@ -55,18 +59,19 @@ import qualified NLP.Partage.Tree.Other    as O
 -- themselves take the form of derivation trees.  Whether the modification
 -- represents a substitution or an adjunction can be concluded on the basis of
 -- the type (leaf or internal) of the node.
-type Deriv n t = R.Tree (DerivNode n t)
-
-
--- | Derivation based on tokens.
-type TokDeriv n t v = Deriv n (B.Tok (t, v))
+type Deriv n t v = R.Tree (DerivNode n t v)
 
 
 -- | A node of a derivation tree.
-data DerivNode n t = DerivNode
+data DerivNode n t v = DerivNode
   { node  :: O.Node n t
-  , modif :: [Deriv n t]
-  } deriving (Eq, Ord, Show)
+  , value :: Maybe v
+  , modif :: [Deriv n t v]
+  } deriving (Eq, Ord, Show, Functor)
+
+
+-- | Derivation based on tokens.
+type TokDeriv n t v = Deriv n (B.Tok t) v
 
 
 -- | PrintNode tells wheter the node in the pretiffied derivation tree
@@ -85,12 +90,12 @@ instance Show a => Show (PrintNode a) where
 -- | Transform the derivation tree into a tree which is easier
 -- to draw using the standard `R.draw` function.
 -- `fst` values in nodes are `False` for modifiers.
-deriv4show :: Deriv n t -> R.Tree (PrintNode (O.Node n t))
+deriv4show :: Deriv n t v -> R.Tree (PrintNode (O.Node n t, Maybe v))
 deriv4show =
   go False
   where
     go isMod t = addDep isMod $ R.Node
-      { R.rootLabel = Regular . node . R.rootLabel $ t
+      { R.rootLabel = Regular . ((,) <$> node <*> value) . R.rootLabel $ t
       , R.subForest = map (go False) (R.subForest t)
                    ++ map (go True) (modif $ R.rootLabel t) }
     addDep isMod t
@@ -127,28 +132,28 @@ mkTree hype p ts = R.Node
 --   return . reverse $ R.subForest deriv
 
 -- | Construct a derivation node with no modifier.
-only :: O.Node n t -> DerivNode n t
-only x = DerivNode {node = x, modif =  []}
+only :: O.Node n t -> DerivNode n t v
+only x = DerivNode {node = x, value = Nothing, modif = []}
 
 -- | Several constructors which allow to build non-modified nodes.
-mkRoot :: P.Hype n t v -> I.Passive v -> DerivNode n (B.Tok (t, v))
+mkRoot :: P.Hype n t v -> I.Passive v -> DerivNode n (B.Tok t) v
 mkRoot hype p = only . O.NonTerm $ nonTerm (getL I.dagID p) hype
 
-mkFoot :: n -> DerivNode n t
+mkFoot :: n -> DerivNode n t v
 mkFoot x = only . O.Foot $ x
 
-mkTerm :: t -> DerivNode n t
+mkTerm :: t -> DerivNode n t v
 mkTerm = only . O.Term
 
 -- | Build non-modified nodes of different types.
-footNode :: n -> Deriv n t
+footNode :: n -> Deriv n t v
 footNode x = R.Node (mkFoot x) []
 
-termNode :: t -> Deriv n t
+termNode :: t -> Deriv n t v
 termNode x = R.Node (mkTerm x) []
 
 -- | Retrieve root non-terminal of a derivation tree.
-derivRoot :: Deriv n t -> n
+derivRoot :: Deriv n t v -> n
 derivRoot R.Node{..} = case node rootLabel of
   O.NonTerm x -> x
   O.Foot _ -> error "passiveDerivs.getRoot: got foot"
@@ -158,8 +163,9 @@ derivRoot R.Node{..} = case node rootLabel of
 substNode :: I.NonActive n v -> TokDeriv n t v -> TokDeriv n t v
 substNode (Left _p) t = t
 substNode (Right _p) t = flip R.Node [] $ DerivNode
-  { node = O.NonTerm (derivRoot t)
-  , modif   = [t] }
+  { node  = O.NonTerm (derivRoot t)
+  , value = Nothing
+  , modif = [t] }
 --   | I.isRoot (p ^. E.dagID) = flip R.Node [] $ DerivNode
 --     { node = O.NonTerm (derivRoot t)
 --     , modif   = [t] }
@@ -184,10 +190,11 @@ substNode (Right _p) t = flip R.Node [] $ DerivNode
 
 -- | Add the auxiliary derivation to the list of modifications of the
 -- initial derivation.
-adjoinTree :: Deriv n t -> Deriv n t -> Deriv n t
+adjoinTree :: Deriv n t v -> Deriv n t v -> Deriv n t v
 adjoinTree ini aux = R.Node
   { R.rootLabel = let root = R.rootLabel ini in DerivNode
-    { node = node root
+    { node  = node root
+    , value = Nothing
     , modif = aux : modif root }
   , R.subForest = R.subForest ini }
 
@@ -234,12 +241,15 @@ fromTop
 fromTop top hype = case P.topTrav top hype of
   Nothing -> error "fromTop: top item unknown"
   Just travSet -> concat
-    [ fromTopTrav top trav hype
+    [ fromTopTrav top trav
     | trav <- S.toList travSet ]
   where
-    fromTopTrav _p (Fini q) = fromPassive q
-    fromTopTrav _p _ =
-        error "fromTop.fromTopTrav: impossible happened"
+    fromTopTrav _p (Fini q) = do
+      let trace = q ^. I.traceP
+      deriv <- fromPassive q hype
+      let inject (val, node) = node {value = val}
+      return . fmap inject $ zipTree trace deriv
+    fromTopTrav _p _ = error "fromTop.fromTopTrav: impossible happened"
 
 
 -- | Extract derivation trees represented by the given passive item.

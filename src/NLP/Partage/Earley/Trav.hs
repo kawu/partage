@@ -42,7 +42,7 @@ data Trav n t v
     = Scan
         { _scanFrom :: Active v
         -- ^ The input active state
-        , _scanTerm :: Tok (t, v)
+        , _scanTerm :: Tok t
         -- ^ The scanned terminal
         }
     | Deact

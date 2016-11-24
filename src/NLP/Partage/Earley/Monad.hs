@@ -49,14 +49,15 @@ type Earley n t v = RWS.RWST (Input t v) () (Hype n t v) IO
 
 
 -- | Read word from the given position of the input.
-readInput :: Pos -> P.ListT (Earley n t v) (Tok (t, v))
+readInput :: Pos -> P.ListT (Earley n t v) (Tok t, v)
 readInput i = do
     -- ask for the input
     sent <- RWS.asks inputSent
     -- just a safe way to retrieve the i-th element
     -- each $ take 1 $ drop i xs
     xs <- some $ sent V.!? i
-    each . map (Tok i) $ S.toList xs
+    let mkTok (t, v) = (Tok i t, v)
+    each . map mkTok $ S.toList xs
 
 
 --------------------

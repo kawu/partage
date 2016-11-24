@@ -238,7 +238,7 @@ tryScan p = void $ P.runListT $ do
 #endif
     -- read the word immediately following the ending position of
     -- the state (together with the value assigned to it)
-    tok@(Tok _pos (c, val)) <- readInput $ getL (spanA >>> end) p
+    (tok@(Tok _ c), val) <- readInput $ getL (spanA >>> end) p
     -- follow appropriate terminal transition outgoing from the
     -- given automaton state
     j <- followTerm (getL state p) c
@@ -633,7 +633,7 @@ parsedTrees hype start n
                 (S.toList travSet)
 
     fromActiveTrav _p (Scan q tok) =
-        [ T.Leaf (fst $ terminal tok) : ts
+        [ T.Leaf (terminal tok) : ts
         | ts <- fromActive q ]
 
     fromActiveTrav _p (Subst qp qa) =
