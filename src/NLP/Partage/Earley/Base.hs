@@ -2,6 +2,7 @@ module NLP.Partage.Earley.Base
 ( Pos
 -- * Input
 , Input (..)
+, Tok (..)
 , fromList
 , fromSets
 -- * Utils
@@ -13,6 +14,7 @@ module NLP.Partage.Earley.Base
 ) where
 
 
+import           Data.Function (on)
 import qualified Data.Set as S
 import qualified Data.Vector as V
 
@@ -51,6 +53,22 @@ newtype Input t v = Input {
       inputSent :: V.Vector (S.Set (t, v))
     -- ^ The input sentence
     }
+
+
+-- | A token is a terminal enriched with information about the position
+-- in the input sentence.
+data Tok t = Tok
+  { position :: Int
+    -- ^ Position of the node in the dependency tree
+  , terminal :: t
+    -- ^ Terminal on the corresponding position
+  } deriving (Show)
+
+
+instance Eq (Tok t) where
+  (==) = (==) `on` position
+instance Ord (Tok t) where
+  compare = compare `on` position
 
 
 -- | Construct `Input` from a list of terminals.

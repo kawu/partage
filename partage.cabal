@@ -85,6 +85,7 @@ library
       , NLP.Partage.Earley.Hypergraph
       , NLP.Partage.Earley.Monad
       , NLP.Partage.Earley.Parser
+      , NLP.Partage.Earley.Deriv
       , NLP.Partage.Earley
 
 --       , NLP.Partage.AStar

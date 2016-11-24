@@ -49,14 +49,14 @@ type Earley n t v = RWS.RWST (Input t v) () (Hype n t v) IO
 
 
 -- | Read word from the given position of the input.
-readInput :: Pos -> P.ListT (Earley n t v) (t, v)
+readInput :: Pos -> P.ListT (Earley n t v) (Tok (t, v))
 readInput i = do
     -- ask for the input
     sent <- RWS.asks inputSent
     -- just a safe way to retrieve the i-th element
     -- each $ take 1 $ drop i xs
     xs <- some $ sent V.!? i
-    each $ S.toList xs
+    each . map (Tok i) $ S.toList xs
 
 
 --------------------
@@ -71,7 +71,7 @@ isProcessedA p = Chart.isProcessedA p . chart <$> RWS.get
 
 -- | Mark the active item as processed (`done').
 saveActive
-    :: (Ord t, Ord n, Ord v)
+    :: (Ord n, Ord v)
     => Active v
     -> S.Set (Ext.Trav n t v)
     -> Earley n t v ()
@@ -82,7 +82,7 @@ saveActive p ts =
 -- | Check if, for the given active item, the given transitions are already
 -- present in the hypergraph.
 hasActiveTrav
-    :: (Ord t, Ord n, Ord v)
+    :: (Ord n, Ord v)
     => Active v
     -> S.Set (Ext.Trav n t v)
     -> Earley n t v Bool
@@ -104,7 +104,7 @@ isProcessedP p = do
 
 -- | Mark the passive item as processed (`done').
 savePassive
-    :: (Ord t, Ord n, Ord v)
+    :: (Ord n, Ord v)
     => NonActive n v
     -> S.Set (Ext.Trav n t v)
     -> Earley n t v ()
@@ -117,7 +117,7 @@ savePassive p ts =
 -- | Check if, for the given active item, the given transitions are already
 -- present in the hypergraph.
 hasPassiveTrav
-    :: (Ord t, Ord n, Ord v)
+    :: (Ord n, Ord v)
     => NonActive n v
     -> S.Set (Ext.Trav n t v)
     -> Earley n t v Bool

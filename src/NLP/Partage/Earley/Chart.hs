@@ -157,7 +157,7 @@ isProcessedA p =
 
 -- | Mark the active item as processed (`done').
 saveActive
-    :: (Ord t, Ord n, Ord v)
+    :: (Ord n, Ord v)
     => Active v
     -> S.Set (Trav n t v)
     -> Chart n t v
@@ -178,7 +178,7 @@ saveActive p ts chart =
 -- | Check if, for the given active item, the given transitions are already
 -- present in the hypergraph.
 hasActiveTrav
-    :: (Ord t, Ord n, Ord v)
+    :: (Ord n, Ord v)
     => Active v
     -> S.Set (Trav n t v)
     -> Chart n t v
@@ -221,7 +221,7 @@ isProcessedP x auto = isJust . passiveTrav x auto
 
 -- | Mark the passive item as processed (`done').
 savePassive
-    :: (Ord t, Ord n, Ord v)
+    :: (Ord n, Ord v)
     => NonActive n v
     -> S.Set (Trav n t v)
     -> Auto n t v
@@ -243,7 +243,7 @@ savePassive p ts auto chart =
 -- | Check if, for the given active item, the given transitions are already
 -- present in the hypergraph.
 hasPassiveTrav
-  :: (Ord t, Ord n, Ord v)
+  :: (Ord n, Ord v)
   => NonActive n v
   -> S.Set (Trav n t v)
   -> Auto n t v

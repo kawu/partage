@@ -46,6 +46,12 @@ module NLP.Partage.Earley.Parser
 
 -- * Sentence position
 , Pos
+
+-- * Internal (should not be exported here?)
+, finalFrom
+, topTrav
+, passiveTrav
+, activeTrav
 ) where
 
 
@@ -103,7 +109,7 @@ import qualified Data.Time              as Time
 
 -- | Add the active item to the waiting queue.  Check first if it
 -- is not already in the set of processed (`done') states.
-pushActive :: (Ord t, Ord n, Ord v) => Active v -> Trav n t v -> Earley n t v ()
+pushActive :: (Ord n, Ord v) => Active v -> Trav n t v -> Earley n t v ()
 pushActive p t = isProcessedA p >>= \b -> if b
     then saveActive p $ S.singleton t
     else modify' $ \s -> s {waiting = newWait (waiting s)}
@@ -114,7 +120,7 @@ pushActive p t = isProcessedA p >>= \b -> if b
 
 -- | Push non-active item to the waiting queue.  Check first if it
 -- is not already in the set of processed (`done') states.
-pushNonActive :: (Ord t, Ord n, Ord v) => NonActive n v -> Trav n t v -> Earley n t v ()
+pushNonActive :: (Ord n, Ord v) => NonActive n v -> Trav n t v -> Earley n t v ()
 pushNonActive p t = isProcessedP p >>= \b -> if b
     then savePassive p $ S.singleton t
     else modify' $ \s -> s {waiting = newWait (waiting s)}
@@ -127,12 +133,12 @@ pushNonActive p t = isProcessedP p >>= \b -> if b
 
 
 -- | Push passive item to the agenda.
-pushPassive :: (Ord t, Ord n, Ord v) => Passive v -> Trav n t v -> Earley n t v ()
+pushPassive :: (Ord n, Ord v) => Passive v -> Trav n t v -> Earley n t v ()
 pushPassive = pushNonActive . Left
 
 
 -- | Push passive item to the agenda.
-pushTop :: (Ord t, Ord n, Ord v) => Top n v -> Trav n t v -> Earley n t v ()
+pushTop :: (Ord n, Ord v) => Top n v -> Trav n t v -> Earley n t v ()
 pushTop = pushNonActive . Right
 
 
@@ -232,7 +238,7 @@ tryScan p = void $ P.runListT $ do
 #endif
     -- read the word immediately following the ending position of
     -- the state (together with the value assigned to it)
-    (c, val) <- readInput $ getL (spanA >>> end) p
+    tok@(Tok _pos (c, val)) <- readInput $ getL (spanA >>> end) p
     -- follow appropriate terminal transition outgoing from the
     -- given automaton state
     j <- followTerm (getL state p) c
@@ -242,7 +248,7 @@ tryScan p = void $ P.runListT $ do
           . modL' traceA (C.leaf val :)
           $ p
     -- push the resulting state into the waiting queue
-    lift $ pushActive q $ Scan p c
+    lift $ pushActive q $ Scan p tok
 #ifdef DebugOn
     -- print logging information
     lift . lift $ do
@@ -407,7 +413,7 @@ tryAdjoinInit p = void $ P.runListT $ do
            . modL' traceA (C.foot :)
            $ q
     -- push the resulting state into the waiting queue
-    lift $ pushActive q' $ Foot q p
+    lift $ pushActive q' $ Foot q footNT
 #ifdef DebugOn
     -- print logging information
     hype <- RWS.get
@@ -626,8 +632,8 @@ parsedTrees hype start n
                 (fromActiveTrav p)
                 (S.toList travSet)
 
-    fromActiveTrav _p (Scan q t) =
-        [ T.Leaf t : ts
+    fromActiveTrav _p (Scan q tok) =
+        [ T.Leaf (fst $ terminal tok) : ts
         | ts <- fromActive q ]
 
     fromActiveTrav _p (Subst qp qa) =
@@ -636,7 +642,8 @@ parsedTrees hype start n
         , t  <- fromNonActive qp ]
 
     fromActiveTrav _p (Foot q p) =
-        [ T.Branch (nonTerm (p ^. dagID) auto) [] : ts
+        -- [ T.Branch (nonTerm (p ^. dagID) auto) [] : ts
+        [ T.Branch p [] : ts
         | ts <- fromActive q ]
 
     fromActiveTrav _p _ =
@@ -865,13 +872,31 @@ activeTrav
 activeTrav p h = Chart.activeTrav p (chart h)
 
 
--- | Return the corresponding set of traversals for a passive item.
+-- | Return the corresponding set of traversals for a non-active item.
 nonActiveTrav
   :: (Ord n, Ord v)
   => NonActive n v
   -> Hype n t v
   -> Maybe (S.Set (Trav n t v))
 nonActiveTrav p h = Chart.passiveTrav p (automat h) (chart h)
+
+
+-- | Return the corresponding set of traversals for a top item.
+topTrav
+  :: (Ord n, Ord v)
+  => Top n v
+  -> Hype n t v
+  -> Maybe (S.Set (Trav n t v))
+topTrav p = nonActiveTrav (Right p)
+
+
+-- | Return the corresponding set of traversals for a passive item.
+passiveTrav
+  :: (Ord n, Ord v)
+  => Passive v
+  -> Hype n t v
+  -> Maybe (S.Set (Trav n t v))
+passiveTrav p = nonActiveTrav (Left p)
 
 
 -- | Return the list of final, initial, passive chart items.

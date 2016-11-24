@@ -21,6 +21,7 @@ import           Prelude hiding             (span, (.))
 import           Data.Lens.Light
 import           Control.Category ((.))
 
+import           NLP.Partage.Earley.Base (Tok)
 import           NLP.Partage.Earley.Item
 
 
@@ -41,7 +42,7 @@ data Trav n t v
     = Scan
         { _scanFrom :: Active v
         -- ^ The input active state
-        , _scanTerm :: t
+        , _scanTerm :: Tok (t, v)
         -- ^ The scanned terminal
         }
     | Deact
@@ -74,8 +75,8 @@ data Trav n t v
     | Foot
         { _actArg   :: Active v
         -- ^ The passive argument of the action
-        -- , theFoot  :: n
-        , _theFoot  :: Passive v
+        -- , _theFoot  :: Passive v
+        , theFoot  :: n
         -- ^ The foot non-terminal
         }
     -- ^ Foot adjoin
@@ -203,7 +204,7 @@ extPrio p = ExtPrio p S.empty
 -- underlying chart item itself so we know that both priorities must
 -- be equal.  Later when we start using probabilities this statement
 -- will no longer hold.
-joinPrio :: (Ord n, Ord t, Ord v) => ExtPrio n t v -> ExtPrio n t v -> ExtPrio n t v
+joinPrio :: (Ord n, Ord v) => ExtPrio n t v -> ExtPrio n t v -> ExtPrio n t v
 joinPrio x y = ExtPrio
     (min (prioVal x) (prioVal y))
     (S.union (prioTrav x) (prioTrav y))
