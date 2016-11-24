@@ -5,8 +5,11 @@
 
 
 module NLP.Partage.Tree.Comp
-( Comp
-, Env
+( Env
+, Comp (..)
+, BottomUp
+, TopDown
+, dummyTopDown
 , leaf
 , foot
 ) where
@@ -59,11 +62,42 @@ foot = T.Node Nothing []
 -- node x xs = T.Node (Just x) []
 
 
--- | Computation from the values assigned to individual nodes of an ET to a
--- value of this ET.  If the function returns `Nothing`, then the computation
--- fails and the corresponding ET cannot be "inferred".
--- Note that no node corresponding to the foot is present in the tree.
-type Comp a = Env a -> Maybe a
+-- -- | Computation from the values assigned to individual nodes of an ET to a
+-- -- value of this ET.  If the function returns `Nothing`, then the computation
+-- -- fails and the corresponding ET cannot be "inferred".
+-- -- Note that no node corresponding to the foot is present in the tree.
+-- type Comp a = Env a -> Maybe a
+
+
+-- | Bottom-up computation.
+type BottomUp a = Env a -> Maybe a
+
+
+-- | Top-down computation.
+type TopDown a = Env a -> Env a
+-- type TopDown a = a -> Env a -> Env a
+
+
+-- | A computation related to an elementary tree.
+data Comp a = Comp
+  { bottomUp :: BottomUp a
+    -- ^ Computation from the values assigned to individual nodes of an ET to a
+    -- value of this ET (and, more precisely, to its root). If the function
+    -- returns `Nothing`, then the computation fails and the corresponding ET
+    -- cannot be "inferred". Note that no node corresponding to the foot is
+    -- present in the tree.
+  , topDown  :: TopDown a
+    -- ^ Used to determine the value of the entire ET and propagate the values
+    -- down the derivation tree; used when extracting derivations.  Note that
+    -- `topDown` is a generalization of `bottomUp` and thus results of the
+    -- both functions must be consistent.
+  }
+
+
+-- | A dummy top-down computation which does not propagate any values down the
+-- derivation tree.
+dummyTopDown :: TopDown a
+dummyTopDown = id
 
 
 -- -- | Computation from the values assigned to individual nodes of an ET to a

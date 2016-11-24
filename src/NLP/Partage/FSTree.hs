@@ -15,6 +15,9 @@ module NLP.Partage.FSTree
 , term
 , foot
 -- * Compilation
+, bottomUp
+, topDown
+, unifyRoot
 , compile
 , extract
 -- * Utils
@@ -29,6 +32,7 @@ import qualified NLP.Partage.FS as FS
 import qualified NLP.Partage.Env as Env
 import qualified NLP.Partage.Tree.Comp as C
 import qualified NLP.Partage.Tree.Other as O
+import qualified NLP.Partage.Earley.Base as B
 
 
 --------------------------------------------------
@@ -72,10 +76,10 @@ foot x = R.Node (O.Foot x, M.empty) []
 --------------------------------------------------
 
 
--- | Compile the fiven FSTree to a computation over closed FSs which requires
+-- | Compile the given FSTree to a computation over closed FSs which requires
 -- unification between the corresponding nodes.
-compile :: (Ord k, Ord v) => Env.EnvM v (FSTree n t k v) -> C.Comp (FS.ClosedFS k v)
-compile ofsTreeM cfsTree = fst . Env.runEnvM $ do
+bottomUp :: (Ord k, Ord v) => Env.EnvM v (FSTree n t k v) -> C.BottomUp (FS.ClosedFS k v)
+bottomUp ofsTreeM cfsTree = fst . Env.runEnvM $ do
   ofsTree <- fmap snd <$> ofsTreeM
   let fsTree = zipTree ofsTree cfsTree
   fsTree' <- mapM (uncurry doit) fsTree
@@ -85,6 +89,41 @@ compile ofsTreeM cfsTree = fst . Env.runEnvM $ do
     doit ofs (Just cfs) = do
       ofs' <- FS.reopen cfs
       FS.unifyFS ofs ofs'
+
+
+-- | Like `bottomUp` but propagates values downwards the derivation tree.
+topDown :: (Ord k, Ord v) => Env.EnvM v (FSTree n t k v) -> C.TopDown (FS.ClosedFS k v)
+topDown ofsTreeM cfsTree = fmap Just . check . fst . Env.runEnvM $ do
+  ofsTree <- fmap snd <$> ofsTreeM
+  let fsTree = zipTree ofsTree cfsTree
+  fsTree' <- mapM (uncurry doit) fsTree
+  mapM FS.close fsTree'
+  where
+    check may = case may of
+      Nothing -> error "topDown: computation failed"
+      Just x -> x
+    doit ofs Nothing = return ofs
+    doit ofs (Just cfs) = do
+      ofs' <- FS.reopen cfs
+      FS.unifyFS ofs ofs'
+
+
+-- | Unify the given FS with the root FS of the given tree.
+unifyRoot :: (B.Unify v) => v -> C.Env v -> Maybe (C.Env v)
+unifyRoot cfsMod cfsTree = do
+  let cfsMay = R.rootLabel cfsTree
+  newCfs <- case cfsMay of
+    Nothing -> Just cfsMod
+    Just cfsRoot -> B.unify cfsMod cfsRoot
+  return $ cfsTree {R.rootLabel = Just newCfs}
+
+
+-- | Compile the given FSTree to a computation over closed FSs which requires
+-- unification between the corresponding nodes.
+compile :: (Ord k, Ord v) => Env.EnvM v (FSTree n t k v) -> C.Comp (FS.ClosedFS k v)
+compile ofsTreeM = C.Comp
+  { C.bottomUp = bottomUp ofsTreeM
+  , C.topDown = topDown ofsTreeM }
 
 
 -- | Extract tree elementary represented by the given computation (due to

@@ -31,7 +31,7 @@ module NLP.Partage.Earley.Deriv
 -- import           Data.Function             (on)
 import           Data.Lens.Light
 -- import qualified Data.Map.Strict           as M
--- import           Data.Maybe                (maybeToList, isJust)
+import           Data.Maybe                (maybeToList)
 -- import qualified Data.PSQueue              as Q
 import qualified Data.Set                  as S
 import qualified Data.Tree                 as R
@@ -44,9 +44,11 @@ import qualified NLP.Partage.DAG           as DAG
 import qualified NLP.Partage.Earley.Base   as B
 import           NLP.Partage.Earley.Trav   (Trav(..))
 import qualified NLP.Partage.Earley.Parser as P
+import qualified NLP.Partage.Earley.Auto   as Auto
 import qualified NLP.Partage.Earley.Item   as I
 import qualified NLP.Partage.Tree.Other    as O
-import           NLP.Partage.FSTree        (zipTree)
+import qualified NLP.Partage.Tree.Comp     as C
+import qualified NLP.Partage.FSTree        as FSTree
 
 
 ---------------------------
@@ -110,14 +112,17 @@ deriv4show =
 
 -- | Construct a derivation tree on the basis of the underlying passive
 -- item, current child derivation and previous children derivations.
-mkTree
-  :: P.Hype n t v
-  -> I.Passive v
-  -> [TokDeriv n t v]
-  -> TokDeriv n t v
-mkTree hype p ts = R.Node
-  { R.rootLabel = mkRoot hype p
+mkTree :: a -> [R.Tree a] -> R.Tree a
+mkTree x ts = R.Node
+  { R.rootLabel = x
   , R.subForest = reverse ts }
+
+
+-- | An inverse of `mkTree`:
+-- mkTree x ts == t => unTree t == (x, ts)
+unTree :: R.Tree a -> (a, [R.Tree a])
+unTree (R.Node x ts) = (x, reverse ts)
+
 
 -- -- | Inverse of `mkTree`.
 -- -- mkTree h p ts == d => unTree h p d == Just ts
@@ -132,25 +137,25 @@ mkTree hype p ts = R.Node
 --   return . reverse $ R.subForest deriv
 
 -- | Construct a derivation node with no modifier.
-only :: O.Node n t -> DerivNode n t v
-only x = DerivNode {node = x, value = Nothing, modif = []}
+only :: Maybe v -> O.Node n t -> DerivNode n t v
+only v x = DerivNode {node = x, value = v, modif = []}
 
 -- | Several constructors which allow to build non-modified nodes.
-mkRoot :: P.Hype n t v -> I.Passive v -> DerivNode n (B.Tok t) v
-mkRoot hype p = only . O.NonTerm $ nonTerm (getL I.dagID p) hype
+mkRoot :: P.Hype n t v -> Maybe v -> I.Passive v -> DerivNode n (B.Tok t) v
+mkRoot hype v p = only v . O.NonTerm $ nonTerm (getL I.dagID p) hype
 
 mkFoot :: n -> DerivNode n t v
-mkFoot x = only . O.Foot $ x
+mkFoot x = only Nothing . O.Foot $ x
 
-mkTerm :: t -> DerivNode n t v
-mkTerm = only . O.Term
+mkTerm :: Maybe v -> t -> DerivNode n t v
+mkTerm v = only v . O.Term
 
 -- | Build non-modified nodes of different types.
 footNode :: n -> Deriv n t v
 footNode x = R.Node (mkFoot x) []
 
-termNode :: t -> Deriv n t v
-termNode x = R.Node (mkTerm x) []
+termNode :: Maybe v -> t -> Deriv n t v
+termNode v x = R.Node (mkTerm v x) []
 
 -- | Retrieve root non-terminal of a derivation tree.
 derivRoot :: Deriv n t v -> n
@@ -160,11 +165,11 @@ derivRoot R.Node{..} = case node rootLabel of
   O.Term _ -> error "passiveDerivs.getRoot: got terminal"
 
 -- | Construct substitution node stemming from the given derivation.
-substNode :: I.NonActive n v -> TokDeriv n t v -> TokDeriv n t v
-substNode (Left _p) t = t
-substNode (Right _p) t = flip R.Node [] $ DerivNode
+substNode :: Maybe v -> I.NonActive n v -> TokDeriv n t v -> TokDeriv n t v
+substNode _ (Left _p) t = t
+substNode v (Right _p) t = flip R.Node [] $ DerivNode
   { node  = O.NonTerm (derivRoot t)
-  , value = Nothing
+  , value = v
   , modif = [t] }
 --   | I.isRoot (p ^. E.dagID) = flip R.Node [] $ DerivNode
 --     { node = O.NonTerm (derivRoot t)
@@ -222,121 +227,133 @@ adjoinTree ini aux = R.Node
 -- | Extract derivation trees obtained on the given input sentence. Should be
 -- run on the final result of the earley parser.
 derivTrees
-    :: (Ord t, Ord n, Ord v)
+    :: (Ord t, Ord n, Ord v, B.Unify v)
     => P.Hype n t v -- ^ Final state of the earley parser
     -> n            -- ^ The start symbol
     -> Int          -- ^ Length of the input sentence
     -> [TokDeriv n t v]
 derivTrees hype start n
-  = concatMap (`fromTop` hype)
+  = concatMap (\top -> fromTop (top ^. I.value) top hype)
   $ P.finalFrom start n hype
 
 
 -- | Extract derivation trees represented by the given passive item.
 fromTop
-  :: (Ord t, Ord n, Ord v)
-  => I.Top n v
+  :: (Ord t, Ord n, Ord v, B.Unify v)
+  => v -- ^ The value percolating downwards
+  -> I.Top n v
   -> P.Hype n t v
   -> [TokDeriv n t v]
-fromTop top hype = case P.topTrav top hype of
+fromTop topVal top hype = case P.topTrav top hype of
   Nothing -> error "fromTop: top item unknown"
   Just travSet -> concat
     [ fromTopTrav top trav
     | trav <- S.toList travSet ]
   where
     fromTopTrav _p (Fini q) = do
-      let trace = q ^. I.traceP
-      deriv <- fromPassive q hype
-      let inject (val, node) = node {value = val}
-      return . fmap inject $ zipTree trace deriv
+      let dag = Auto.gramDAG . P.automat $ hype
+      C.Comp{..} <- maybeToList $ DAG.value (q ^. I.dagID) dag
+      trace <- maybeToList $ FSTree.unifyRoot topVal (q ^. I.traceP)
+      fromPassive (topDown trace) q hype
     fromTopTrav _p _ = error "fromTop.fromTopTrav: impossible happened"
 
 
 -- | Extract derivation trees represented by the given passive item.
 fromPassive
-  :: (Ord n, Ord t, Ord v)
-  => I.Passive v
+  :: (Ord n, Ord t, Ord v, B.Unify v)
+  => C.Env v -- ^ The values percolating downwards
+  -> I.Passive v
   -> P.Hype n t v
   -> [TokDeriv n t v]
-fromPassive passive hype = case P.passiveTrav passive hype of
+fromPassive topEnv passive hype = case P.passiveTrav passive hype of
   Nothing -> error "fromPassive: passive item unknown"
   Just travSet -> concat
-    [ fromPassiveTrav passive trav hype
+    [ fromPassiveTrav topEnv passive trav hype
     | trav <- S.toList travSet ]
 
 
 -- | Extract derivation trees represented by the given passive item
 -- and the corresponding input traversal.
 fromPassiveTrav
-  :: (Ord n, Ord t, Ord v)
-  => I.Passive v
+  :: (Ord n, Ord t, Ord v, B.Unify v)
+  => C.Env v -- ^ The values percolating downwards
+  -> I.Passive v
   -> Trav n t v
   -> P.Hype n t v
   -> [TokDeriv n t v]
-fromPassiveTrav p trav hype = case trav of
+fromPassiveTrav topEnv p trav hype = case trav of
   Deact qa ->
-    [ mkTree hype p ts
-    | ts <- activeDerivs qa ]
+    [ mkTree (mkRoot hype v p) ts
+    | let (v, vs) = unTree topEnv
+    , ts <- fromActive vs qa hype ]
   Adjoin qa qm ->
     [ adjoinTree ini aux
-    | aux <- topDerivs qa
-    , ini <- passiveDerivs qm ]
+    | aux <- fromTop (check $ R.rootLabel topEnv) qa hype
+    , ini <- fromPassive topEnv qm hype ]
   _ -> error "fromPassiveTrav: impossible happened"
   where
-    topDerivs       = flip fromTop hype
-    activeDerivs    = flip fromActive hype
-    passiveDerivs   = flip fromPassive hype
+    check may = case may of
+      Just  x -> x
+      Nothing -> error "fromPassiveTrav: impossible happened 2"
 
 
 -- | Extract derivations represented by the given active item.
 fromNonActive
-  :: (Ord n, Ord t, Ord v)
-  => I.NonActive n v
+  :: (Ord n, Ord t, Ord v, B.Unify v)
+  => C.Env v -- ^ The values percolating downwards
+  -> I.NonActive n v
   -> P.Hype n t v
   -> [TokDeriv n t v]
-fromNonActive nonActive = case nonActive of
-  Left p -> fromPassive p
-  Right p -> fromTop p
+fromNonActive topEnv nonActive = case nonActive of
+  Left p -> fromPassive topEnv p
+  Right p -> fromTop (check $ R.rootLabel topEnv) p
+  where
+    check may = case may of
+      Just  x -> x
+      Nothing -> error "fromNonActive: impossible happened"
 
 
 -- | Extract derivations represented by the given active item.
 fromActive
-  :: (Ord n, Ord t, Ord v)
-  => I.Active v
+  :: (Ord n, Ord t, Ord v, B.Unify v)
+  => [C.Env v] -- ^ The values percolating downwards
+  -> I.Active v
   -> P.Hype n t v
   -> [[TokDeriv n t v]]
-fromActive active hype = case P.activeTrav active hype of
+fromActive topEnv active hype = case P.activeTrav active hype of
   Nothing  -> error "fromActive: active item unknown"
   Just travSet -> if S.null travSet
     then [[]]
     else concatMap
-         (\trav -> fromActiveTrav active trav hype)
+         (\trav -> fromActiveTrav topEnv active trav hype)
          (S.toList travSet)
 
 
 -- | Extract derivation trees represented by the given active item
 -- and the corresponding input traversal.
 fromActiveTrav
-  :: (Ord n, Ord t, Ord v)
-  => I.Active v
+  :: (Ord n, Ord t, Ord v, B.Unify v)
+  => [C.Env v] -- ^ The values percolating downwards
+  -> I.Active v
   -> Trav n t v
   -> P.Hype n t v
   -> [[TokDeriv n t v]]
-fromActiveTrav _p trav hype = case trav of
+fromActiveTrav topEnv _p trav hype = case trav of
   Scan q t ->
-    [ termNode t : ts
-    | ts <- activeDerivs q ]
+    [ termNode (R.rootLabel v) t : ts
+    | ts <- fromActive vs q hype ]
   Subst qp qa ->
-    [ substNode qp t : ts
-    | ts <- activeDerivs qa
-    , t  <- nonActiveDerivs qp ]
+    [ substNode (R.rootLabel v) qp t : ts
+    | ts <- fromActive vs qa hype
+    , t  <- fromNonActive v qp hype ]
   Foot q x ->
     [ footNode x : ts
-    | ts <- activeDerivs q ]
+    | ts <- fromActive vs q hype ]
   _ -> error "fromActiveTrav: impossible happened"
   where
-    activeDerivs    = flip fromActive hype
-    nonActiveDerivs = flip fromNonActive hype
+    (v, vs) = case topEnv of
+      [] -> error "fromActiveTrav: impossible happened 2"
+      x : xs -> (x, xs)
 
 
 --------------------------------------------------

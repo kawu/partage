@@ -74,6 +74,10 @@ instance Unify AC where
   unify _ A  = Just A
 
 
+dummyComp :: x -> C.Comp x
+dummyComp x = C.Comp (const (Just x)) C.dummyTopDown
+
+
 ---------------------------------------------------------------------
 -- Prerequisites
 ---------------------------------------------------------------------
@@ -136,7 +140,7 @@ data TestRes
 mkTree :: Some -> CompTree
 mkTree t =
   ( O.encode t
-  , const (Just A) )
+  , dummyComp A )
 
 
 ---------------------------------------------------------------------
@@ -318,7 +322,7 @@ gram1Tests =
 
 alpha :: (Tr, C.Comp AC)
 alpha =
-  (tree, const $ Just A)
+  (tree, dummyComp A)
   where
     tree = Branch "S"
       [ Branch "X"
@@ -327,7 +331,7 @@ alpha =
 
 beta1 :: (AuxTr, C.Comp AC)
 beta1 =
-  (tree, comp)
+  (tree, C.Comp comp C.dummyTopDown)
   where
     tree = AuxTree
       (Branch "X"
@@ -343,7 +347,7 @@ beta1 =
 
 beta2 :: (AuxTr, C.Comp AC)
 beta2 =
-  (tree, comp)
+  (tree, C.Comp comp C.dummyTopDown)
   where
     tree = AuxTree
       (Branch "X"

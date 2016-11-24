@@ -301,8 +301,8 @@ tryFinilize p = void $ P.runListT $ do
   guard $ DAG.isRoot pDID dag
   q <- some $ do
     labl <- DAG.label pDID  dag
-    comp <- DAG.value pDID dag
-    valu <- comp (p ^. traceP)
+    C.Comp{..} <- DAG.value pDID dag
+    valu <- bottomUp (p ^. traceP)
     x <- labNonTerm labl
     return $ Top (p ^. spanP) x valu
   lift . pushTop q $ Fini p
