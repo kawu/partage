@@ -144,15 +144,15 @@ only v x = DerivNode {node = x, value = v, modif = []}
 mkRoot :: P.Hype n t v -> Maybe v -> I.Passive v -> DerivNode n (B.Tok t) v
 mkRoot hype v p = only v . O.NonTerm $ nonTerm (getL I.dagID p) hype
 
-mkFoot :: n -> DerivNode n t v
-mkFoot x = only Nothing . O.Foot $ x
+mkFoot :: Maybe v -> n -> DerivNode n t v
+mkFoot v = only v . O.Foot
 
 mkTerm :: Maybe v -> t -> DerivNode n t v
 mkTerm v = only v . O.Term
 
 -- | Build non-modified nodes of different types.
-footNode :: n -> Deriv n t v
-footNode x = R.Node (mkFoot x) []
+footNode :: Maybe v -> n -> Deriv n t v
+footNode v x = R.Node (mkFoot v x) []
 
 termNode :: Maybe v -> t -> Deriv n t v
 termNode v x = R.Node (mkTerm v x) []
@@ -195,11 +195,11 @@ substNode v (Right _p) t = flip R.Node [] $ DerivNode
 
 -- | Add the auxiliary derivation to the list of modifications of the
 -- initial derivation.
-adjoinTree :: Deriv n t v -> Deriv n t v -> Deriv n t v
-adjoinTree ini aux = R.Node
+adjoinTree :: v -> Deriv n t v -> Deriv n t v -> Deriv n t v
+adjoinTree val ini aux = R.Node
   { R.rootLabel = let root = R.rootLabel ini in DerivNode
     { node  = node root
-    , value = Nothing
+    , value = Just val
     , modif = aux : modif root }
   , R.subForest = R.subForest ini }
 
@@ -253,8 +253,14 @@ fromTop topVal top hype = case P.topTrav top hype of
     fromTopTrav _p (Fini q) = do
       let dag = Auto.gramDAG . P.automat $ hype
       C.Comp{..} <- maybeToList $ DAG.value (q ^. I.dagID) dag
-      trace <- maybeToList $ FSTree.unifyRoot topVal (q ^. I.traceP)
-      fromPassive (topDown trace) q hype
+      -- trace <- maybeToList $ FSTree.unifyRoot topVal (q ^. I.traceP)
+      let trace = q ^. I.traceP
+      -- let trace  = q ^. I.traceP
+      let trace' = topDown topVal trace
+      if R.rootLabel trace' == Nothing
+        then error "fromTop.fromTopTrav: impossible happened 2"
+        else return ()
+      fromPassive trace' q hype
     fromTopTrav _p _ = error "fromTop.fromTopTrav: impossible happened"
 
 
@@ -287,11 +293,12 @@ fromPassiveTrav topEnv p trav hype = case trav of
     | let (v, vs) = unTree topEnv
     , ts <- fromActive vs qa hype ]
   Adjoin qa qm ->
-    [ adjoinTree ini aux
-    | aux <- fromTop (check $ R.rootLabel topEnv) qa hype
+    [ adjoinTree rootVal ini aux
+    | aux <- fromTop rootVal qa hype
     , ini <- fromPassive topEnv qm hype ]
   _ -> error "fromPassiveTrav: impossible happened"
   where
+    rootVal = check $ R.rootLabel topEnv
     check may = case may of
       Just  x -> x
       Nothing -> error "fromPassiveTrav: impossible happened 2"
@@ -347,7 +354,7 @@ fromActiveTrav topEnv _p trav hype = case trav of
     | ts <- fromActive vs qa hype
     , t  <- fromNonActive v qp hype ]
   Foot q x ->
-    [ footNode x : ts
+    [ footNode (R.rootLabel v) x : ts
     | ts <- fromActive vs q hype ]
   _ -> error "fromActiveTrav: impossible happened"
   where

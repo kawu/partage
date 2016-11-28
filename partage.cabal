@@ -76,6 +76,7 @@ library
       , NLP.Partage.FS
       , NLP.Partage.Test
       , NLP.Partage.FSTree
+      , NLP.Partage.FSTree2
       , NLP.Partage.Tree.Comp
       , NLP.Partage.Earley.Auto
       , NLP.Partage.Earley.Base

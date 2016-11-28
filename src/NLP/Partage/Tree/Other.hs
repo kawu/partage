@@ -23,6 +23,7 @@ module NLP.Partage.Tree.Other
 
 -- * Utils
 , isTerm
+, isFoot
 , isFinal
 , isInitial
 , isAuxiliary
@@ -52,6 +53,12 @@ data Node n t
     | Foot n        -- ^ Foot non-terminal
     | Term t        -- ^ Terminal
     deriving (Show, Eq, Ord)
+
+
+-- | Is it a foot?
+isFoot :: Node n t -> Bool
+isFoot (Foot _) = True
+isFoot _        = False
 
 
 -- | Is it a teminal?

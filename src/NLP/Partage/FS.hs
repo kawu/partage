@@ -11,6 +11,7 @@ module NLP.Partage.FS
 , unifyFS
 , Val (..)
 , unify
+, select
 
 -- * Closed
 , ClosedFS
@@ -22,7 +23,9 @@ module NLP.Partage.FS
 , fsTest
 ) where
 
+-- import Debug.Trace (trace)
 
+import qualified Control.Monad.State.Strict as E
 import           Control.Monad.Trans.Class (lift)
 import           Control.Monad (forM)
 
@@ -66,8 +69,18 @@ data Val v
 
 
 -- | Unify two open feature structures.
-unifyFS :: (Monad m, Ord k, Ord v) => FS k v -> FS k v -> EnvT v m (FS k v)
-unifyFS fs1 fs2 = fmap M.fromList . runListT $ do
+unifyFS :: (Monad m, Ord k, Ord v, Show k, Show v) => FS k v -> FS k v -> EnvT v m (FS k v)
+unifyFS fs1 fs2 = do
+  env <- E.get
+  -- trace ("unifyFS: " ++ show (fs1, fs2)) $ return ()
+  -- trace ("<<" ++ show env ++ ">>") $ return ()
+  result <- _unifyFS fs1 fs2
+  -- trace (" => " ++ show result) $ return ()
+  return result
+
+-- | Unify two open feature structures.
+_unifyFS :: (Monad m, Ord k, Ord v, Show k, Show v) => FS k v -> FS k v -> EnvT v m (FS k v)
+_unifyFS fs1 fs2 = fmap M.fromList . runListT $ do
   let keys = S.union (M.keysSet fs1) (M.keysSet fs2)
   key <- each $ S.toList keys
   val <- case (M.lookup key fs1, M.lookup key fs2) of
@@ -87,6 +100,11 @@ unify val1 val2 = case (val1, val2) of
   (Val alt1, Val alt2) -> pure $ Val (S.intersection alt1 alt2)
 
 
+-- | Select those keys which satisfy the given predicate.
+select :: (Ord k) => (k -> Bool) -> FS k v -> FS k v
+select p = M.fromList . filter (p . fst) . M.toList
+
+
 --------------------------------------------------
 -- Closed FS
 --------------------------------------------------
@@ -95,7 +113,7 @@ unify val1 val2 = case (val1, val2) of
 -- | A closed feature structure.
 type ClosedFS k v = [(S.Set k, Maybe (Env.Alt v))]
 
-instance (Ord k, Ord v) => B.Unify (ClosedFS k v) where
+instance (Ord k, Ord v, Show k, Show v) => B.Unify (ClosedFS k v) where
   unify x0 y0 = fst . Env.runEnvM $ do
     x <- reopen x0
     y <- reopen y0

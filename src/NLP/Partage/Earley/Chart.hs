@@ -339,7 +339,8 @@ finalFrom start n Chart{..} =
         Just m ->
             [ p
             | Right p <- M.keys m
-            , p ^. label == start ]
+            , p ^. label == start -- do we need to check this again here?
+            , regular (p ^. spanT) ]
 
 
 -- -- | Return all active processed items which:

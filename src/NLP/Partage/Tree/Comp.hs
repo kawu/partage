@@ -16,7 +16,7 @@ module NLP.Partage.Tree.Comp
 
 
 -- import qualified Data.Map.Strict as M
-import qualified Data.Tree as T
+import qualified Data.Tree as R
 
 
 ---------------------------------------------------------------------
@@ -44,22 +44,22 @@ import qualified Data.Tree as T
 
 -- | A map assigning values to individual nodes of the tree. Values are required
 -- to be assigned to leaf nodes but not internal nodes (adjunction is optional).
-type Env a = T.Tree (Maybe a)
+type Env a = R.Tree (Maybe a)
 
 
 -- | Create a leaf environment.
 leaf :: a -> Env a
-leaf x = T.Node (Just x) []
+leaf x = R.Node (Just x) []
 
 
 -- | Create a foot environment.
 foot :: Env a
-foot = T.Node Nothing []
+foot = R.Node Nothing []
 
 
 -- -- | Create an internal node environment.
 -- node :: Maybe a -> [Env a] -> Env a
--- node x xs = T.Node (Just x) []
+-- node x xs = R.Node (Just x) []
 
 
 -- -- | Computation from the values assigned to individual nodes of an ET to a
@@ -73,8 +73,10 @@ foot = T.Node Nothing []
 type BottomUp a = Env a -> Maybe a
 
 
--- | Top-down computation.
-type TopDown a = Env a -> Env a
+-- | Top-down computation. The first argument is the value that comes from
+-- upwards, the second argument is equal to the first argument of the
+-- corresponding bottom-up computation, and the result is the tree of values.
+type TopDown a = a -> Env a -> Env a
 -- type TopDown a = a -> Env a -> Env a
 
 
@@ -95,9 +97,10 @@ data Comp a = Comp
 
 
 -- | A dummy top-down computation which does not propagate any values down the
--- derivation tree.
+-- derivation tree.  It just assignes the value from top to the root of the
+-- given tree, which is not necessarily the correct behavior in every case.
 dummyTopDown :: TopDown a
-dummyTopDown = id
+dummyTopDown x t = t {R.rootLabel = Just x}
 
 
 -- -- | Computation from the values assigned to individual nodes of an ET to a

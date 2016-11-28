@@ -102,7 +102,7 @@ gram = mapMaybe process
   where
     process source = do
       let comp = FST.compile source
-      tree <- FST.extract source
+      tree <- fmap fst <$> FST.extract source
       return (tree, comp)
 
 
