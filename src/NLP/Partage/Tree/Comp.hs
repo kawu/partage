@@ -44,6 +44,9 @@ import qualified Data.Tree as R
 
 -- | A map assigning values to individual nodes of the tree. Values are required
 -- to be assigned to leaf nodes but not internal nodes (adjunction is optional).
+-- TODO: If we assume that there is some empty value which unifies with
+-- everything, we could ignore the difference between `Nothing` and an empty
+-- value! At the moment, it seems that there are good reasons to do that.
 type Env a = R.Tree (Maybe a)
 
 

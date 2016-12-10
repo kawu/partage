@@ -74,10 +74,8 @@ library
       , NLP.Partage.DAG
       , NLP.Partage.Env
       , NLP.Partage.FS
-      , NLP.Partage.Test
       , NLP.Partage.FSTree
       , NLP.Partage.FSTree2
-      , NLP.Partage.Tree.Comp
       , NLP.Partage.Earley.Auto
       , NLP.Partage.Earley.Base
       , NLP.Partage.Earley.Item
@@ -86,8 +84,10 @@ library
       , NLP.Partage.Earley.Hypergraph
       , NLP.Partage.Earley.Monad
       , NLP.Partage.Earley.Parser
-      , NLP.Partage.Earley.Deriv
+--       , NLP.Partage.Earley.Deriv
+      , NLP.Partage.Tree.Comp
       , NLP.Partage.Earley
+      , NLP.Partage.Test
 
 --       , NLP.Partage.AStar
 --       , NLP.Partage.AStar.Deriv

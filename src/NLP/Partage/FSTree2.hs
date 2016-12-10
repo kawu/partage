@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE RecordWildCards #-}
 
 
 -- | Elementary trees with FS unification. Top and bottom feature structures are
@@ -30,8 +31,10 @@ module NLP.Partage.FSTree2
 -- import Debug.Trace (trace)
 
 import qualified Data.Foldable as F
+import qualified Data.Functor.Compose as F
 import qualified Data.Tree as R
 import qualified Data.Map.Strict as M
+
 
 import qualified NLP.Partage.FS as FS
 import qualified NLP.Partage.FSTree as FST
@@ -63,8 +66,14 @@ isBot x = case x of
   _ -> False
 
 
+unLoc :: Loc k -> k
+unLoc x = case x of
+  Top x -> x
+  Bot x -> x
+
+
 -- | An elementary tree with the accompanying feature structures.
-type FSTree n t k v = FST.FSTree n t (Loc k) v
+type FSTree n t k = FST.FSTree n t (Loc k)
 
 
 --------------------------------------------------
@@ -99,15 +108,16 @@ type FSTree n t k v = FST.FSTree n t (Loc k) v
 -- unification between the corresponding nodes.
 bottomUp
   :: (Ord k, Ord v, Show k, Show v)
-  => Env.EnvM v (FSTree n t k v)
-  -> C.BottomUp (FS.ClosedFS (Loc k) v)
+  => Env.EnvM v (FSTree n t k)
+  -> C.BottomUp (FS.CFS (Loc k) v)
 bottomUp ofsTreeM cfsTree = fst . Env.runEnvM $ do
   fsTree' <- common ofsTreeM cfsTree
   let fsTop = FS.select isTop (snd $ R.rootLabel fsTree')
       fsBot = case findFootFS fsTree' of
         Nothing -> M.empty
         Just fs -> FS.select isBot fs
-  -- not really a unification: the sets of keys are disjoint below!
+  -- below, not really a unification: the sets of keys are disjoint!
+  -- we just merge the two parts into a single FS.
   result <- FS.unifyFS fsTop fsBot
   FS.close result
 
@@ -115,21 +125,23 @@ bottomUp ofsTreeM cfsTree = fst . Env.runEnvM $ do
 -- | Like `bottomUp` but propagates values downwards the derivation tree.
 topDown
   :: (Ord k, Ord v, Show k, Show v)
-  => Env.EnvM v (FSTree n t k v)
-  -> C.TopDown (FS.ClosedFS (Loc k) v)
+  => Env.EnvM v (FSTree n t k)
+  -> C.TopDown (FS.CFS (Loc k) v)
 -- topDown ofsTreeM = id
 topDown ofsTreeM topVal cfsTree = fmap Just . check . fst . Env.runEnvM $ do
   -- fsTree' <- trace ("A: " ++ show cfsTree) $ fmap snd <$> common ofsTreeM cfsTree
   -- trace ("B: " ++ show fsTree') $ mapM FS.close fsTree'
   fsTree' <- common ofsTreeM cfsTree
+  topValO <- FS.reopen topVal
   let fsTop = FS.select isTop (snd $ R.rootLabel fsTree')
       fsBot = case findFootFS fsTree' of
         Nothing -> M.empty
         Just fs -> FS.select isBot fs
-  topValO <- FS.reopen topVal
-  _ <- FS.unifyFS fsTop topValO
-  _ <- FS.unifyFS fsBot topValO
-  mapM FS.close $ fmap snd fsTree'
+  fsTop' <- FS.unifyFS fsTop $ FS.select isTop topValO
+  fsBot' <- FS.unifyFS fsBot $ FS.select isBot topValO
+  fsTree'' <- putFootFS fsBot' =<< putRootFS fsTop' fsTree'
+  fmap F.getCompose . FS.explicate . F.Compose $ fmap snd fsTree''
+  -- mapM FS.close $ fmap snd fsTree'
   where
     check may = case may of
       Nothing -> error "topDown: computation failed"
@@ -139,9 +151,9 @@ topDown ofsTreeM topVal cfsTree = fmap Just . check . fst . Env.runEnvM $ do
 -- | The common part of the bottom-up and top-down computations.
 common
   :: (Ord k, Ord v, Show k, Show v)
-  => Env.EnvM v (FSTree n t k v)
-  -> R.Tree (Maybe (FS.ClosedFS (Loc k) v))
-  -> Env.EnvM v (FSTree n t k v)
+  => Env.EnvM v (FSTree n t k)
+  -> R.Tree (Maybe (FS.CFS (Loc k) v))
+  -> Env.EnvM v (FSTree n t k)
 common ofsTreeM cfsTree = do
   ofsTree <- ofsTreeM
   let fsTree = FST.zipTree ofsTree cfsTree
@@ -156,8 +168,9 @@ common ofsTreeM cfsTree = do
 -- | Unify the top with the bottom part of the given FS.
 unifyTopBot
   :: (Ord k, Ord v, Show k, Show v)
-  => FS.FS (Loc k) v
-  -> Env.EnvM v (FS.FS (Loc k) v)
+  => FS.OFS (Loc k)
+  -> Env.EnvM v (FS.OFS (Loc k))
+-- unifyTopBot = return
 unifyTopBot fs = do
   FS.unifyFS fs $ M.fromList
     [ (inv k, v)
@@ -165,11 +178,43 @@ unifyTopBot fs = do
   where
     inv (Top x) = (Bot x)
     inv (Bot x) = (Top x)
+-- below, an alternative solution, which does not seem to work 100% correctly --
+-- if a key is present only in one of the parts of a complex FS, it's not going
+-- to be unified with its counter-part.
+-- unifyTopBot = FS.groupBy unLoc
 
 
 -- | Retrieve the FS assigned to the foot node (if exists, `Nothing` otherwise).
-findFootFS :: FSTree n t k v -> Maybe (FS.FS (Loc k) v)
+findFootFS :: FSTree n t k -> Maybe (FS.OFS (Loc k))
 findFootFS = fmap snd . F.find (O.isFoot . fst)
+
+
+-- | Unify the given FS with the root FS.
+putRootFS
+  :: (Ord k, Ord v, Show k, Show v)
+  => FS.OFS (Loc k)
+  -> FSTree n t k
+  -> Env.EnvM v (FSTree n t k)
+putRootFS fs R.Node{..} = do
+  fs' <- FS.unifyFS fs (snd rootLabel)
+  return R.Node
+    { R.rootLabel = (fst rootLabel, fs')
+    , R.subForest = subForest }
+
+
+-- | Unify the given FS with the foot FS.
+putFootFS
+  :: (Ord k, Ord v, Show k, Show v)
+  => FS.OFS (Loc k)
+  -> FSTree n t k
+  -> Env.EnvM v (FSTree n t k)
+putFootFS fs R.Node{..}
+  | O.isFoot (fst rootLabel) = do
+      fs' <- FS.unifyFS fs (snd rootLabel)
+      return R.Node
+        { R.rootLabel = (fst rootLabel, fs')
+        , R.subForest = subForest }
+  | otherwise = R.Node rootLabel <$> mapM (putFootFS fs) subForest
 
 
 -- -- | Like `bottomUp` but propagates values downwards the derivation tree.
@@ -203,8 +248,8 @@ findFootFS = fmap snd . F.find (O.isFoot . fst)
 -- unification between the corresponding nodes.
 compile
   :: (Ord k, Ord v, Show k, Show v)
-  => Env.EnvM v (FSTree n t k v)
-  -> C.Comp (FS.ClosedFS (Loc k) v)
+  => Env.EnvM v (FSTree n t k)
+  -> C.Comp (FS.CFS (Loc k) v)
 compile ofsTreeM = C.Comp
   { C.bottomUp = bottomUp ofsTreeM
   , C.topDown = topDown ofsTreeM }

@@ -54,10 +54,10 @@ num = "num"
 sg3 = "sg3"
 
 
-girl :: Env.EnvM V (FSTree N T K V)
+girl :: Env.EnvM V (FSTree N T K)
 girl = do
-  numVar <- FS.Var <$> Env.var
-  sg3Var <- FS.Var <$> Env.var
+  numVar <- Env.var
+  sg3Var <- Env.var
   let fs = M.fromList
         [ (num, numVar)
         , (sg3, sg3Var) ]
@@ -68,9 +68,9 @@ girl = do
     ]
 
 
-sleep :: Env.EnvM V (FSTree N T K V)
+sleep :: Env.EnvM V (FSTree N T K)
 sleep = do
-  sg3Var <- FS.Var <$> Env.var
+  sg3Var <- Env.var
   let no = M.empty
       fs = M.fromList
         [ (sg3, sg3Var) ]
@@ -84,9 +84,9 @@ sleep = do
     ]
 
 
-many :: Env.EnvM V (FSTree N T K V)
+many :: Env.EnvM V (FSTree N T K)
 many = do
-  numVar <- FS.Var <$> Env.var
+  numVar <- Env.var
   let fs = M.fromList [(num, numVar)]
   return $
     node "N" fs
@@ -96,7 +96,7 @@ many = do
 
 
 -- | A simple TAG grammar.
-gram :: [(FST.Tree N T, C.Comp (FS.ClosedFS K V))]
+gram :: [(FST.Tree N T, C.Comp (FS.CFS K V))]
 gram = mapMaybe process
   [girl, sleep, many]
   where
@@ -112,13 +112,14 @@ theTest = do
       tri = Trie.fromGram (DAG.factGram dag)
       aut = Earley.mkAuto (DAG.dagGram dag) tri
   trees <- Earley.parseAuto aut "S" $ Earley.fromList
-    [ ("many", [mkPair num "pl"])
-    , ("girl", [mkPair sg3 "-", mkPair num "pl"])
-    , ("sleep", [mkPair sg3 "-"]) ]
+    [ ("many", M.fromList [(num, val 0 "pl")])
+    , ("girl", M.fromList [(sg3, val 0 "-"), (num, val 1 "pl")])
+    , ("sleep", M.fromList [(sg3, val 0 "-")]) ]
   mapM_ printTree trees
   where
     printTree = putStrLn . R.drawTree . fmap show . O.encode . Left
-    mkPair x y = (S.singleton x, Just $ S.singleton y)
+    -- mkPair x y = (x, Just $ S.singleton y)
+    val i = FS.Val i . Just . S.singleton
 
 
 --------------------------------------------------

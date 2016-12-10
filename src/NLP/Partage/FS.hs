@@ -7,15 +7,19 @@
 
 
 module NLP.Partage.FS
-( FS
+( OFS
 , unifyFS
-, Val (..)
+-- , Val (..)
 , unify
 , select
+-- , groupBy
 
 -- * Closed
-, ClosedFS
+, CFS
+, Val (..)
+, ID
 , close
+, explicate
 , reopen
 -- , unifyFS'
 
@@ -27,8 +31,10 @@ module NLP.Partage.FS
 
 import qualified Control.Monad.State.Strict as E
 import           Control.Monad.Trans.Class (lift)
-import           Control.Monad (forM)
+import           Control.Monad (forM, unless, void)
 
+import qualified Data.Traversable as T
+import           Data.Traversable (Traversable)
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import qualified Data.List as List
@@ -39,6 +45,7 @@ import qualified Pipes.Prelude as P
 
 import           NLP.Partage.Env (EnvT)
 import qualified NLP.Partage.Env as Env
+import           NLP.Partage.Env (Var, Alt)
 import qualified NLP.Partage.Earley.Base as B
 
 
@@ -48,14 +55,14 @@ import qualified NLP.Partage.Earley.Base as B
 
 
 -- | An open feature structure.
-type FS k v = M.Map k (Val v)
+type OFS k = M.Map k Var
 
 
--- | A value associated to a key.
-data Val v
-  = Val (Env.Alt v)
-  | Var Env.Var
-  deriving (Show, Eq, Ord)
+-- -- | A value associated to a key.
+-- data Val v
+--   = Val (Env.Alt v)
+--   | Var Env.Var
+--   deriving (Show, Eq, Ord)
 
 
 -- -- | Alternative value.
@@ -69,7 +76,9 @@ data Val v
 
 
 -- | Unify two open feature structures.
-unifyFS :: (Monad m, Ord k, Ord v, Show k, Show v) => FS k v -> FS k v -> EnvT v m (FS k v)
+unifyFS
+  :: (Monad m, Ord k, Ord v, Show k, Show v)
+  => OFS k -> OFS k -> EnvT v m (OFS k)
 unifyFS fs1 fs2 = do
   env <- E.get
   -- trace ("unifyFS: " ++ show (fs1, fs2)) $ return ()
@@ -79,7 +88,9 @@ unifyFS fs1 fs2 = do
   return result
 
 -- | Unify two open feature structures.
-_unifyFS :: (Monad m, Ord k, Ord v, Show k, Show v) => FS k v -> FS k v -> EnvT v m (FS k v)
+_unifyFS
+  :: (Monad m, Ord k, Ord v)
+  => OFS k -> OFS k -> EnvT v m (OFS k)
 _unifyFS fs1 fs2 = fmap M.fromList . runListT $ do
   let keys = S.union (M.keysSet fs1) (M.keysSet fs2)
   key <- each $ S.toList keys
@@ -91,18 +102,39 @@ _unifyFS fs1 fs2 = fmap M.fromList . runListT $ do
   return (key, val)
 
 
+-- -- | Unify two values.
+-- unify :: (Monad m, Ord v) => Val v -> Val v -> EnvT v m (Val v)
+-- unify val1 val2 = case (val1, val2) of
+--   (Var var1, Var var2) -> Var var1 <$ Env.equal var1 var2
+--   (Var var , Val alt)  -> Var var  <$ Env.set var alt
+--   (Val alt , Var var)  -> Var var  <$ Env.set var alt
+--   (Val alt1, Val alt2) -> pure $ Val (S.intersection alt1 alt2)
+
+
 -- | Unify two values.
-unify :: (Monad m, Ord v) => Val v -> Val v -> EnvT v m (Val v)
-unify val1 val2 = case (val1, val2) of
-  (Var var1, Var var2) -> Var var1 <$ Env.equal var1 var2
-  (Var var , Val alt)  -> Var var  <$ Env.set var alt
-  (Val alt , Var var)  -> Var var  <$ Env.set var alt
-  (Val alt1, Val alt2) -> pure $ Val (S.intersection alt1 alt2)
+unify :: (Monad m, Ord v) => Var -> Var -> EnvT v m Var
+unify var1 var2 = var1 <$ Env.equal var1 var2
 
 
 -- | Select those keys which satisfy the given predicate.
-select :: (Ord k) => (k -> Bool) -> FS k v -> FS k v
+select :: (Ord k) => (k -> Bool) -> M.Map k v -> M.Map k v
 select p = M.fromList . filter (p . fst) . M.toList
+
+
+-- groupBy :: (Monad m, Ord k, Ord k', Ord v) => (k -> k') -> FS k v -> EnvT v m (FS k v)
+-- groupBy f fs = fmap M.fromList . runListT $ do
+--   (_grpKey, m) <- each (M.toList groups)
+--   let mList = M.toList m
+--       (key0, val0) = head mList
+--   (key, val) <- each mList
+--   val' <- if key == key0
+--     then return val
+--     else lift $ unify val val0
+--   return (key, val')
+--   where
+--     groups = M.fromListWith M.union
+--       [ (f key, M.singleton key val)
+--       | (key, val) <- M.toList fs ]
 
 
 --------------------------------------------------
@@ -110,10 +142,136 @@ select p = M.fromList . filter (p . fst) . M.toList
 --------------------------------------------------
 
 
--- | A closed feature structure.
-type ClosedFS k v = [(S.Set k, Maybe (Env.Alt v))]
+-- -- | A data structure with variables in a closed environment.
+-- data Closed v a = Closed
+--   { value :: a
+--     -- ^ The value
+--   , varMap :: M.Map Var (Alt v)
+--     -- ^ The underlying environment
+--   } deriving (Show, Eq, Ord)
 
-instance (Ord k, Ord v, Show k, Show v) => B.Unify (ClosedFS k v) where
+
+-- | An identifier used to mark a common re-entrancy point.
+type ID = Int
+
+
+-- | Variable explicated == value
+data Val v = Val
+  { valID :: ID
+    -- ^ Identifier of the value
+  , valAlt :: Maybe (Alt v)
+    -- ^ The set of the corresponding values
+  } deriving (Show, Eq, Ord)
+
+
+-- | A closed feature structure.
+type CFS k v = M.Map k (Val v)
+
+
+-- -- | A closed feature structure.
+-- type ClosedFS k v = [(S.Set k, Maybe (Env.Alt v))]
+
+
+-- | Close (== explicate) a feature structure.
+close
+  :: (Monad m)
+  => OFS k
+  -> EnvT v m (CFS k v)
+close = explicate
+
+
+-- | Make the values assigned to the individual variables explicit and replace
+-- the variables by identifiers.
+explicate
+  :: (Monad m, Traversable t)
+  => t Var
+  -> EnvT v m (t (Val v))
+explicate = flip E.evalStateT M.empty . T.mapM valFor
+
+
+-- | A map of the variable <-> ID correspondence.
+type VarMap = M.Map Var ID
+
+
+-- | Retrieve the value corresponding to the given variable.
+valFor :: (Monad m) => Var -> E.StateT VarMap (EnvT v m) (Val v)
+valFor var0 = do
+  var <- lift $ Env.rep var0
+  mayI <- getID var
+  case mayI of
+    Just i -> return $ Val i Nothing
+    Nothing -> do
+      i <- newID var
+      v <- lift $ Env.get var
+      return $ Val i v
+
+
+-- | Retrieve the ID for the given variable.
+getID :: (Monad m) => Var -> E.StateT VarMap m (Maybe ID)
+getID = E.gets . M.lookup
+
+
+-- | Create a new ID and assign if to the given variable.
+newID :: (Monad m) => Var -> E.StateT VarMap m ID
+newID var = do
+  i <- E.gets M.size
+  E.modify' $ M.insert var i
+  return i
+
+
+--------------------------------------------------
+-- Re-opening
+--------------------------------------------------
+
+
+-- | Reopen a closed FS within the current environment.
+reopen
+  :: (Monad m, Ord k, Ord v)
+  => CFS k v
+  -> EnvT v m (OFS k)
+reopen = flip E.evalStateT M.empty . T.mapM varFor
+
+
+-- | A map of the variable <-> ID correspondence.
+type IDMap = M.Map ID Var
+
+
+-- | Retrieve the variable corresponding to the given value. Update the value
+-- corresponding to this variable too, if needed.
+varFor
+  :: (Monad m, Ord v)
+  => Val v
+  -> E.StateT IDMap (EnvT v m) Var
+varFor val = do
+  mayVar <- getVar val
+  case mayVar of
+    Just v -> return v
+    Nothing -> newVar val
+
+
+-- | Retrieve the ID for the given variable.
+getVar
+  :: (Monad m)
+  => Val v
+  -> E.StateT IDMap m (Maybe Var)
+getVar = E.gets . M.lookup . valID
+
+
+-- | Create a new variable and assign it to the given ID.
+newVar
+  :: (Monad m, Ord v)
+  => Val v
+  -> E.StateT IDMap (EnvT v m) Var
+newVar Val{..} = do
+  var <- lift Env.var
+  E.modify' $ M.insert valID var
+  case valAlt of
+    Just alt -> lift $ Env.set var alt
+    Nothing -> return ()
+  return var
+
+
+instance (Ord k, Ord v, Show k, Show v) => B.Unify (CFS k v) where
   unify x0 y0 = fst . Env.runEnvM $ do
     x <- reopen x0
     y <- reopen y0
@@ -121,50 +279,38 @@ instance (Ord k, Ord v, Show k, Show v) => B.Unify (ClosedFS k v) where
     close z
 
 
--- | Close a feature structure.
-close :: (Monad m, Ord k) => FS k v -> EnvT v m (ClosedFS k v)
-close openFS = do
-  xs <- toList openFS
-  let regular = lefts xs
-  special <- getSpecial (rights xs)
-  return $ regular ++ special
-
-  where
-
-    toList fs = runListT $ do
-      (key, val) <- each $ M.toList fs
-      case val of
-        Val alt -> return $ Left (S.singleton key, Just alt)
-        Var var -> do
-          rep <- lift $ Env.rep var
-          return $ Right (rep, S.singleton key)
-
-    getSpecial xs = do
-      let specials = List.groupBy ((==) `on` fst) xs
-      forM specials $ \special -> do
-        let rep = fst $ head special
-            keySet = S.unions $ map snd special
-        alt <- Env.get rep
-        return (keySet, alt)
-
-
--- | Reopen a closed FS within the current environment.
-reopen :: (Monad m, Ord k, Ord v) => ClosedFS k v -> EnvT v m (FS k v)
-reopen closedFS = fmap M.fromList . runListT $ do
-  (keySet, val) <- each closedFS
-  var <- lift Env.var
-  case val of
-    Nothing -> return ()
-    Just v  -> lift $ Env.set var v
-  key <- each (S.toList keySet)
-  return (key, Var var)
-
-
--- -- | Unify an open feature structure with a closed one.
--- unifyFS' :: (Monad m, Ord k, Ord v) => FS k v -> ClosedFS k v -> EnvT v m (FS k v)
--- unifyFS' fs1 fs2 = do
---   fs2' <- reopen fs2
---   unifyFS fs1 fs2'
+-- -- | Close a feature structure.
+-- close :: (Monad m, Ord k) => FS k v -> EnvT v m (ClosedFS k v)
+-- close openFS = do
+--   xs <- toList openFS
+--   let regular = lefts xs
+--   special <- getSpecial (rights xs)
+--   return $ regular ++ special
+--
+--   where
+--
+--     toList fs = runListT $ do
+--       (key, val) <- each $ M.toList fs
+--       case val of
+--         Val alt -> return $ Left (S.singleton key, Just alt)
+--         Var var -> do
+--           rep <- lift $ Env.rep var
+--           return $ Right (rep, S.singleton key)
+--
+--     getSpecial xs = do
+--       let specials = List.groupBy ((==) `on` fst) xs
+--       forM specials $ \special -> do
+--         let rep = fst $ head special
+--             keySet = S.unions $ map snd special
+--         alt <- Env.get rep
+--         return (keySet, alt)
+--
+--
+-- -- -- | Unify an open feature structure with a closed one.
+-- -- unifyFS' :: (Monad m, Ord k, Ord v) => FS k v -> ClosedFS k v -> EnvT v m (FS k v)
+-- -- unifyFS' fs1 fs2 = do
+-- --   fs2' <- reopen fs2
+-- --   unifyFS fs1 fs2'
 
 
 --------------------------------------------------
@@ -193,16 +339,17 @@ fsTest = print $ Env.runEnvM $ do
   y <- Env.var
   z <- Env.var
   q <- Env.var
-  let alt = Val . S.fromList
-      fs1 = M.fromList
-        [ ("key1", alt ["a"])
-        , ("key2", Var x)
-        , ("key4", Var q) ]
+  a <- Env.var
+  Env.set a $ S.fromList ["a"]
+  let fs1 = M.fromList
+        [ ("key1", a)
+        , ("key2", x)
+        , ("key4", q) ]
       fs2 = M.fromList
-        [ ("key1", Var y)
-        , ("key2", Var y)
-        , ("key3", Var z)
-        , ("key5", Var q) ]
+        [ ("key1", y)
+        , ("key2", y)
+        , ("key3", z)
+        , ("key5", q) ]
   Env.set y $ S.fromList ["a", "b"]
   Env.set z $ S.fromList ["a", "b"]
   Env.equal y z
