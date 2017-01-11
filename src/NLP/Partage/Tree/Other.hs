@@ -11,6 +11,7 @@ module NLP.Partage.Tree.Other
 -- * TAG Tree
   Tree
 , Node (..)
+, showNode
 , follow
 -- ** Base representation
 , SomeTree
@@ -53,6 +54,22 @@ data Node n t
     | Foot n        -- ^ Foot non-terminal
     | Term t        -- ^ Terminal
     deriving (Show, Eq, Ord)
+
+
+-- -- | Apply a function over terminal values.
+-- onTerm :: (t -> t') -> Node n t -> Node n t'
+-- onTerm f n = case n of
+--   Term x -> Term (f x)
+--   NonTerm x -> NonTerm x
+--   Foot x -> Foot x
+
+
+-- | Show a given node.
+showNode :: (n -> String) -> (t -> String) -> Node n t -> String
+showNode showNonTerm showTerm node = case node of
+  Term x -> "Term " ++ showTerm x
+  NonTerm x -> "NonTerm " ++ showNonTerm x
+  Foot x -> "Foot " ++ showNonTerm x
 
 
 -- | Is it a foot?

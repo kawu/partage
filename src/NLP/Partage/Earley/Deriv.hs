@@ -48,7 +48,7 @@ import qualified NLP.Partage.Earley.Auto   as Auto
 import qualified NLP.Partage.Earley.Item   as I
 import qualified NLP.Partage.Tree.Other    as O
 import qualified NLP.Partage.Tree.Comp     as C
-import qualified NLP.Partage.FSTree        as FSTree
+-- import qualified NLP.Partage.FSTree        as FSTree
 
 
 ---------------------------
