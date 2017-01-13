@@ -17,6 +17,7 @@ module NLP.Partage.Earley.Deriv
 
 -- * Showing
 , PrintNode (..)
+, showPrintNode
 , deriv4show
 ) where
 
@@ -87,6 +88,15 @@ data PrintNode a
 instance Show a => Show (PrintNode a) where
   show (Regular x) = show x
   show Dependent = "<<Dependent>>"
+
+
+-- | Show a given print node.
+showPrintNode
+  :: (a -> String)
+  -> PrintNode a
+  -> String
+showPrintNode f (Regular x) = f x
+showPrintNode _ Dependent = "<<Dependent>>"
 
 
 -- | Transform the derivation tree into a tree which is easier
