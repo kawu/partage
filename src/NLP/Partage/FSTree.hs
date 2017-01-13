@@ -25,6 +25,8 @@ module NLP.Partage.FSTree
 ) where
 
 
+import qualified Data.Foldable as F
+import qualified Data.Functor.Compose as F
 import qualified Data.Tree as R
 import qualified Data.Map.Strict as M
 
@@ -93,13 +95,37 @@ topDown
   => Env.EnvM v (FSTree n t k)
   -> C.TopDown (FS.CFS k v)
 topDown ofsTreeM topVal cfsTree = fmap Just . check . fst . Env.runEnvM $ do
+  -- unify the corresponding FS-like values
   fsTree' <- common ofsTreeM cfsTree
-  _ <- FS.unifyFS (R.rootLabel fsTree') =<< FS.reopen topVal
-  mapM FS.close fsTree'
+  -- unify the top-FS with the FS percolating from above
+  topVal' <- FS.unifyFS (R.rootLabel fsTree') =<< FS.reopen topVal
+  -- put back the resulting FS into the tree's root
+  fsTree'' <- putRootFS topVal' fsTree'
+  -- explicate the resulting tree so that values and IDs assigned
+  -- to the individual nodes are explicit
+  fmap F.getCompose . FS.explicate . F.Compose $ fsTree''
   where
     check may = case may of
       Nothing -> error "topDown: computation failed"
       Just x -> x
+    putRootFS fs t = do
+      fs' <- FS.unifyFS fs (R.rootLabel t)
+      return $ t {R.rootLabel = fs'}
+
+
+-- -- | Like `bottomUp` but propagates values downwards the derivation tree.
+-- topDown'
+--   :: (Ord k, Ord v, Show k, Show v)
+--   => Env.EnvM v (FSTree n t k)
+--   -> C.TopDown (FS.CFS k v)
+-- topDown' ofsTreeM topVal cfsTree = fmap Just . check . fst . Env.runEnvM $ do
+--   fsTree' <- common ofsTreeM cfsTree
+--   _ <- FS.unifyFS (R.rootLabel fsTree') =<< FS.reopen topVal
+--   mapM FS.close fsTree'
+--   where
+--     check may = case may of
+--       Nothing -> error "topDown: computation failed"
+--       Just x -> x
 
 
 -- | Common part of the bottom-up and the top-down computations.
