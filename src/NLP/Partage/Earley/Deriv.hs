@@ -42,6 +42,7 @@ import qualified Data.Tree                 as R
 -- import qualified Pipes.Prelude              as P
 
 import qualified NLP.Partage.DAG           as DAG
+import qualified NLP.Partage.Tree          as T
 import qualified NLP.Partage.Earley.Base   as B
 import           NLP.Partage.Earley.Trav   (Trav(..))
 import qualified NLP.Partage.Earley.Parser as P
@@ -113,6 +114,40 @@ deriv4show =
     addDep isMod t
       | isMod == True = R.Node Dependent [t]
       | otherwise = t
+
+
+--------------------------------------------------
+-- From derivations to derived trees
+--------------------------------------------------
+
+
+-- | Transform a given derivation tree to the corresponding derived
+-- tree.  The resulting type is the same but the resulting tree is
+-- guaranteed to not to contain any `modif`s.
+derive
+  :: Deriv n t v
+  -> Deriv n t v
+derive tree@R.Node{..} = case modif rootLabel of
+  [] -> R.Node rootLabel (map derive subForest)
+  (fstModif : modifs) ->
+    derive fstModif `apply`
+      derive (tree `withModifs` modifs)
+  where
+--   mkTree nd ts = case nd of
+--     O.NonTerm x -> T.Branch (x, value rootLabel) ts
+--     O.Term x -> T.Leaf (x, value rootLabel)
+--     O.Foot _ -> error "derive.mkTree: foot node"
+  withModifs R.Node{..} xs = R.Node
+    { R.rootLabel = rootLabel {modif = xs}
+    , R.subForest = subForest }
+
+
+-- | Apply derived tree to a given derived tree...
+apply
+ :: Deriv n t v -- ^ Derived tree
+ -> Deriv n t v -- ^ Derived tree
+ -> Deriv n t v -- ^ Derived tree
+apply = undefined
 
 
 --------------------------------------------------
