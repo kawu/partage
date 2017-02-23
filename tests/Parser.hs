@@ -21,6 +21,7 @@ import qualified Pipes                   as P
 -- import qualified NLP.Partage.AStar.Deriv as D
 import qualified NLP.Partage.DAG         as DAG
 import qualified NLP.Partage.Earley      as E
+import qualified NLP.Partage.Earley.Comp as C
 import qualified NLP.Partage.Tree.Other  as O
 
 import qualified TestSet                 as T
@@ -44,7 +45,7 @@ testEarley =
             . E.fromList
             . zip input
             $ repeat T.A
-    mkGram = DAG.mkGram -- . map mkTree
+    mkGram = DAG.mkGramWith C.or -- . map mkTree
     -- mkGram = DAG.mkDummy . map mkTree
     -- <- dummy DAG cannot work with the current implementation of the Earley parser;
     --    the Earley parser assumes e.g. that there is at most one node with a given

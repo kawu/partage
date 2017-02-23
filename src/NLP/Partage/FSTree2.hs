@@ -30,6 +30,7 @@ module NLP.Partage.FSTree2
 
 -- import Debug.Trace (trace)
 
+import           Data.Maybe (maybeToList)
 import qualified Data.Foldable as F
 import qualified Data.Functor.Compose as F
 import qualified Data.Tree as R
@@ -39,8 +40,8 @@ import qualified Data.Map.Strict as M
 import qualified NLP.Partage.FS as FS
 import qualified NLP.Partage.FSTree as FST
 import qualified NLP.Partage.Env as Env
-import qualified NLP.Partage.Tree.Comp as C
 import qualified NLP.Partage.Tree.Other as O
+import qualified NLP.Partage.Earley.Comp as C
 -- import qualified NLP.Partage.Earley.Base as B
 
 
@@ -110,7 +111,7 @@ bottomUp
   :: (Ord k, Ord v, Show k, Show v)
   => Env.EnvM v (FSTree n t k)
   -> C.BottomUp (FS.CFS (Loc k) v)
-bottomUp ofsTreeM cfsTree = fst . Env.runEnvM $ do
+bottomUp ofsTreeM cfsTree = maybeToList . fst . Env.runEnvM $ do
   fsTree' <- common ofsTreeM cfsTree
   let fsTop = FS.select isTop (snd $ R.rootLabel fsTree')
       fsBot = case findFootFS fsTree' of
@@ -127,25 +128,27 @@ topDown
   :: (Ord k, Ord v, Show k, Show v)
   => Env.EnvM v (FSTree n t k)
   -> C.TopDown (FS.CFS (Loc k) v)
--- topDown ofsTreeM = id
-topDown ofsTreeM topVal cfsTree = fmap Just . check . fst . Env.runEnvM $ do
-  -- fsTree' <- trace ("A: " ++ show cfsTree) $ fmap snd <$> common ofsTreeM cfsTree
-  -- trace ("B: " ++ show fsTree') $ mapM FS.close fsTree'
-  fsTree' <- common ofsTreeM cfsTree
-  topValO <- FS.reopen topVal
-  let fsTop = FS.select isTop (snd $ R.rootLabel fsTree')
-      fsBot = case findFootFS fsTree' of
-        Nothing -> M.empty
-        Just fs -> FS.select isBot fs
-  fsTop' <- FS.unifyFS fsTop $ FS.select isTop topValO
-  fsBot' <- FS.unifyFS fsBot $ FS.select isBot topValO
-  fsTree'' <- putFootFS fsBot' =<< putRootFS fsTop' fsTree'
-  fmap F.getCompose . FS.explicate . F.Compose $ fmap snd fsTree''
-  -- mapM FS.close $ fmap snd fsTree'
-  where
-    check may = case may of
-      Nothing -> error "topDown: computation failed"
-      Just x -> x
+topDown ofsTreeM topVal cfsTree =
+  -- fmap Just . check . fst . Env.runEnvM $ do
+  map (fmap Just) . maybeToList . fst . Env.runEnvM $ do
+    -- fsTree' <- trace ("A: " ++ show cfsTree) $
+    --   fmap snd <$> common ofsTreeM cfsTree
+    -- trace ("B: " ++ show fsTree') $ mapM FS.close fsTree'
+    fsTree' <- common ofsTreeM cfsTree
+    topValO <- FS.reopen topVal
+    let fsTop = FS.select isTop (snd $ R.rootLabel fsTree')
+        fsBot = case findFootFS fsTree' of
+          Nothing -> M.empty
+          Just fs -> FS.select isBot fs
+    fsTop' <- FS.unifyFS fsTop $ FS.select isTop topValO
+    fsBot' <- FS.unifyFS fsBot $ FS.select isBot topValO
+    fsTree'' <- putFootFS fsBot' =<< putRootFS fsTop' fsTree'
+    fmap F.getCompose . FS.explicate . F.Compose $ fmap snd fsTree''
+    -- mapM FS.close $ fmap snd fsTree'
+--   where
+--     check may = case may of
+--       Nothing -> error "topDown: computation failed"
+--       Just x -> x
 
 
 -- | The common part of the bottom-up and top-down computations.
@@ -251,8 +254,8 @@ compile
   => Env.EnvM v (FSTree n t k)
   -> C.Comp (FS.CFS (Loc k) v)
 compile ofsTreeM = C.Comp
-  { C.bottomUp = bottomUp ofsTreeM
-  , C.topDown = topDown ofsTreeM }
+  { C.up = bottomUp ofsTreeM
+  , C.down = topDown ofsTreeM }
 
 
 -- -- | Extract tree elementary represented by the given computation (due to

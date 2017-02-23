@@ -51,7 +51,7 @@ import qualified Pipes                     as P
 -- import qualified NLP.Partage.AStar.Deriv   as Deriv
 import           NLP.Partage.Tree          (AuxTree (..), Tree (..))
 import qualified NLP.Partage.Tree.Other    as O
-import qualified NLP.Partage.Tree.Comp     as C
+import qualified NLP.Partage.Earley.Comp   as C
 import           NLP.Partage.Earley.Base   (Unify(..))
 -- import           NLP.Partage.DAG           (Weight)
 
@@ -75,7 +75,9 @@ instance Unify AC where
 
 
 dummyComp :: x -> C.Comp x
-dummyComp x = C.Comp (const (Just x)) C.dummyTopDown
+dummyComp x = C.Comp
+  { C.up = const [x]
+  , C.down = C.dummyTopDown }
 
 
 ---------------------------------------------------------------------
@@ -341,8 +343,8 @@ beta1 =
           , Leaf "a" ] ]
       ) [1,0]
     comp t = case T.rootLabel t of
-      Nothing -> Just NA
-      Just _  -> Nothing
+      Nothing -> [NA]
+      Just _  -> []
 
 
 beta2 :: (AuxTr, C.Comp AC)
@@ -357,8 +359,8 @@ beta2 =
           , Leaf "b" ] ]
       ) [1,0]
     comp t = case T.rootLabel t of
-      Nothing -> Just NA
-      Just _  -> Nothing
+      Nothing -> [NA]
+      Just _  -> []
 
 
 mkGram2 :: [CompTree]
@@ -377,6 +379,9 @@ mkGram2 =
 -- `b`s on the left and on the right of the symbol empty `e`.
 -- To model the real copy language with a TAG we would need to
 -- use either adjunction constraints or feature structures.
+--
+-- UPDATE 23/02/2017: since some time already this grammar implements a kind of
+-- adjunction constraints. The description above is most likely out-of-date.
 gram2Tests :: [Test]
 gram2Tests =
     [ Test "S" (words "a b e a b") Yes

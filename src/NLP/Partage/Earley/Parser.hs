@@ -82,11 +82,11 @@ import           Data.DAWG.Ord (ID)
 import           NLP.Partage.SOrd
 import           NLP.Partage.DAG (Gram(..), DID(..))
 import qualified NLP.Partage.DAG as DAG
-import           NLP.Partage.Earley.Auto (Auto(..), mkAuto)
 import qualified NLP.Partage.Auto as A
 import qualified NLP.Partage.Auto.Trie  as D
 import qualified NLP.Partage.Tree       as T
-import qualified NLP.Partage.Tree.Comp  as C
+
+import           NLP.Partage.Earley.Auto (Auto(..), mkAuto)
 
 import           NLP.Partage.Earley.Base -- hiding (nonTerm)
 import           NLP.Partage.Earley.Item hiding (printPassive, fromNonActive)
@@ -95,6 +95,7 @@ import           NLP.Partage.Earley.Trav
 import qualified NLP.Partage.Earley.Chart as Chart
 import           NLP.Partage.Earley.Hypergraph
 import           NLP.Partage.Earley.Monad
+import qualified NLP.Partage.Earley.Comp  as C
 
 -- For debugging purposes
 #ifdef DebugOn
@@ -299,12 +300,14 @@ tryFinilize p = void $ P.runListT $ do
   let pDID = p ^. dagID
   dag <- RWS.gets (gramDAG . automat)
   guard $ DAG.isRoot pDID dag
-  q <- some $ do
-    labl <- DAG.label pDID  dag
-    C.Comp{..} <- DAG.value pDID dag
-    valu <- bottomUp (p ^. traceP)
+  newItem <- some $ do
+    labl <- DAG.label pDID dag
     x <- labNonTerm labl
-    return $ Top (p ^. spanP) x valu
+    return $ Top (p ^. spanP) x
+  q <- each $ do
+    C.Comp{..} <- maybeToList $ DAG.value pDID dag
+    valu <- up (p ^. traceP)
+    return $ newItem valu
   lift . pushTop q $ Fini p
 #ifdef DebugOn
     -- print logging information

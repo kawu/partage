@@ -21,7 +21,8 @@ import qualified NLP.Partage.Auto            as A
 import           NLP.Partage.DAG             (DAG, DID)
 import qualified NLP.Partage.DAG             as DAG
 import qualified NLP.Partage.Tree.Other      as O
-import qualified NLP.Partage.Tree.Comp       as C
+
+import qualified NLP.Partage.Earley.Comp     as C
 
 
 --------------------------------------------------

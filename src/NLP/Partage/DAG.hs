@@ -42,7 +42,7 @@ module NLP.Partage.DAG
 
 -- * Ensemble
 , Gram (..)
-, mkGram
+, mkGramWith
 
 -- * Conversion
 , dagFromForest
@@ -205,13 +205,14 @@ deriving instance (Ord a) => (Ord (R.Tree a))
 -- implicitely shared in the resulting `DAG`.
 dagFromForest
     :: (Ord a)
-    => [(R.Tree a, b)]
+    => (b -> b -> b)
+    -> [(R.Tree a, b)]
     -> DAG a b
-dagFromForest forestVals =
+dagFromForest f forestVals =
   let (forest, vals) = unzip forestVals
       (rootList, dagMap) = runDagM (mapM fromTree forest)
   in DAG
-     { rootMap = M.fromList $ zip rootList vals
+     { rootMap = M.fromListWith f $ zip rootList vals
      , nodeMap = revMap dagMap }
 
 
@@ -350,16 +351,18 @@ data Gram n t w = Gram
     }
 
 
--- | Construct `Gram` from the given weighted grammar.
-mkGram
+-- | Construct `Gram` from the given grammar, given a combining function which
+-- is applied if to a single tree different values are assigned.
+mkGramWith
     :: (Ord n, Ord t)
-    => [(O.Tree n t, w)]
-    -> Gram n t w
-mkGram ts = Gram
+    => (c -> c -> c)
+    -> [(O.Tree n t, c)]
+    -> Gram n t c
+mkGramWith f ts = Gram
     { dagGram   = dagGram_
     , factGram  = rulesFromDAG dagGram_ }
   where
-    dagGram_ = dagFromForest ts
+    dagGram_ = dagFromForest f ts
 
 
 ----------------------

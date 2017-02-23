@@ -48,7 +48,7 @@ import qualified NLP.Partage.Earley.Parser as P
 import qualified NLP.Partage.Earley.Auto   as Auto
 import qualified NLP.Partage.Earley.Item   as I
 import qualified NLP.Partage.Tree.Other    as O
-import qualified NLP.Partage.Tree.Comp     as C
+import qualified NLP.Partage.Earley.Comp     as C
 -- import qualified NLP.Partage.FSTree        as FSTree
 
 
@@ -266,7 +266,7 @@ fromTop topVal top hype = case P.topTrav top hype of
       -- trace <- maybeToList $ FSTree.unifyRoot topVal (q ^. I.traceP)
       let trace = q ^. I.traceP
       -- let trace  = q ^. I.traceP
-      let trace' = topDown topVal trace
+      trace' <- down topVal trace
       if R.rootLabel trace' == Nothing
         then error "fromTop.fromTopTrav: impossible happened 2"
         else return ()

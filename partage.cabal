@@ -85,6 +85,7 @@ library
       , NLP.Partage.Earley.Monad
       , NLP.Partage.Earley.Parser
       , NLP.Partage.Earley.Deriv
+      , NLP.Partage.Earley.Comp
       , NLP.Partage.Tree.Comp
       , NLP.Partage.Earley
       , NLP.Partage.Test

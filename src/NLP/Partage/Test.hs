@@ -23,10 +23,11 @@ import qualified NLP.Partage.FSTree as FST
 import           NLP.Partage.FSTree (FSTree, node, leaf, foot, term)
 import qualified NLP.Partage.Env as Env
 import qualified NLP.Partage.DAG as DAG
-import qualified NLP.Partage.Tree.Comp as C
 import qualified NLP.Partage.Tree.Other as O
 
 import qualified NLP.Partage.Auto.Trie as Trie
+
+import qualified NLP.Partage.Earley.Comp as C
 import qualified NLP.Partage.Earley as Earley
 
 
@@ -108,7 +109,7 @@ gram = mapMaybe process
 
 theTest :: IO ()
 theTest = do
-  let dag = DAG.mkGram gram
+  let dag = DAG.mkGramWith C.or gram
       tri = Trie.fromGram (DAG.factGram dag)
       aut = Earley.mkAuto (DAG.dagGram dag) tri
   trees <- Earley.parseAuto aut "S" $ Earley.fromList

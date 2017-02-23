@@ -25,6 +25,7 @@ module NLP.Partage.FSTree
 ) where
 
 
+import           Data.Maybe (maybeToList)
 import qualified Data.Foldable as F
 import qualified Data.Functor.Compose as F
 import qualified Data.Tree as R
@@ -32,7 +33,7 @@ import qualified Data.Map.Strict as M
 
 import qualified NLP.Partage.FS as FS
 import qualified NLP.Partage.Env as Env
-import qualified NLP.Partage.Tree.Comp as C
+import qualified NLP.Partage.Earley.Comp as C
 import qualified NLP.Partage.Tree.Other as O
 import qualified NLP.Partage.Earley.Base as B
 
@@ -84,33 +85,35 @@ bottomUp
   :: (Ord k, Ord v, Show k, Show v)
   => Env.EnvM v (FSTree n t k)
   -> C.BottomUp (FS.CFS k v)
-bottomUp ofsTreeM cfsTree = fst . Env.runEnvM $ do
+bottomUp ofsTreeM cfsTree = maybeToList . fst . Env.runEnvM $ do
   fsTree' <- common ofsTreeM cfsTree
   FS.close $ R.rootLabel fsTree'
 
 
--- | Like `bottomUp` but propagates values downwards the derivation tree.
+-- | Like `bottomUp` but propagates values downward the derivation tree.
 topDown
   :: (Ord k, Ord v, Show k, Show v)
   => Env.EnvM v (FSTree n t k)
   -> C.TopDown (FS.CFS k v)
-topDown ofsTreeM topVal cfsTree = fmap Just . check . fst . Env.runEnvM $ do
-  -- unify the corresponding FS-like values
-  fsTree' <- common ofsTreeM cfsTree
-  -- unify the top-FS with the FS percolating from above
-  topVal' <- FS.unifyFS (R.rootLabel fsTree') =<< FS.reopen topVal
-  -- put back the resulting FS into the tree's root
-  fsTree'' <- putRootFS topVal' fsTree'
-  -- explicate the resulting tree so that values and IDs assigned
-  -- to the individual nodes are explicit
-  fmap F.getCompose . FS.explicate . F.Compose $ fsTree''
+topDown ofsTreeM topVal cfsTree =
+  -- (:[]) . fmap Just . check . fst . Env.runEnvM $ do
+  map (fmap Just) . maybeToList . fst . Env.runEnvM $ do
+    -- unify the corresponding FS-like values
+    fsTree' <- common ofsTreeM cfsTree
+    -- unify the top-FS with the FS percolating from above
+    topVal' <- FS.unifyFS (R.rootLabel fsTree') =<< FS.reopen topVal
+    -- put back the resulting FS into the tree's root
+    fsTree'' <- putRootFS topVal' fsTree'
+    -- explicate the resulting tree so that values and IDs assigned
+    -- to the individual nodes are explicit
+    fmap F.getCompose . FS.explicate . F.Compose $ fsTree''
   where
-    check may = case may of
-      Nothing -> error "topDown: computation failed"
-      Just x -> x
     putRootFS fs t = do
       fs' <- FS.unifyFS fs (R.rootLabel t)
       return $ t {R.rootLabel = fs'}
+--     check may = case may of
+--       Nothing -> error "topDown: computation failed"
+--       Just x -> x
 
 
 -- -- | Like `bottomUp` but propagates values downwards the derivation tree.
@@ -162,15 +165,31 @@ compile
   => Env.EnvM v (FSTree n t k)
   -> C.Comp (FS.CFS k v)
 compile ofsTreeM = C.Comp
-  { C.bottomUp = bottomUp ofsTreeM
-  , C.topDown = topDown ofsTreeM }
+  { C.up   = bottomUp ofsTreeM
+  , C.down = topDown ofsTreeM }
 
 
--- | Extract tree elementary represented by the given computation (due to
+-- -- | Extract elementary tree represented by the given computation (due to
+-- -- unification constraints the function can fail and return `Nothing`).
+-- extract :: Env.EnvM v (FSTree n t k) -> Maybe (FSTree n t k)
+-- extract ofsTreeM = fst . Env.runEnvM $ do
+--   ofsTreeM
+
+
+-- | Extract elementary tree represented by the given computation (due to
 -- unification constraints the function can fail and return `Nothing`).
-extract :: Env.EnvM v (FSTree n t k) -> Maybe (FSTree n t k)
+extract
+  :: Env.EnvM v (FSTree n t k)
+  -> Maybe (R.Tree (O.Node n t, FS.CFS k v))
 extract ofsTreeM = fst . Env.runEnvM $ do
-  ofsTreeM
+  ofsTree <- ofsTreeM
+  -- obtain pure FS tree
+  let fsTree = fmap snd ofsTree
+  -- explicate the resulting tree so that values and IDs assigned
+  -- to the individual nodes are explicit
+  fsTree' <- fmap F.getCompose . FS.explicate . F.Compose $ fsTree
+  -- retrieve information about nodes
+  return $ zipTree (fmap fst ofsTree) fsTree'
 
 
 -- | Zip two trees.
