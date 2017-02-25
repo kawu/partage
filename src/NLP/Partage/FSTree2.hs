@@ -52,7 +52,14 @@ import qualified NLP.Partage.Earley.Comp as C
 
 -- | Top or bottom FS.
 data Loc k = Top k | Bot k
+-- data Loc k = Sim k | Top k | Bot k
   deriving (Show, Eq, Ord)
+
+
+-- isSim :: Loc k -> Bool
+-- isSim x = case x of
+--   Sim _ -> True
+--   _ -> False
 
 
 isTop :: Loc k -> Bool
@@ -68,7 +75,8 @@ isBot x = case x of
 
 
 unLoc :: Loc k -> k
-unLoc x = case x of
+unLoc loc = case loc of
+  -- Sim x -> x
   Top x -> x
   Bot x -> x
 
