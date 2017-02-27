@@ -88,7 +88,7 @@ library
       , NLP.Partage.Earley.Comp
       , NLP.Partage.Tree.Comp
       , NLP.Partage.Earley
-      , NLP.Partage.Test
+      -- , NLP.Partage.Test
 
 --       , NLP.Partage.AStar
 --       , NLP.Partage.AStar.Deriv

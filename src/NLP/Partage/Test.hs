@@ -32,6 +32,13 @@ import qualified NLP.Partage.Earley as Earley
 
 
 --------------------------------------------------
+-- Utility types
+--------------------------------------------------
+
+
+type Tree n t = R.Tree (O.Node n t)
+
+--------------------------------------------------
 -- Tests
 --------------------------------------------------
 
@@ -97,7 +104,7 @@ many = do
 
 
 -- | A simple TAG grammar.
-gram :: [(FST.Tree N T, C.Comp (FS.CFS K V))]
+gram :: [(Tree N T, C.Comp (FS.CFS K V))]
 gram = mapMaybe process
   [girl, sleep, many]
   where

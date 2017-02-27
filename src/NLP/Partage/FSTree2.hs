@@ -10,25 +10,25 @@
 module NLP.Partage.FSTree2
 (
 -- * Types
-  FST.Tree
-, FSTree
+  OFSTree
+, OFSTreeM
+, CFSTree
+, Node (..)
+, OFS
+, CFS
 , Loc (..)
--- -- * Smart constructors
--- , node
--- , leaf
--- , term
--- , foot
 -- * Compilation
 , bottomUp
 , topDown
 , compile
--- , unifyRoot
-, FST.extract
+, extract
 -- -- * Utils
 -- , zipTree
 ) where
 
 -- import Debug.Trace (trace)
+
+import           Control.Monad (guard)
 
 import           Data.Maybe (maybeToList)
 import qualified Data.Foldable as F
@@ -74,38 +74,47 @@ isBot x = case x of
   _ -> False
 
 
-unLoc :: Loc k -> k
-unLoc loc = case loc of
-  -- Sim x -> x
-  Top x -> x
-  Bot x -> x
+-- unLoc :: Loc k -> k
+-- unLoc loc = case loc of
+--   -- Sim x -> x
+--   Top x -> x
+--   Bot x -> x
 
 
--- | An elementary tree with the accompanying feature structures.
-type FSTree n t k = FST.FSTree n t (Loc k)
+-- | A node of an FTAG elementary tree.
+data Node n t f = Node
+  { treeNode :: O.Node n t
+    -- ^ The TAG tree node itself
+  -- , featStr  :: FS.OFS (Loc k)
+  , featStr  :: f
+    -- ^ The feature structure attached to this node
+  , nullAdj  :: Bool
+    -- ^ Is the null adjunction constraint attached to this node?
+  } deriving (Show, Eq, Ord)
 
 
---------------------------------------------------
--- Smart constructors
---------------------------------------------------
+
+-- | An open FS.
+type OFS k = FS.OFS (Loc k)
 
 
--- -- | Create an internal node.
--- node :: n -> FS.FS k v -> [FSTree n t k v] -> FSTree n t k v
--- node x fs = R.Node (O.NonTerm x, fs)
---
---
--- -- | Create a leaf node.
--- leaf :: n -> FS.FS k v -> FSTree n t k v
--- leaf x fs = R.Node (O.NonTerm x, fs) []
---
---
--- term :: t -> FS.FS k v -> FSTree n t k v
--- term x fs = R.Node (O.Term x, fs) []
---
---
--- foot :: n -> FSTree n t k v
--- foot x = R.Node (O.Foot x, M.empty) []
+-- | An open FSTree.
+type OFSTree n t k = R.Tree (Node n t (OFS k))
+-- type OFSTree n t k = R.Tree (Node n t k)
+-- type OFSTree n t k = R.Tree (O.Node n t, FS.OFS (Loc k))
+
+
+-- | An open FSTree together with the corresponding environment.
+type OFSTreeM n t k v = Env.EnvM v (OFSTree n t k)
+-- type OFSTreeM n t k v = Env.EnvM v (R.Tree (O.Node n t, FS.OFS (Loc k)))
+
+
+-- | A closed FS.
+type CFS k v = FS.CFS (Loc k) v
+
+
+-- | A closed FSTree.
+type CFSTree n t k v = R.Tree (Node n t (CFS k v))
 
 
 --------------------------------------------------
@@ -117,11 +126,11 @@ type FSTree n t k = FST.FSTree n t (Loc k)
 -- unification between the corresponding nodes.
 bottomUp
   :: (Ord k, Ord v, Show k, Show v)
-  => Env.EnvM v (FSTree n t k)
-  -> C.BottomUp (FS.CFS (Loc k) v)
+  => OFSTreeM n t k v
+  -> C.BottomUp (CFS k v)
 bottomUp ofsTreeM cfsTree = maybeToList . fst . Env.runEnvM $ do
   fsTree' <- common ofsTreeM cfsTree
-  let fsTop = FS.select isTop (snd $ R.rootLabel fsTree')
+  let fsTop = FS.select isTop (featStr $ R.rootLabel fsTree')
       fsBot = case findFootFS fsTree' of
         Nothing -> M.empty
         Just fs -> FS.select isBot fs
@@ -134,8 +143,8 @@ bottomUp ofsTreeM cfsTree = maybeToList . fst . Env.runEnvM $ do
 -- | Like `bottomUp` but propagates values downwards the derivation tree.
 topDown
   :: (Ord k, Ord v, Show k, Show v)
-  => Env.EnvM v (FSTree n t k)
-  -> C.TopDown (FS.CFS (Loc k) v)
+  => OFSTreeM n t k v
+  -> C.TopDown (CFS k v)
 topDown ofsTreeM topVal cfsTree =
   -- fmap Just . check . fst . Env.runEnvM $ do
   map (fmap Just) . maybeToList . fst . Env.runEnvM $ do
@@ -144,14 +153,14 @@ topDown ofsTreeM topVal cfsTree =
     -- trace ("B: " ++ show fsTree') $ mapM FS.close fsTree'
     fsTree' <- common ofsTreeM cfsTree
     topValO <- FS.reopen topVal
-    let fsTop = FS.select isTop (snd $ R.rootLabel fsTree')
+    let fsTop = FS.select isTop (featStr $ R.rootLabel fsTree')
         fsBot = case findFootFS fsTree' of
           Nothing -> M.empty
           Just fs -> FS.select isBot fs
     fsTop' <- FS.unifyFS fsTop $ FS.select isTop topValO
     fsBot' <- FS.unifyFS fsBot $ FS.select isBot topValO
     fsTree'' <- putFootFS fsBot' =<< putRootFS fsTop' fsTree'
-    fmap F.getCompose . FS.explicate . F.Compose $ fmap snd fsTree''
+    fmap F.getCompose . FS.explicate . F.Compose $ fmap featStr fsTree''
     -- mapM FS.close $ fmap snd fsTree'
 --   where
 --     check may = case may of
@@ -162,18 +171,27 @@ topDown ofsTreeM topVal cfsTree =
 -- | The common part of the bottom-up and top-down computations.
 common
   :: (Ord k, Ord v, Show k, Show v)
-  => Env.EnvM v (FSTree n t k)
-  -> R.Tree (Maybe (FS.CFS (Loc k) v))
-  -> Env.EnvM v (FSTree n t k)
+  => OFSTreeM n t k v
+  -> R.Tree (Maybe (CFS k v))
+  -> OFSTreeM n t k v
 common ofsTreeM cfsTree = do
   ofsTree <- ofsTreeM
   let fsTree = FST.zipTree ofsTree cfsTree
   mapM (uncurry doit) fsTree
   where
-    doit (node, ofs) Nothing = (node,) <$> unifyTopBot ofs
-    doit (node, ofs) (Just cfs) = do
-      ofs' <- FS.reopen cfs
-      (node,) <$> FS.unifyFS ofs ofs'
+--     doit (node, ofs) Nothing = (node,) <$> unifyTopBot ofs
+--     doit (node, ofs) (Just cfs) = do
+--       ofs' <- FS.reopen cfs
+--       (node,) <$> FS.unifyFS ofs ofs'
+    doit node Nothing = do
+      ofs <- unifyTopBot (featStr node)
+      return $ node {featStr = ofs}
+    doit node (Just cfs) = do
+      -- first we check that adjunction constraint is not set up
+      guard . not $ nullAdj node
+      ofs <- FS.reopen cfs
+      ofs' <- FS.unifyFS (featStr node) ofs
+      return $ node {featStr = ofs'}
 
 
 -- | Unify the top with the bottom part of the given FS.
@@ -196,20 +214,24 @@ unifyTopBot fs = do
 
 
 -- | Retrieve the FS assigned to the foot node (if exists, `Nothing` otherwise).
-findFootFS :: FSTree n t k -> Maybe (FS.OFS (Loc k))
-findFootFS = fmap snd . F.find (O.isFoot . fst)
+findFootFS
+  -- :: R.Tree (O.Node n t, FS.OFS (Loc k))
+  :: OFSTree n t k
+  -> Maybe (FS.OFS (Loc k))
+findFootFS = fmap featStr . F.find (O.isFoot . treeNode)
 
 
 -- | Unify the given FS with the root FS.
 putRootFS
   :: (Ord k, Ord v, Show k, Show v)
   => FS.OFS (Loc k)
-  -> FSTree n t k
-  -> Env.EnvM v (FSTree n t k)
+  -> OFSTree n t k
+  -> OFSTreeM n t k v
 putRootFS fs R.Node{..} = do
-  fs' <- FS.unifyFS fs (snd rootLabel)
+  fs' <- FS.unifyFS fs (featStr rootLabel)
   return R.Node
-    { R.rootLabel = (fst rootLabel, fs')
+    -- { R.rootLabel = (fst rootLabel, fs')
+    { R.rootLabel = rootLabel {featStr = fs'}
     , R.subForest = subForest }
 
 
@@ -217,13 +239,13 @@ putRootFS fs R.Node{..} = do
 putFootFS
   :: (Ord k, Ord v, Show k, Show v)
   => FS.OFS (Loc k)
-  -> FSTree n t k
-  -> Env.EnvM v (FSTree n t k)
+  -> OFSTree n t k
+  -> OFSTreeM n t k v
 putFootFS fs R.Node{..}
-  | O.isFoot (fst rootLabel) = do
-      fs' <- FS.unifyFS fs (snd rootLabel)
+  | O.isFoot (treeNode rootLabel) = do
+      fs' <- FS.unifyFS fs (featStr rootLabel)
       return R.Node
-        { R.rootLabel = (fst rootLabel, fs')
+        { R.rootLabel = rootLabel {featStr = fs'}
         , R.subForest = subForest }
   | otherwise = R.Node rootLabel <$> mapM (putFootFS fs) subForest
 
@@ -259,11 +281,24 @@ putFootFS fs R.Node{..}
 -- unification between the corresponding nodes.
 compile
   :: (Ord k, Ord v, Show k, Show v)
-  => Env.EnvM v (FSTree n t k)
-  -> C.Comp (FS.CFS (Loc k) v)
+  => OFSTreeM n t k v
+  -> C.Comp (CFS k v)
 compile ofsTreeM = C.Comp
   { C.up = bottomUp ofsTreeM
   , C.down = topDown ofsTreeM }
+
+
+-- | Extract elementary tree represented by the given computation (due to
+-- unification constraints the function can fail and return `Nothing`).
+extract
+  :: OFSTreeM n t k v
+  -> Maybe (CFSTree n t k v)
+extract ofsTreeM = fst . Env.runEnvM $ do
+  ofsTree <- ofsTreeM
+  fsTree' <- fmap F.getCompose . FS.explicate . F.Compose $ fmap featStr ofsTree
+  return . fmap merge $ FST.zipTree ofsTree fsTree'
+  where
+    merge (node, ofs) = node {featStr = ofs}
 
 
 -- -- | Extract tree elementary represented by the given computation (due to
