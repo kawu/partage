@@ -29,6 +29,7 @@ module NLP.Partage.Earley.Item
 , label
 , spanT
 , value
+-- , topID
 
 -- * NonActive
 , NonActive
@@ -50,9 +51,10 @@ module NLP.Partage.Earley.Item
 ) where
 
 
+import           Prelude                hiding (span)
 import           Data.Lens.Light
 import           Data.Maybe             (isJust, isNothing)
-import           Prelude                hiding (span)
+-- import qualified Data.Text              as T
 
 import           Data.DAWG.Ord          (ID)
 
@@ -63,7 +65,7 @@ import qualified NLP.Partage.DAG as DAG
 -- #ifdef DebugOn
 import           NLP.Partage.Earley.Base (nonTerm)
 import           NLP.Partage.Earley.Auto (Auto (..))
-import qualified NLP.Partage.Tree.Comp as C
+import qualified NLP.Partage.Earley.Comp as C
 -- #endif
 
 
@@ -116,6 +118,7 @@ data Top n v = Top {
       _spanT :: Span
     , _label :: n
     , _value :: v
+    -- , _topID :: C.TreeID
     } deriving (Show, Eq, Ord)
 $( makeLenses [''Top] )
 
@@ -226,5 +229,7 @@ printTop p = do
     putStr . show $ getL value p
     putStr ", "
     printSpan $ getL spanT p
+    -- putStr ", "
+    -- putStr . T.unpack $ getL topID p
     putStrLn ")"
 -- #endif

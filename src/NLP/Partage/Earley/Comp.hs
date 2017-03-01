@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -17,6 +18,7 @@ module NLP.Partage.Earley.Comp
 , BottomUp
 , TopDown
 , Comp (..)
+, TreeID
 -- ** Complex
 , fail
 , or
@@ -31,6 +33,7 @@ import           Prelude hiding (or, any, fail)
 -- import qualified Control.Monad as M
 -- import           Data.Maybe (mapMaybe)
 import qualified Data.Tree as R
+import qualified Data.Text as T
 
 -- import qualified NLP.Partage.Earley.Base as B
 
@@ -80,7 +83,14 @@ type BottomUp a = Env a -> [a]
 -- propagate the values down the derivation tree; used when extracting
 -- derivations. Note that `topDown` is a generalization of `bottomUp` and thus
 -- results of the both functions must be consistent.
-type TopDown a = a -> Env a -> [Env a]
+--
+-- UPDATE 28/02/2017: the resulting FS tree (Env) is now accompanied with the
+-- ID of the corresponding elementary tree.
+type TopDown a = a -> Env a -> [(Env a, TreeID)]
+
+
+-- | Elementary tree identifier.
+type TreeID = T.Text
 
 
 -- | An elementary computation.
@@ -180,8 +190,8 @@ any [] = fail
 -- | A dummy top-down computation which does not propagate any values down the
 -- derivation tree.  It just assignes the value from top to the root of the
 -- given tree, which is not necessarily the correct behavior in every case.
-dummyTopDown :: TopDown a
-dummyTopDown x t = [t {R.rootLabel = Just x}]
+dummyTopDown :: TreeID -> TopDown a
+dummyTopDown treeID x t = [(t {R.rootLabel = Just x}, treeID)]
 
 
 

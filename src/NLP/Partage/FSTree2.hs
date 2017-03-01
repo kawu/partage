@@ -38,7 +38,7 @@ import qualified Data.Map.Strict as M
 
 
 import qualified NLP.Partage.FS as FS
-import qualified NLP.Partage.FSTree as FST
+-- import qualified NLP.Partage.FSTree as FST
 import qualified NLP.Partage.Env as Env
 import qualified NLP.Partage.Tree.Other as O
 import qualified NLP.Partage.Earley.Comp as C
@@ -143,11 +143,13 @@ bottomUp ofsTreeM cfsTree = maybeToList . fst . Env.runEnvM $ do
 -- | Like `bottomUp` but propagates values downwards the derivation tree.
 topDown
   :: (Ord k, Ord v, Show k, Show v)
-  => OFSTreeM n t k v
+  => C.TreeID
+     -- ^ ID of the corresponding elementary tree
+  -> OFSTreeM n t k v
   -> C.TopDown (CFS k v)
-topDown ofsTreeM topVal cfsTree =
+topDown treeID ofsTreeM topVal cfsTree =
   -- fmap Just . check . fst . Env.runEnvM $ do
-  map (fmap Just) . maybeToList . fst . Env.runEnvM $ do
+  map finalize . maybeToList . fst . Env.runEnvM $ do
     -- fsTree' <- trace ("A: " ++ show cfsTree) $
     --   fmap snd <$> common ofsTreeM cfsTree
     -- trace ("B: " ++ show fsTree') $ mapM FS.close fsTree'
@@ -162,6 +164,9 @@ topDown ofsTreeM topVal cfsTree =
     fsTree'' <- putFootFS fsBot' =<< putRootFS fsTop' fsTree'
     fmap F.getCompose . FS.explicate . F.Compose $ fmap featStr fsTree''
     -- mapM FS.close $ fmap snd fsTree'
+  where
+    -- finalize the computation and add info about elementary tree ID
+    finalize cfs = (fmap Just cfs, treeID)
 --   where
 --     check may = case may of
 --       Nothing -> error "topDown: computation failed"
@@ -176,7 +181,7 @@ common
   -> OFSTreeM n t k v
 common ofsTreeM cfsTree = do
   ofsTree <- ofsTreeM
-  let fsTree = FST.zipTree ofsTree cfsTree
+  let fsTree = zipTree ofsTree cfsTree
   mapM (uncurry doit) fsTree
   where
 --     doit (node, ofs) Nothing = (node,) <$> unifyTopBot ofs
@@ -281,11 +286,12 @@ putFootFS fs R.Node{..}
 -- unification between the corresponding nodes.
 compile
   :: (Ord k, Ord v, Show k, Show v)
-  => OFSTreeM n t k v
+  => C.TreeID
+  -> OFSTreeM n t k v
   -> C.Comp (CFS k v)
-compile ofsTreeM = C.Comp
+compile treeID ofsTreeM = C.Comp
   { C.up = bottomUp ofsTreeM
-  , C.down = topDown ofsTreeM }
+  , C.down = topDown treeID ofsTreeM }
 
 
 -- | Extract elementary tree represented by the given computation (due to
@@ -296,7 +302,7 @@ extract
 extract ofsTreeM = fst . Env.runEnvM $ do
   ofsTree <- ofsTreeM
   fsTree' <- fmap F.getCompose . FS.explicate . F.Compose $ fmap featStr ofsTree
-  return . fmap merge $ FST.zipTree ofsTree fsTree'
+  return . fmap merge $ zipTree ofsTree fsTree'
   where
     merge (node, ofs) = node {featStr = ofs}
 
@@ -313,3 +319,15 @@ extract ofsTreeM = fst . Env.runEnvM $ do
 -- zipTree (R.Node x xs) (R.Node y ys) = R.Node
 --   (x, y)
 --   (map (uncurry zipTree) (zip xs ys))
+
+
+---------------------------------------------
+-- Utils
+---------------------------------------------
+
+
+-- | Zip two trees.
+zipTree :: R.Tree a -> R.Tree b -> R.Tree (a, b)
+zipTree (R.Node x xs) (R.Node y ys) = R.Node
+  (x, y)
+  (map (uncurry zipTree) (zip xs ys))

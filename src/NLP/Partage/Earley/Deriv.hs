@@ -71,6 +71,8 @@ data DerivNode n t v = DerivNode
   { node  :: O.Node n t
   , value :: Maybe v
   , modif :: [Deriv n t v]
+  , treeID :: Maybe C.TreeID
+    -- ^ Elementary tree ID; should be only set if the node is actually a root
   } deriving (Eq, Ord, Show, Functor)
 
 
@@ -103,17 +105,20 @@ showPrintNode _ Dependent = "<<Dependent>>"
 -- | Transform the derivation tree into a tree which is easier
 -- to draw using the standard `R.draw` function.
 -- `fst` values in nodes are `False` for modifiers.
-deriv4show :: Deriv n t v -> R.Tree (PrintNode (O.Node n t, Maybe v))
+-- deriv4show :: Deriv n t v -> R.Tree (PrintNode (O.Node n t, Maybe v))
+deriv4show :: Deriv n t v -> R.Tree (PrintNode (DerivNode n t v))
 deriv4show =
   go False
   where
     go isMod t = addDep isMod $ R.Node
-      { R.rootLabel = Regular . ((,) <$> node <*> value) . R.rootLabel $ t
+      -- { R.rootLabel = Regular . ((,) <$> node <*> value) . R.rootLabel $ t
+      { R.rootLabel = Regular . setNoModif . R.rootLabel $ t
       , R.subForest = map (go False) (R.subForest t)
                    ++ map (go True) (modif $ R.rootLabel t) }
     addDep isMod t
       | isMod == True = R.Node Dependent [t]
       | otherwise = t
+    setNoModif node = node {modif = []}
 
 
 --------------------------------------------------
@@ -183,7 +188,7 @@ unTree (R.Node x ts) = (x, reverse ts)
 
 -- | Construct a derivation node with no modifier.
 only :: Maybe v -> O.Node n t -> DerivNode n t v
-only v x = DerivNode {node = x, value = v, modif = []}
+only v x = DerivNode {node = x, value = v, modif = [], treeID = Nothing}
 
 -- | Several constructors which allow to build non-modified nodes.
 mkRoot :: P.Hype n t v -> Maybe v -> I.Passive v -> DerivNode n (B.Tok t) v
@@ -215,7 +220,8 @@ substNode _ (Left _p) t = t
 substNode v (Right _p) t = flip R.Node [] $ DerivNode
   { node  = O.NonTerm (derivRoot t)
   , value = v
-  , modif = [t] }
+  , modif = [t]
+  , treeID = Nothing }
 --   | I.isRoot (p ^. E.dagID) = flip R.Node [] $ DerivNode
 --     { node = O.NonTerm (derivRoot t)
 --     , modif   = [t] }
@@ -245,7 +251,8 @@ adjoinTree val ini aux = R.Node
   { R.rootLabel = let root = R.rootLabel ini in DerivNode
     { node  = node root
     , value = Just val
-    , modif = aux : modif root }
+    , modif = aux : modif root
+    , treeID = Nothing }
   , R.subForest = R.subForest ini }
 
 -- -- | Unverse of `adjoinTree`.
@@ -301,12 +308,15 @@ fromTop topVal top hype = case P.topTrav top hype of
       -- trace <- maybeToList $ FSTree.unifyRoot topVal (q ^. I.traceP)
       let trace = q ^. I.traceP
       -- let trace  = q ^. I.traceP
-      trace' <- down topVal trace
+      (trace', elemTreeID) <- down topVal trace
       if R.rootLabel trace' == Nothing
         then error "fromTop.fromTopTrav: impossible happened 2"
         else return ()
-      fromPassive trace' q hype
+      deriv <- fromPassive trace' q hype
+      let setID node = node {treeID = Just elemTreeID}
+      return $ modifyRoot setID deriv
     fromTopTrav _p _ = error "fromTop.fromTopTrav: impossible happened"
+    modifyRoot f (R.Node node xs) = R.Node (f node) xs
 
 
 -- | Extract derivation trees represented by the given passive item.

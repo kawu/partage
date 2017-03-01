@@ -74,7 +74,7 @@ library
       , NLP.Partage.DAG
       , NLP.Partage.Env
       , NLP.Partage.FS
-      , NLP.Partage.FSTree
+      -- , NLP.Partage.FSTree
       , NLP.Partage.FSTree2
       , NLP.Partage.Earley.Auto
       , NLP.Partage.Earley.Base
