@@ -77,7 +77,13 @@ instance Unify AC where
 dummyComp :: x -> C.Comp x
 dummyComp x = C.Comp
   { C.up = const [x]
-  , C.down = C.dummyTopDown }
+  , C.down = C.dummyTopDown "" }
+
+
+realComp :: C.BottomUp x -> C.Comp x
+realComp up = C.Comp
+  { C.up = up
+  , C.down = C.dummyTopDown "" }
 
 
 ---------------------------------------------------------------------
@@ -333,7 +339,7 @@ alpha =
 
 beta1 :: (AuxTr, C.Comp AC)
 beta1 =
-  (tree, C.Comp comp C.dummyTopDown)
+  (tree, realComp comp)
   where
     tree = AuxTree
       (Branch "X"
@@ -349,7 +355,7 @@ beta1 =
 
 beta2 :: (AuxTr, C.Comp AC)
 beta2 =
-  (tree, C.Comp comp C.dummyTopDown)
+  (tree, realComp comp)
   where
     tree = AuxTree
       (Branch "X"
