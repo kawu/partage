@@ -22,7 +22,8 @@ module NLP.Partage.FSTree2
 , topDown
 , compile
 , extract
--- -- * Utils
+-- * Utils
+, unifyTopBot
 -- , zipTree
 ) where
 
