@@ -1,5 +1,5 @@
 name:               partage
-version:            0.3.0.0
+version:            1.0.0.0
 synopsis:           Earley-style parsing with compressed TAGs
 description:
     The library implements an Earley-style, bottom-up parser for tree adjoining
@@ -118,7 +118,7 @@ library
 
 source-repository head
     type: git
-    location: https://github.com/kawu/tag-vanilla.git
+    location: https://github.com/kawu/partage.git
 
 
 test-suite test
