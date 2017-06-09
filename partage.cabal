@@ -93,7 +93,8 @@ library
 
     ghc-options: -Wall
     -- cpp-options: -DDebugOn
-    -- cpp-options: -DNewHeuristic
+    cpp-options: -DNewHeuristic
+    cpp-options: -DCheckMonotonic
 
 
 source-repository head

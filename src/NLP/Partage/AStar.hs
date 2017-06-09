@@ -749,6 +749,14 @@ tryScan p duo = void $ P.runListT $ do
   lift $ pushInduced q newDuo
            (Scan p tok termCost)
        -- . extWeight (addWeight cost termCost) estDist
+#ifdef CheckMonotonic
+  totalP <- lift $ est2total duo <$> estimateDistA p
+  totalQ <- lift $ est2total newDuo <$> estimateDistA q
+  when (totalQ + epsilon < totalP) $ do
+    P.liftIO . putStrLn $
+      "[SCAN: MONOTONICITY TEST FAILED] TAIL WEIGHT: " ++ show totalP ++
+      ", HEAD WEIGHT: " ++ show totalQ
+#endif
 #ifdef DebugOn
   -- print logging information
   liftIO $ do
@@ -807,6 +815,9 @@ trySubst p pw = void $ P.runListT $ do
         newGap = duoGap qw
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
     lift $ pushInduced q' newDuo (Subst p q tranCost)
+#ifdef CheckMonotonic
+    lift $ testMono "SUBST" (p, pw) (q, qw) (q', newDuo)
+#endif
 #ifdef DebugOn
     -- print logging information
     hype <- RWS.get
@@ -862,6 +873,9 @@ trySubst' q qw = void $ P.runListT $ do
         newGap = duoGap qw
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
     lift $ pushInduced q' newDuo (Subst p q tranCost)
+#ifdef CheckMonotonic
+    lift $ testMono "SUBST'" (p, pw) (q, qw) (q', newDuo)
+#endif
 #ifdef DebugOn
     -- print logging information
     hype <- RWS.get
@@ -934,6 +948,9 @@ tryAdjoinInit p pw = void $ P.runListT $ do
              (Foot q (nonTerm (p ^. dagID) hype) tranCost)
 --     -- push the resulting state into the waiting queue
 --     lift $ pushInduced q' $ Foot q p -- -- $ nonTerm foot
+#ifdef CheckMonotonic
+    lift $ testMono "ADJOIN-INIT" (p, pw) (q, qw) (q', newDuo)
+#endif
 #ifdef DebugOn
     -- print logging information
     liftIO $ do
@@ -995,6 +1012,9 @@ tryAdjoinInit' q qw = void $ P.runListT $ do
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
     lift $ pushInduced q' newDuo
              (Foot q (nonTerm (p ^. dagID) hype) tranCost)
+#ifdef CheckMonotonic
+    lift $ testMono "ADJOIN-INIT'" (p, pw) (q, qw) (q', newDuo)
+#endif
 #ifdef DebugOn
     -- print logging information
     liftIO $ do
@@ -1056,6 +1076,9 @@ tryAdjoinCont p pw = void $ P.runListT $ do
     lift $ pushInduced q' newDuo (Subst p q tranCost)
 --     -- push the resulting state into the waiting queue
 --     lift $ pushInduced q' $ Subst p q
+#ifdef CheckMonotonic
+    lift $ testMono "ADJOIN-CONT" (p, pw) (q, qw) (q', newDuo)
+#endif
 #ifdef DebugOn
     -- logging info
     hype <- RWS.get
@@ -1105,6 +1128,19 @@ tryAdjoinCont' q qw = void $ P.runListT $ do
         newGap = duoGap pw
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
     lift $ pushInduced q' newDuo (Subst p q tranCost)
+#ifdef CheckMonotonic
+    lift $ testMono "ADJOIN-CONT'" (p, pw) (q, qw) (q', newDuo)
+#endif
+-- #ifdef CheckMonotonic
+--     totalP <- lift $ est2total pw <$> estimateDistP p
+--     totalQ <- lift $ est2total qw <$> estimateDistA q
+--     totalQ' <- lift $ est2total newDuo <$> estimateDistA q'
+--     let tails =  [totalP, totalQ]
+--     when (any (totalQ' + epsilon <) tails) $ do
+--       P.liftIO . putStrLn $
+--         "[ADJOIN-CONT': MONOTONICITY TEST FAILED] TAILS: " ++ show tails ++
+--         ", HEAD: " ++ show totalQ'
+-- #endif
 #ifdef DebugOn
     -- logging info
     hype <- RWS.get
@@ -1162,6 +1198,16 @@ tryAdjoinTerm q qw = void $ P.runListT $ do
         newGap = duoGap pw
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
     lift $ pushPassive p' newDuo (Adjoin q p)
+#ifdef CheckMonotonic
+    totalP <- lift $ est2total pw <$> estimateDistP p
+    totalQ <- lift $ est2total qw <$> estimateDistP q
+    totalQ' <- lift $ est2total newDuo <$> estimateDistP p'
+    let tails =  [totalP, totalQ]
+    when (any (totalQ' + epsilon <) tails) $ do
+      P.liftIO . putStrLn $
+        "[ADJOIN-TERM: MONOTONICITY TEST FAILED] TAILS: " ++ show tails ++
+        ", HEAD: " ++ show totalQ'
+#endif
 #ifdef DebugOn
     hype <- RWS.get
     liftIO $ do
@@ -1212,6 +1258,16 @@ tryAdjoinTerm' p pw = void $ P.runListT $ do
         newGap = duoGap pw
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
     lift $ pushPassive p' newDuo (Adjoin q p)
+#ifdef CheckMonotonic
+    totalP <- lift $ est2total pw <$> estimateDistP p
+    totalQ <- lift $ est2total qw <$> estimateDistP q
+    totalQ' <- lift $ est2total newDuo <$> estimateDistP p'
+    let tails = [totalP, totalQ]
+    when (any (totalQ' + epsilon <) tails) $ do
+      P.liftIO . putStrLn $
+        "[ADJOIN-TERM': MONOTONICITY TEST FAILED] TAILS: " ++ show tails ++
+        ", HEAD: " ++ show totalQ'
+#endif
 #ifdef DebugOn
     hype <- RWS.get
     liftIO $ do
@@ -1336,12 +1392,7 @@ parsedTrees hype start n
 -- symbol in its root)?  Uses the `earley` algorithm under the
 -- hood.
 recognizeFrom
-#ifdef DebugOn
     :: (SOrd t, SOrd n)
-#else
-    -- :: (Hashable t, Ord t, Hashable n, Ord n)
-    :: (Ord t, Ord n)
-#endif
     => Memo.Memo t             -- ^ Memoization strategy for terminals
     -> [ ( O.Tree n t
          , Weight ) ]          -- ^ Weighted grammar
@@ -1411,12 +1462,7 @@ recognizeFrom memoTerm gram start input = do
 
 -- | See `recognizeFrom`.
 recognizeFromAuto
-#ifdef DebugOn
     :: (SOrd t, SOrd n)
-#else
-    -- :: (Hashable t, Ord t, Hashable n, Ord n)
-    :: (Ord t, Ord n)
-#endif
     => Auto n t         -- ^ Grammar automaton
     -> n                -- ^ The start symbol
     -> Input t          -- ^ Input sentence
@@ -1447,12 +1493,7 @@ recognizeFromAuto auto start input = do
 
 -- | See `earley`.
 earleyAuto
-#ifdef DebugOn
     :: (SOrd t, SOrd n)
-#else
-    -- :: (Hashable t, Ord t, Hashable n, Ord n)
-    :: (Ord t, Ord n)
-#endif
     => Auto n t         -- ^ Grammar automaton
     -> Input t          -- ^ Input sentence
     -> IO (Hype n t)
@@ -1462,11 +1503,7 @@ earleyAuto auto input = P.runEffect $
 
 -- | See `earley`.
 earleyAutoP
-#ifdef DebugOn
     :: (SOrd t, SOrd n)
-#else
-    :: (Ord t, Ord n)
-#endif
     => Auto n t         -- ^ Grammar automaton
     -> Input t          -- ^ Input sentence
     -> P.Producer (HypeModif n t) IO (Hype n t)
@@ -1477,11 +1514,7 @@ earleyAutoP auto input =
 -- | Produce the constructed items (and the corresponding hypergraphs) on the
 -- fly. See also `earley`.
 earleyAutoGen
-#ifdef DebugOn
     :: (SOrd t, SOrd n)
-#else
-    :: (Ord t, Ord n)
-#endif
     => Earley n t (Hype n t)
 earleyAutoGen =
   init >> loop
@@ -1673,3 +1706,38 @@ over i j = take (j - i) . drop i
 -- | Take the non-terminal of the underlying DAG node.
 nonTerm :: Either n DID -> Hype n t -> n
 nonTerm i = Base.nonTerm i . automat
+
+
+--------------------------------------------------
+-- Testing monotonicity
+--------------------------------------------------
+
+
+-- | Total weight form the duo-weight and the corresponding estimated weight.
+est2total :: DuoWeight -> Weight -> Weight
+est2total duo = totalWeight . extWeight0 duo
+
+
+-- | Epsilon to compare small values.
+epsilon :: Weight
+epsilon = 1e-10
+
+
+#ifdef CheckMonotonic
+testMono
+    :: (SOrd n, SOrd t)
+    => String
+    -> (Passive n t, DuoWeight)
+    -> (Active, DuoWeight)
+    -> (Active, DuoWeight)
+    -> Earley n t ()
+testMono opStr (p, pw) (q, qw) (q', newDuo) = do
+    totalP <- est2total pw <$> estimateDistP p
+    totalQ <- est2total qw <$> estimateDistA q
+    totalQ' <- est2total newDuo <$> estimateDistA q'
+    let tails = [totalP, totalQ]
+    when (any (totalQ' + epsilon <) tails) $ do
+      P.liftIO . putStrLn $ "[" ++ opStr ++ ": MONOTONICITY TEST FAILED]" ++
+        " TAILS: " ++ show tails ++
+        ", HEAD: " ++ show totalQ'
+#endif

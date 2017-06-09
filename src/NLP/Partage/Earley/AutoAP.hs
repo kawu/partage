@@ -1070,12 +1070,7 @@ parsedTrees hype start n
 -- | Does the given grammar generate the given sentence?
 -- Uses the `earley` algorithm under the hood.
 recognize
-#ifdef DebugOn
     :: (SOrd t, SOrd n)
-#else
-    -- :: (Hashable t, Ord t, Hashable n, Ord n)
-    :: (Ord t, Ord n)
-#endif
     => DAG.Gram n t       -- ^ The grammar (set of rules)
     -> Input t            -- ^ Input sentence
     -> IO Bool
@@ -1090,12 +1085,7 @@ recognize DAG.Gram{..} input = do
 -- symbol in its root)?  Uses the `earley` algorithm under the
 -- hood.
 recognizeFrom
-#ifdef DebugOn
     :: (SOrd t, SOrd n)
-#else
-    -- :: (Hashable t, Ord t, Hashable n, Ord n)
-    :: (Ord t, Ord n)
-#endif
     => DAG.Gram n t         -- ^ The grammar
     -> n                    -- ^ The start symbol
     -> Input t              -- ^ Input sentence
@@ -1109,12 +1099,7 @@ recognizeFrom DAG.Gram{..} start input = do
 
 -- | Parse the given sentence and return the set of parsed trees.
 parse
-#ifdef DebugOn
     :: (SOrd t, SOrd n)
-#else
-    -- :: (Hashable t, Ord t, Hashable n, Ord n)
-    :: (Ord t, Ord n)
-#endif
     => DAG.Gram n t         -- ^ The grammar (set of rules)
     -> n                    -- ^ The start symbol
     -> Input t              -- ^ Input sentence
@@ -1128,12 +1113,7 @@ parse DAG.Gram{..} start input = do
 -- | Perform the earley-style computation given the grammar and
 -- the input sentence.
 earley
-#ifdef DebugOn
     :: (SOrd t, SOrd n)
-#else
-    -- :: (Hashable t, Ord t, Hashable n, Ord n)
-    :: (Ord t, Ord n)
-#endif
     => DAG.Gram n t         -- ^ The grammar (set of rules)
     -> Input t              -- ^ Input sentence
     -> IO (Hype n t)
@@ -1150,12 +1130,7 @@ earley DAG.Gram{..} input = do
 
 -- | See `recognize`.
 recognizeAuto
-#ifdef DebugOn
     :: (SOrd t, SOrd n)
-#else
-    -- :: (Hashable t, Ord t, Hashable n, Ord n)
-    :: (Ord t, Ord n)
-#endif
     => Auto n t           -- ^ Grammar automaton
     -> Input t            -- ^ Input sentence
     -> IO Bool
@@ -1165,12 +1140,7 @@ recognizeAuto auto xs =
 
 -- | See `recognizeFrom`.
 recognizeFromAuto
-#ifdef DebugOn
     :: (SOrd t, SOrd n)
-#else
-    -- :: (Hashable t, Ord t, Hashable n, Ord n)
-    :: (Ord t, Ord n)
-#endif
     => Auto n t       -- ^ Grammar automaton
     -> n                    -- ^ The start symbol
     -> Input t            -- ^ Input sentence
@@ -1183,12 +1153,7 @@ recognizeFromAuto auto start input = do
 
 -- | See `parse`.
 parseAuto
-#ifdef DebugOn
     :: (SOrd t, SOrd n)
-#else
-    -- :: (Hashable t, Ord t, Hashable n, Ord n)
-    :: (Ord t, Ord n)
-#endif
     => Auto n t           -- ^ Grammar automaton
     -> n                  -- ^ The start symbol
     -> Input t            -- ^ Input sentence
@@ -1201,12 +1166,7 @@ parseAuto auto start input = do
 
 -- | See `earley`.
 earleyAuto
-#ifdef DebugOn
     :: (SOrd t, SOrd n)
-#else
-    -- :: (Hashable t, Ord t, Hashable n, Ord n)
-    :: (Ord t, Ord n)
-#endif
     => Auto n t         -- ^ Grammar automaton
     -> Input t          -- ^ Input sentence
     -> IO (Hype n t)
