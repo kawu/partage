@@ -785,7 +785,7 @@ trySubst p = void $ P.runListT $ do
     hype <- RWS.get
     lift . lift $ do
         endTime <- Time.getCurrentTime
-        putStr "[U]  " >> printPassive hype p
+        putStr "[U]  " >> printPassive p hype
         putStr "  +  " >> printActive q
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
@@ -821,7 +821,7 @@ tryAdjoinInit p = void $ P.runListT $ do
 --         Left rootNT -> return rootNT
 --         Right did   -> some (nonTerm' =<< DAG.label did dag)
     -- what is the corresponding foot DAG ID?
-    footID <- some $ M.lookup footNT footMap 
+    footID <- some $ M.lookup footNT footMap
     -- find all active items which expect a foot with the given
     -- symbol and which end where `p` begins
     -- let foot = AuxFoot $ nonTerm pLab
@@ -842,7 +842,7 @@ tryAdjoinInit p = void $ P.runListT $ do
     hype <- RWS.get
     lift . lift $ do
         endTime <- Time.getCurrentTime
-        putStr "[A]  " >> printPassive hype p
+        putStr "[A]  " >> printPassive p hype
         putStr "  +  " >> printActive q
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
@@ -894,7 +894,7 @@ tryAdjoinCont p = void $ P.runListT $ do
     hype <- RWS.get
     lift . lift $ do
         endTime <- Time.getCurrentTime
-        putStr "[B]  " >> printPassive hype p
+        putStr "[B]  " >> printPassive p hype
         putStr "  +  " >> printActive q
         putStr "  :  " >> printActive q'
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
@@ -937,9 +937,9 @@ tryAdjoinTerm q = void $ P.runListT $ do
     hype <- RWS.get
     lift . lift $ do
         endTime <- Time.getCurrentTime
-        putStr "[C]  " >> printPassive hype q
-        putStr "  +  " >> printPassive hype p
-        putStr "  :  " >> printPassive hype p'
+        putStr "[C]  " >> printPassive q hype
+        putStr "  +  " >> printPassive p hype
+        putStr "  :  " >> printPassive p' hype
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
 #endif
 
