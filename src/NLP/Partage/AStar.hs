@@ -39,7 +39,7 @@ module NLP.Partage.AStar
 , mkAuto
 
 -- * Parsing trace (hypergraph)
-, Hype (waiting)
+, Hype (..)
 , Item (..)
 , Passive (..)
 , dagID

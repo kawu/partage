@@ -40,9 +40,10 @@ trees =
 
 
 main = do
-  let gram = DAG.mkGram (map (,1) trees)
-      auto = E.mkAuto gram
-      recognize s = E.recognizeFromAuto memoTerm auto s . E.Input
+  let gram = map (,1) trees
+      -- gram = DAG.mkGram (map (,1) trees)
+      -- auto = E.mkAuto gram
+      recognize s = E.recognizeFrom memoTerm gram s . E.fromList
   print =<< recognize "S" ["Tom", "caught", "Tom"]
   print =<< recognize "S" ["Tom", "caught", "a", "Tom"]
   print =<< recognize "S" ["caught", "a", "mouse"]
