@@ -37,7 +37,7 @@ module NLP.Partage.Earley.Chart
 
 import           Control.Monad.Trans.Class   (lift)
 import qualified Control.Monad.State.Class   as MS
-import           Control.Monad      ((>=>))
+import           Control.Monad      ((>=>), guard)
 
 import           Data.Maybe                  (maybeToList)
 import qualified Data.Map.Strict as M
@@ -342,7 +342,9 @@ expectEnd getAuto getChart did i = do
 
 -- | Check if a passive item exists with:
 -- * the given root non-terminal value (but not top-level
---   auxiliary) (UPDATE: is this second part ensured?)
+--   auxiliary)
+--   - UPDATE: is it ensured that it is not top-level auxiliary?
+--   - UPDATE 17/06/2017: now it is ensured
 -- * the given span
 rootSpan
     :: (Ord n, MS.MonadState s m)
@@ -353,9 +355,13 @@ rootSpan getChart x (i, j) = do
     -- Hype{..} <- lift RWS.get
     Chart{..} <- getChart <$> lift MS.get
     -- listValues (i, x, j) donePassive
-    each $ case M.lookup (i, x, j) donePassive of
+    p <- each $ case M.lookup (i, x, j) donePassive of
         Nothing -> []
         Just m -> M.keys m
+    let pDID = p ^. dagID
+        pSpan = p ^. spanP
+    guard $ auxiliary pSpan <= not (isRoot pDID)
+    return p
 
 
 --------------------------------------------------

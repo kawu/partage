@@ -39,7 +39,7 @@ data GramType
 
 -- | The grammar type to use.
 useGramType :: GramType
-useGramType = List
+useGramType = Trie
 
 
 -----------------------
