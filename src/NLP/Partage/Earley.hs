@@ -24,7 +24,7 @@ module NLP.Partage.Earley
 , mkAuto
 
 -- * Parsing trace (hypergraph)
-, Hype
+, Hype (..)
 -- ** Extracting parsed trees
 , parsedTrees
 -- ** Stats
@@ -32,6 +32,9 @@ module NLP.Partage.Earley
 , hyperEdgesNum
 -- -- ** Printing
 -- , printHype
+
+-- * Provisional
+, Item(..)
 ) where
 
 

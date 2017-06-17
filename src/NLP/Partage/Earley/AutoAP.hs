@@ -32,7 +32,7 @@ module NLP.Partage.Earley.AutoAP
 , mkAuto
 
 -- * Parsing trace (hypergraph)
-, Hype
+, Hype (..)
 -- ** Extracting parsed trees
 , parsedTrees
 -- ** Stats
@@ -43,6 +43,9 @@ module NLP.Partage.Earley.AutoAP
 
 -- * Sentence position
 , Pos
+
+-- * Provisional
+, Item(..)
 ) where
 
 
