@@ -50,15 +50,15 @@ data Auto n t = Auto
     -- ^ The lower bound estimates on reading terminal weights.
     -- Based on the idea that weights of the elementary trees are
     -- evenly distributed over its terminals.
-    , termDID  :: M.Map t DID
+    , termDID  :: M.Map t (S.Set DID)
     -- ^ A map which assigns DAG IDs to the corresponding terminals.
     -- Note that each grammar terminal is represented by exactly
     -- one grammar DAG node.
-    , footDID  :: M.Map n DID
+    , footDID  :: M.Map n (S.Set DID)
     -- ^ A map which assigns DAG IDs to the corresponding foot
     -- non-terminals.  Note that each grammar foot non-terminal
     -- is represented by exactly one grammar DAG node.
-    , leafDID  :: M.Map n DID
+    , leafDID  :: M.Map n (S.Set DID)
     -- ^ A map which assigns DAG IDs to the corresponding leaf
     -- non-terminals.  Note that each grammar leaf non-terminal
     -- is represented by exactly one grammar DAG node.
@@ -109,10 +109,9 @@ mkWithBody dag = M.fromListWith S.union
 mkTermDID
     :: (Ord t)
     => DAG (O.Node n t) w
-    -> M.Map t DID
-mkTermDID dag = M.fromListWith
-  (const $ error "Auto.mkTermDID: multiple nodes")
-    [ (t, i)
+    -> M.Map t (S.Set DID)
+mkTermDID dag = M.fromListWith S.union
+    [ (t, S.singleton i)
     | i <- S.toList (DAG.nodeSet dag)
     , O.Term t <- maybeToList (DAG.label i dag) ]
 
@@ -121,10 +120,9 @@ mkTermDID dag = M.fromListWith
 mkFootDID
     :: (Ord n)
     => DAG (O.Node n t) w
-    -> M.Map n DID
-mkFootDID dag = M.fromListWith
-  (const $ error "Auto.mkFootDID: multiple nodes")
-    [ (x, i)
+    -> M.Map n (S.Set DID)
+mkFootDID dag = M.fromListWith S.union
+    [ (x, S.singleton i)
     | i <- S.toList (DAG.nodeSet dag)
     , O.Foot x <- maybeToList (DAG.label i dag) ]
 
@@ -133,10 +131,9 @@ mkFootDID dag = M.fromListWith
 mkLeafDID
     :: (Ord n)
     => DAG (O.Node n t) w
-    -> M.Map n DID
-mkLeafDID dag = M.fromListWith
-  (const $ error "Auto.mkLeafDID: multiple nodes")
-    [ (x, i)
+    -> M.Map n (S.Set DID)
+mkLeafDID dag = M.fromListWith S.union
+    [ (x, S.singleton i)
     | i <- S.toList (DAG.nodeSet dag)
     , DAG.isLeaf i dag
     , O.NonTerm x <- maybeToList (DAG.label i dag) ]

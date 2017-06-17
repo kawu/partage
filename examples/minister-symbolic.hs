@@ -29,6 +29,11 @@ import qualified NLP.Partage.Earley.Chart as Chart
 -----------------------
 
 
+-- | The grammar type to use.
+useGramType :: GramType
+useGramType = Trie
+
+
 -- | Type of the grammar to use.
 data GramType
   = List
@@ -37,9 +42,9 @@ data GramType
   deriving (Show, Eq, Ord)
 
 
--- | The grammar type to use.
-useGramType :: GramType
-useGramType = Trie
+-- | Use subtree sharing or not?
+subtreeSharing :: Bool
+subtreeSharing = False
 
 
 -----------------------
@@ -124,7 +129,7 @@ arcsFrom hd travSet =
     tails trav = case trav of
       Trav.Scan{..} -> ([E.ItemA _scanFrom], "SC")
       Trav.Subst{..} -> ([E.ItemA _actArg, E.ItemP _passArg], "SU")
-      Trav.Foot{..} -> ([E.ItemA _actArg], "FA")
+      Trav.Foot{..} -> ([E.ItemA _actArg, E.ItemP _theFoot], "FA")
       Trav.Adjoin{..} -> ([E.ItemP _passAdj, E.ItemP _passMod], "AD")
 
 
@@ -158,16 +163,19 @@ printHype hype = do
 analyzeSent :: DAG.Gram N T -> T -> [T] -> IO ()
 analyzeSent DAG.Gram{..} start sent = do
   let input = E.fromList sent
-      mkGram = case useGramType of
+      fromGram = case useGramType of
         List -> List.fromGram
         Trie -> Trie.fromGram
         FSA  -> FSA.fromGram
-      auto = E.mkAuto dagGram (mkGram $ M.keysSet factGram)
+      auto = E.mkAuto dagGram (fromGram $ M.keysSet factGram)
   printHype =<< E.earleyAuto auto input
 
 
 main = do
-  let gram = DAG.mkGram (map (,1) trees)
+  let mkGram = case subtreeSharing of
+        True  -> DAG.mkGram
+        False -> DAG.mkDummy
+      gram = mkGram $ map (,1) trees
       analyze = analyzeSent gram
   analyze "S" ["the", "prime", "minister", "made", "a", "few", "good", "decisions"]
   -- print =<< recognize "S" ["the", "prime", "minister", "made", "a", "few", "good", "decisions"]

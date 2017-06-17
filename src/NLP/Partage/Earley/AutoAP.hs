@@ -652,7 +652,7 @@ followTerm i c = do
     -- get the underlying automaton
     auto <- RWS.gets $ automat
     -- get the dag ID corresponding to the given terminal
-    did  <- some $ M.lookup c (termDID auto)
+    did  <- each . S.toList . maybe S.empty id $ M.lookup c (termDID auto)
     -- follow the label
     some $ A.follow (gramAuto auto) i (A.Body did)
 
@@ -769,7 +769,7 @@ trySubst p = void $ P.runListT $ do
     -- whether the DAG node provided by `p' is a root or not
     theDID <- case pDID of
         -- real substitution
-        Left rootNT -> some $ M.lookup rootNT leafMap
+        Left rootNT -> each . S.toList . maybe S.empty id $ M.lookup rootNT leafMap
         -- pseudo-substitution
         Right did -> return did
     -- find active items which end where `p' begins and which
@@ -824,7 +824,7 @@ tryAdjoinInit p = void $ P.runListT $ do
 --         Left rootNT -> return rootNT
 --         Right did   -> some (nonTerm' =<< DAG.label did dag)
     -- what is the corresponding foot DAG ID?
-    footID <- some $ M.lookup footNT footMap
+    footID <- each . S.toList . maybe S.empty id $ M.lookup footNT footMap
     -- find all active items which expect a foot with the given
     -- symbol and which end where `p` begins
     -- let foot = AuxFoot $ nonTerm pLab

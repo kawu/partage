@@ -21,6 +21,34 @@ import qualified NLP.Partage.DAG          as DAG
 import qualified NLP.Partage.Tree.Other   as O
 
 
+-----------------------
+-- Params
+-----------------------
+
+
+-- | Use subtree sharing or not?
+subtreeSharing :: Bool
+subtreeSharing = True
+
+
+-- -- | The grammar type to use.
+-- useGramType :: GramType
+-- useGramType = Trie
+--
+--
+-- -- | Type of the grammar to use.
+-- data GramType
+--   = List
+--   | Trie
+--   | FSA
+--   deriving (Show, Eq, Ord)
+
+
+-----------------------
+-- Main
+-----------------------
+
+
 -- | Non-terminal and terminal types.
 type N = String
 type T = String
@@ -139,12 +167,14 @@ analyzeSent :: DAG.Gram N T -> T -> [T] -> IO ()
 analyzeSent gram start sent = do
   let input = E.fromList sent
       auto = E.mkAuto memoTerm gram
-      -- recognize s = E.recognizeFromAuto auto s . E.fromList
   printHype =<< E.earleyAuto auto input
 
 
 main = do
-  let gram = DAG.mkGram (map (,1) trees)
+  let mkGram = case subtreeSharing of
+        True  -> DAG.mkGram
+        False -> DAG.mkDummy
+      gram = mkGram $ map (,1) trees
       analyze = analyzeSent gram
   analyze "S" ["the", "prime", "minister", "made", "a", "few", "good", "decisions"]
   -- print =<< recognize "S" ["the", "prime", "minister", "made", "a", "few", "good", "decisions"]
