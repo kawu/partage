@@ -33,7 +33,12 @@ import qualified NLP.Partage.Tree.Other   as O
 
 -- | Use subtree sharing or not?
 subtreeSharing :: Bool
-subtreeSharing = True
+subtreeSharing = False
+
+
+-- | Mark visited?
+markVisited :: Bool
+markVisited = False
 
 
 -- -- | The grammar type to use.
@@ -166,18 +171,21 @@ printGraph hype nodeMap edgeMap = do
         | arc <- M.elems edgeMap
         , mark arc ]
 
+  let fillStyle = "style=filled" -- if markVisited then "style=filled" else "style=solid"
+      green = if markVisited then "green" else "yellow"
+      red = if markVisited then "red" else "yellow"
   putStrLn $ "digraph {"
   forM_ (M.toList nodeMap) $ \(nodeID, node) -> do
-    let color = if S.member node visitedItems then "green" else "red"
+    let color = if S.member node visitedItems then green else red
         style = "[label=\"" ++ showItem (A.automat hype) node
-                ++ "\", fillcolor=" ++ color ++ ", style=filled]"
+                ++ "\", fillcolor=" ++ color ++ ", " ++ fillStyle ++ "]"
     putStrLn $ "  " ++ show nodeID ++ " " ++ style ++ ";"
 
   forM_ (M.toList edgeMap) $ \(edgeID, edge) -> do
-    let color = if mark edge then "green" else "red"
+    let color = if mark edge then green else red
         style = "[label=\"" ++ typ edge
                 ++ "\", shape=diamond, fillcolor="
-                ++ color ++ ", style=filled]"
+                ++ color ++ ", " ++ fillStyle ++ "]"
     putStrLn $ "  " ++ show edgeID ++ " " ++ style ++ ";"
 
   forM_ (M.toList edgeMap) $ \(edgeID, edge) -> do
