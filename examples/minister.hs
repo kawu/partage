@@ -1,20 +1,25 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE LambdaCase #-}
 
-import Control.Monad (forM_)
+import Control.Monad (forM_, guard)
 import Control.Arrow (first)
+import Control.Monad.Trans.Maybe     (MaybeT (..))
 
 import Data.Lens.Light
+import Data.IORef
 
 import qualified Data.Set                 as S
 import qualified Data.Map.Strict          as M
 import qualified Data.Tree                as R
 import qualified Data.MemoCombinators     as Memo
+import           Pipes
 
-import qualified NLP.Partage.AStar        as E
+import qualified NLP.Partage.AStar        as A
 import qualified NLP.Partage.AStar.Base   as Base
 import qualified NLP.Partage.AStar.Item   as Item
 import qualified NLP.Partage.AStar.Chart  as Chart
+import qualified NLP.Partage.AStar.Deriv  as Deriv
 import qualified NLP.Partage.Auto.WeiTrie as W
 -- import           NLP.Partage.FactGram   (flattenWithSharing)
 import qualified NLP.Partage.DAG          as DAG
@@ -28,7 +33,7 @@ import qualified NLP.Partage.Tree.Other   as O
 
 -- | Use subtree sharing or not?
 subtreeSharing :: Bool
-subtreeSharing = True
+subtreeSharing = False
 
 
 -- -- | The grammar type to use.
@@ -45,7 +50,7 @@ subtreeSharing = True
 
 
 -----------------------
--- Main
+-- Grammar
 -----------------------
 
 
@@ -114,48 +119,58 @@ trees =
   ]
 
 
+-----------------------
+-- Showing
+-----------------------
+
+
 data Arc = Arc
-  { from :: S.Set (E.Item N T)
-  , to :: E.Item N T
+  { from :: S.Set (A.Item N T)
+  , to :: A.Item N T
   , typ :: String
+  , mark :: Bool
   } deriving (Show, Eq, Ord)
 
 
-arcsFrom :: E.Item N T -> E.ExtWeight N T -> [Arc]
+arcsFrom :: A.Item N T -> A.ExtWeight N T -> [Arc]
 arcsFrom hd ext =
-  [ Arc {from = S.fromList src, to = hd, typ = arcTyp}
-  | trav <- S.toList (E.prioTrav ext)
+  [ Arc {from = S.fromList src, to = hd, typ = arcTyp, mark = False}
+  | trav <- S.toList (A.prioTrav ext)
   , let (src, arcTyp) = tails trav ]
   where
     tails trav = case trav of
-      E.Scan{..} -> ([E.ItemA scanFrom], "SC")
-      E.Subst{..} -> ([E.ItemA actArg, E.ItemP passArg], "SU")
-      E.Foot{..} -> ([E.ItemA actArg], "FA")
-      E.Adjoin{..} -> ([E.ItemP passAdj, E.ItemP passMod], "AD")
+      A.Scan{..} -> ([A.ItemA scanFrom], "SC")
+      A.Subst{..} -> ([A.ItemA actArg, A.ItemP passArg], "SU")
+      A.Foot{..} -> ([A.ItemA actArg], "FA")
+      A.Adjoin{..} -> ([A.ItemP passAdj, A.ItemP passMod], "AD")
 
 
-printHype :: E.Hype N T -> IO ()
-printHype hype = do
-  -- let ts = E.parsedTrees hype start (length sent)
-  -- forM_ ts $ putStrLn . R.drawTree . fmap show . O.unTree
-  let passive = map (first E.ItemP) . Chart.listPassive $ E.chart hype
-      active = map (first E.ItemA) . Chart.listActive $ E.chart hype
-      nodes = map fst active ++ map fst passive
-      nodeMap = M.fromList $ zip [0..] nodes
-      nodeMapRev = revMap nodeMap
-      edges = concat . map (uncurry arcsFrom) $ passive ++ active
-      regularNodeNum = M.size nodeMap
-      edgeMap = M.fromList $ zip [regularNodeNum+1..] edges
-      edgeMapRev = revMap edgeMap
-  putStrLn "digraph {"
+itemsIn :: A.Hype N T -> [(A.Item N T, A.ExtWeight N T)]
+itemsIn hype =
+  let passive = map (first A.ItemP) . Chart.listPassive $ A.chart hype
+      active = map (first A.ItemA) . Chart.listActive $ A.chart hype
+  in  passive ++ active
+
+
+printGraph
+  :: String -- ^ Hype name
+  -> A.Hype N T -- ^ The hypergraph
+  -> M.Map Int (A.Item N T)
+  -> M.Map Int Arc
+  -> IO ()
+printGraph hypeName hype nodeMap edgeMap = do
+  let nodeMapRev = revMap nodeMap
+  putStrLn $ "digraph " ++ hypeName ++ " {"
   forM_ (M.toList nodeMap) $ \(nodeID, node) -> do
     putStrLn $ "  " ++ show nodeID
-      ++ " [label=\"" ++ showItem (E.automat hype) node ++ "\"]"
+      ++ " [label=\"" ++ showItem (A.automat hype) node ++ "\"]"
       ++ ";"
   forM_ (M.toList edgeMap) $ \(edgeID, edge) -> do
-    putStrLn $ "  " ++ show edgeID
-      ++ " [label=\"" ++ typ edge ++ "\", shape=diamond]"
-      ++ ";"
+    let fillColor = if mark edge then "green" else "red"
+        style = "[label=\"" ++ typ edge
+                ++ "\", shape=diamond, fillcolor="
+                ++ fillColor ++ ", style=filled]"
+    putStrLn $ "  " ++ show edgeID ++ " " ++ style ++ ";"
   forM_ (M.toList edgeMap) $ \(edgeID, edge) -> do
     forM_ (S.toList $ from edge) $ \src -> do
       putStrLn $ "  " ++ show (nodeMapRev M.! src) ++ " -> " ++ show edgeID ++ ";"
@@ -163,11 +178,99 @@ printHype hype = do
   putStrLn "}"
 
 
+printHype :: String -> A.Hype N T -> IO ()
+printHype hypeName hype = do
+  -- let ts = A.parsedTrees hype start (length sent)
+  -- forM_ ts $ putStrLn . R.drawTree . fmap show . O.unTree
+  let items = itemsIn hype
+      nodeMap = M.fromList . zip [0..] $ map fst items
+      edges = concat $ map (uncurry arcsFrom) items
+      regularNodeNum = M.size nodeMap
+      edgeMap = M.fromList $ zip [regularNodeNum+1..] edges
+  printGraph hypeName hype nodeMap edgeMap
+
+
+printBoth
+  :: A.Hype N T -- ^ First
+  -> A.Hype N T -- ^ Full
+  -> IO ()
+printBoth hypeFirst hypeFull = do
+  let edges0 = S.fromList . concat $ map (uncurry arcsFrom) (itemsIn hypeFirst)
+
+      items = itemsIn hypeFull
+      edges =
+        [ edge {mark = S.member edge edges0}
+        | edge <- concat $ map (uncurry arcsFrom) items ]
+
+      nodeMap = M.fromList . zip [0..] $ map fst items
+      regularNodeNum = M.size nodeMap
+      edgeMap = M.fromList $ zip [regularNodeNum+1..] edges
+
+  printGraph "full" hypeFull nodeMap edgeMap
+
+
+-----------------------
+-- Parsing
+-----------------------
+
+
 analyzeSent :: DAG.Gram N T -> T -> [T] -> IO ()
 analyzeSent gram start sent = do
-  let input = E.fromList sent
-      auto = E.mkAuto memoTerm gram
-  printHype =<< E.earleyAuto auto input
+  let input = A.fromList sent
+      auto = A.mkAuto memoTerm gram
+  printHype "full" =<< A.earleyAuto auto input
+
+
+-- | Parse the given sentence with the given compressed grammar.
+parsePipe
+  :: [T] -- ^ Input sentence
+  -> T   -- ^ Start symbol
+  -> DAG.Gram N T -- ^ Compressed TAG grammar
+  -> Producer (Deriv.ModifDerivs N T) IO (A.Hype N T)
+parsePipe sent begSym gram =
+  let auto = A.mkAuto memoTerm gram
+      input = A.fromList sent
+      derivConf = Deriv.DerivR
+        { Deriv.startSym = begSym
+        , Deriv.sentLen = length sent }
+  in  A.earleyAutoP auto input
+      >-> Deriv.derivsPipe derivConf
+
+
+analyzePipe :: DAG.Gram N T -> T -> [T] -> IO ()
+analyzePipe gram start sent = do
+  -- A predicate which tells when the passive item is final
+  let final p =
+        A._spanP p == A.Span 0 (length sent) Nothing &&
+        A._dagID p == Left start
+  -- Run the parsing pipe
+  let pipe = parsePipe sent start gram
+  -- Parsing end marker
+  foundRef <- newIORef Nothing
+  -- Start parsing
+  hypeFini <- runEffect . for pipe $ \(hypeModif, _derivTrees) -> do
+    let item = A.modifItem hypeModif
+        itemWeight = A.modifTrav hypeModif
+        hype = A.modifHype hypeModif
+    void . runMaybeT $ do
+      -- Check if the modification corresponds to a new node (item)
+      -- popped from the parsing agenda.  New hyperarcs are of no
+      -- interest to us here.
+      guard (A.modifType hypeModif == A.NewNode)
+      A.ItemP p <- return item
+      guard (final p)
+      liftIO . modifyIORef' foundRef $ \case
+        Nothing -> Just hype
+        Just h0 -> Just h0
+  readIORef foundRef >>= \case
+    Nothing -> return ()
+    Just h0 -> printBoth h0 hypeFini
+  printHype "full" hypeFini
+
+
+-----------------------
+-- Main
+-----------------------
 
 
 main = do
@@ -175,7 +278,7 @@ main = do
         True  -> DAG.mkGram
         False -> DAG.mkDummy
       gram = mkGram $ map (,1) trees
-      analyze = analyzeSent gram
+      analyze = analyzePipe gram
   analyze "S" ["the", "prime", "minister", "made", "a", "few", "good", "decisions"]
   -- print =<< recognize "S" ["the", "prime", "minister", "made", "a", "few", "good", "decisions"]
 
@@ -192,12 +295,12 @@ revMap =
 
 
 
-showItem :: E.Auto N T -> E.Item N T -> String
-showItem auto (E.ItemP x) = showPassive auto x
-showItem _ (E.ItemA x) = showActive x
+showItem :: A.Auto N T -> A.Item N T -> String
+showItem auto (A.ItemP x) = showPassive auto x
+showItem _ (A.ItemA x) = showActive x
 
 
-showActive :: E.Active -> String
+showActive :: A.Active -> String
 showActive x = concat
   [ "("
   , show $ getL Item.state x
@@ -207,7 +310,7 @@ showActive x = concat
   ]
 
 
-showPassive :: E.Auto N T -> E.Passive N T -> String
+showPassive :: A.Auto N T -> A.Passive N T -> String
 showPassive auto x = concat
   [ "("
   , case getL Item.dagID x of
