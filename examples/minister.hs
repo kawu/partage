@@ -33,7 +33,7 @@ import qualified NLP.Partage.Tree.Other   as O
 
 -- | Use subtree sharing or not?
 subtreeSharing :: Bool
-subtreeSharing = False
+subtreeSharing = True
 
 
 -- -- | The grammar type to use.
@@ -153,24 +153,33 @@ itemsIn hype =
 
 
 printGraph
-  :: String -- ^ Hype name
-  -> A.Hype N T -- ^ The hypergraph
-  -> M.Map Int (A.Item N T)
-  -> M.Map Int Arc
+  :: A.Hype N T             -- ^ The hypergraph
+  -> M.Map Int (A.Item N T) -- ^ Items with their IDs
+  -> M.Map Int Arc          -- ^ Arcs with their IDs
   -> IO ()
-printGraph hypeName hype nodeMap edgeMap = do
+printGraph hype nodeMap edgeMap = do
+
   let nodeMapRev = revMap nodeMap
-  putStrLn $ "digraph " ++ hypeName ++ " {"
+      -- determine which nodes are visited in the smaller hype
+      visitedItems = S.unions
+        [ from arc `S.union` S.singleton (to arc)
+        | arc <- M.elems edgeMap
+        , mark arc ]
+
+  putStrLn $ "digraph {"
   forM_ (M.toList nodeMap) $ \(nodeID, node) -> do
-    putStrLn $ "  " ++ show nodeID
-      ++ " [label=\"" ++ showItem (A.automat hype) node ++ "\"]"
-      ++ ";"
+    let color = if S.member node visitedItems then "green" else "red"
+        style = "[label=\"" ++ showItem (A.automat hype) node
+                ++ "\", fillcolor=" ++ color ++ ", style=filled]"
+    putStrLn $ "  " ++ show nodeID ++ " " ++ style ++ ";"
+
   forM_ (M.toList edgeMap) $ \(edgeID, edge) -> do
-    let fillColor = if mark edge then "green" else "red"
+    let color = if mark edge then "green" else "red"
         style = "[label=\"" ++ typ edge
                 ++ "\", shape=diamond, fillcolor="
-                ++ fillColor ++ ", style=filled]"
+                ++ color ++ ", style=filled]"
     putStrLn $ "  " ++ show edgeID ++ " " ++ style ++ ";"
+
   forM_ (M.toList edgeMap) $ \(edgeID, edge) -> do
     forM_ (S.toList $ from edge) $ \src -> do
       putStrLn $ "  " ++ show (nodeMapRev M.! src) ++ " -> " ++ show edgeID ++ ";"
@@ -178,8 +187,8 @@ printGraph hypeName hype nodeMap edgeMap = do
   putStrLn "}"
 
 
-printHype :: String -> A.Hype N T -> IO ()
-printHype hypeName hype = do
+printHype :: A.Hype N T -> IO ()
+printHype hype = do
   -- let ts = A.parsedTrees hype start (length sent)
   -- forM_ ts $ putStrLn . R.drawTree . fmap show . O.unTree
   let items = itemsIn hype
@@ -187,7 +196,7 @@ printHype hypeName hype = do
       edges = concat $ map (uncurry arcsFrom) items
       regularNodeNum = M.size nodeMap
       edgeMap = M.fromList $ zip [regularNodeNum+1..] edges
-  printGraph hypeName hype nodeMap edgeMap
+  printGraph hype nodeMap edgeMap
 
 
 printBoth
@@ -206,7 +215,7 @@ printBoth hypeFirst hypeFull = do
       regularNodeNum = M.size nodeMap
       edgeMap = M.fromList $ zip [regularNodeNum+1..] edges
 
-  printGraph "full" hypeFull nodeMap edgeMap
+  printGraph hypeFull nodeMap edgeMap
 
 
 -----------------------
@@ -218,7 +227,7 @@ analyzeSent :: DAG.Gram N T -> T -> [T] -> IO ()
 analyzeSent gram start sent = do
   let input = A.fromList sent
       auto = A.mkAuto memoTerm gram
-  printHype "full" =<< A.earleyAuto auto input
+  printHype =<< A.earleyAuto auto input
 
 
 -- | Parse the given sentence with the given compressed grammar.
@@ -263,9 +272,8 @@ analyzePipe gram start sent = do
         Nothing -> Just hype
         Just h0 -> Just h0
   readIORef foundRef >>= \case
-    Nothing -> return ()
+    Nothing -> printHype hypeFini
     Just h0 -> printBoth h0 hypeFini
-  printHype "full" hypeFini
 
 
 -----------------------
