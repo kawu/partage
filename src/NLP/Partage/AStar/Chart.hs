@@ -90,6 +90,21 @@ data Chart n t = Chart
         )
     -- ^ Processed initial passive items.
 
+--     , donePassiveIniNoTop ::
+--         M.Map Pos         -- beginning position
+--         ( S.Set ID        -- DAG node
+--         )
+--     -- ^ A set of DAG node IDs in passive chart items starting from a given
+--     -- position.
+--
+--     TODO: the tentative data structure above is not enough. The problem here
+--     is that if we look back to `donePassiveIni` to extract the actual items,
+--     we have no way of enforcing any particular DAG ID values. Therefore,
+--     `donePassiveIni` would have to be indexed by DAG IDs in some way anyway.
+--     An alternative would be to make `donePassiveIniNoTop` self-sufficient
+--     (i.e. make it have the actual passive items in the values, just as
+--     `donePassiveIni`)
+
     , donePassiveAuxNoTop ::
         M.Map Pos         -- beginning position
         ( M.Map n         -- non-terminal
@@ -97,7 +112,7 @@ data Chart n t = Chart
             ( M.Map (Passive n t) (ExtWeight n t) )
           )
         )
-    -- ^ Processed auxiliary top-level passive items.
+    -- ^ Processed auxiliary non-top-level passive items.
 
     , donePassiveAuxTop ::
         M.Map Pos         -- gap starting position
@@ -106,7 +121,7 @@ data Chart n t = Chart
             ( M.Map (Passive n t) (ExtWeight n t) )
           )
         )
-    -- ^ Processed auxiliary passive items.
+    -- ^ Processed auxiliary top-level passive items.
     }
 
 
@@ -447,6 +462,57 @@ provideBeg' getChart x i = do
           map
             (Arr.second duoWeight)
             ((M.elems >=> M.toList) m)
+
+
+-- -- | Return all active processed items which:
+-- -- * expect a given label,
+-- -- * end on the given position.
+-- -- Return the weights (`priWeight`s) of reaching them as well.
+-- expectEnd
+--     :: (HOrd n, HOrd t, MS.MonadState s m)
+--     => (s -> Auto n t)
+--     -> (s -> Chart n t)
+--     -> DAG.DID
+--     -> Pos
+--     -> P.ListT m (Active, DuoWeight)
+-- expectEnd getAuto getChart did i = do
+--   compState <- lift MS.get
+--   let Chart{..} = getChart compState
+--       automat = getAuto compState
+--   -- determine items which end on the given position
+--   doneEnd <- some $ M.lookup i doneActive
+--   -- determine automaton states from which the given label
+--   -- leaves as a body transition
+--   stateSet <- some $ M.lookup did (withBody automat)
+--   -- pick one of the states
+--   stateID <- each . S.toList $
+--        stateSet `S.intersection` M.keysSet doneEnd
+--   -- determine items which refer to the chosen states
+--   doneEndLab <- some $ M.lookup stateID doneEnd
+--   -- return them all!
+--   -- each $ M.keys doneEndLab
+--   each $
+--     [ (p, duoWeight e)
+--     | (p, e) <- M.toList doneEndLab ]
+
+
+-- -- | Return all initial passive items which:
+-- -- * provide a label which outgoes from the given FSA state,
+-- -- * begin on the given position.
+-- provideBegIniAlt
+--     :: (Ord n, Ord t, MS.MonadState s m)
+--     => (s -> Auto n t)
+--     -> (s -> Chart n t)
+--     -- -> Either n DAG.DID
+--     -> ID  -- ^ The FSA state
+--     -> Pos -- ^ Where the resulting item should begin
+--     -> P.ListT m (Passive n t, DuoWeight)
+-- provideBegIniAlt getAuto getChart q i = do
+--   compState <- lift MS.get
+--   let Chart{..} = getChart compState
+--       automat = getAuto compState
+--   -- determine items which begin on the given position
+--   doneBeg <- some $ M.lookup i donePassiveIni
 
 
 -- | Return all initial passive items which:

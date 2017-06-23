@@ -172,8 +172,8 @@ printGraph hype nodeMap edgeMap = do
         , mark arc ]
 
   let fillStyle = "style=filled" -- if markVisited then "style=filled" else "style=solid"
-      green = if markVisited then "green" else "yellow"
-      red = if markVisited then "red" else "yellow"
+      green = if markVisited then "green" else "green"
+      red = if markVisited then "red" else "green"
   putStrLn $ "digraph {"
   forM_ (M.toList nodeMap) $ \(nodeID, node) -> do
     let color = if S.member node visitedItems then green else red
