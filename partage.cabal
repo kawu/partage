@@ -72,10 +72,11 @@ library
 --       , NLP.Partage.Earley.Monad
 
       , NLP.Partage.DAG
-      , NLP.Partage.Env
-      , NLP.Partage.FS
+      , NLP.Partage.FS.Flat
+      , NLP.Partage.FS.Flat.Env
       -- , NLP.Partage.FSTree
-      , NLP.Partage.FSTree2
+      , NLP.Partage.FS.Flat.FSTree2
+      , NLP.Partage.FS.Generic
       , NLP.Partage.Earley.Auto
       , NLP.Partage.Earley.Base
       , NLP.Partage.Earley.Item

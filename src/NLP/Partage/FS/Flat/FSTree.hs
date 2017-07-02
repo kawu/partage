@@ -5,7 +5,7 @@
 -- | Defining elementary trees with FS unification.
 
 
-module NLP.Partage.FSTree
+module NLP.Partage.FS.Flat.FSTree
 (
 -- * Types
   OFSTree

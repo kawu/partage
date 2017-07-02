@@ -6,7 +6,7 @@
 -- | Feature structure-related facilities.
 
 
-module NLP.Partage.FS
+module NLP.Partage.FS.Flat
 ( OFS
 , unifyFS
 -- , Val (..)
@@ -43,9 +43,9 @@ import           Data.Either (lefts, rights)
 import qualified Pipes as P
 import qualified Pipes.Prelude as P
 
-import           NLP.Partage.Env (EnvT)
-import qualified NLP.Partage.Env as Env
-import           NLP.Partage.Env (Var, Alt)
+import           NLP.Partage.FS.Flat.Env (EnvT)
+import qualified NLP.Partage.FS.Flat.Env as Env
+import           NLP.Partage.FS.Flat.Env (Var, Alt)
 import qualified NLP.Partage.Earley.Base as B
 
 

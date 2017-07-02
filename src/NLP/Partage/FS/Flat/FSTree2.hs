@@ -7,7 +7,7 @@
 -- distinguished.
 
 
-module NLP.Partage.FSTree2
+module NLP.Partage.FS.Flat.FSTree2
 (
 -- * Types
   OFSTree
@@ -38,9 +38,9 @@ import qualified Data.Tree as R
 import qualified Data.Map.Strict as M
 
 
-import qualified NLP.Partage.FS as FS
+import qualified NLP.Partage.FS.Flat as FS
 -- import qualified NLP.Partage.FSTree as FST
-import qualified NLP.Partage.Env as Env
+import qualified NLP.Partage.FS.Flat.Env as Env
 import qualified NLP.Partage.Tree.Other as O
 import qualified NLP.Partage.Earley.Comp as C
 -- import qualified NLP.Partage.Earley.Base as B
