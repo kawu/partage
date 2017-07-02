@@ -77,6 +77,7 @@ library
       -- , NLP.Partage.FSTree
       , NLP.Partage.FS.Flat.FSTree2
       , NLP.Partage.FS.Generic
+      , NLP.Partage.FS.Generic.Tree
       , NLP.Partage.Earley.Auto
       , NLP.Partage.Earley.Base
       , NLP.Partage.Earley.Item

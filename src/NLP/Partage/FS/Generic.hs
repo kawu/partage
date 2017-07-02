@@ -24,21 +24,28 @@ module NLP.Partage.FS.Generic
 -- * Unification
 , unify
 
+-- * Closed FS
+, CFS
+, close
+, open
+
 -- * Provisional
 , fsTestGen1
 , fsTestGen2
 ) where
 
 
-import           Control.Monad              (guard, unless, forM_)
+import           Control.Monad              (guard, unless, forM_, forM)
 import qualified Control.Monad.State.Strict as E
 import qualified Control.Monad.Trans.Maybe  as Y
 import qualified Control.Monad.Identity     as I
--- import           Control.Monad.Trans.Class (lift)
+import           Control.Monad.Trans.Class (lift)
 
 -- import qualified Pipes as Pipes
 -- import qualified Pipes.Prelude as Pipes
 
+import qualified Data.Traversable as T
+import           Data.Traversable (Traversable)
 import qualified Data.Partition as P
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
@@ -139,7 +146,8 @@ rep v = do
   return r
 
 
--- | Assign value to a variable.
+-- | Assign value to a variable. Does not perform unification if the variable is
+-- already used.
 set :: (Monad m, Ord v) => Var -> FS k v -> UniT k v m ()
 set v fs = do
   env@Env{..} <- E.get
@@ -221,16 +229,142 @@ recUnifyFS _ _ = return ()
 --------------------------------------------------
 
 
--- | Run the FST transformer. Return `Nothing` in case of the failure of the
--- computation.
+-- | Run the unification transformer. Return `Nothing` in case of the
+-- unification failure.
 runUniT :: Monad m => UniT k v m a -> m (Maybe a, Env k v)
 runUniT = flip E.runStateT empty . Y.runMaybeT
 
 
--- | Run the FST monad. Return `Nothing` in case of the failure of the
--- computation.
+-- | Run the unification monad. Return `Nothing` in case of the unification
+-- failure.
 runUniM :: UniM k v a -> (Maybe a, Env k v)
 runUniM = I.runIdentity . runUniT
+
+
+--------------------------------------------------
+-- Closed FS
+--------------------------------------------------
+
+
+data CFS k v t = CFS
+  { cfsStr :: t Var
+    -- ^ A structure (list, tree) over variables
+  , cfsMap :: M.Map Var (FS k v)
+    -- ^ The underlying (Var -> FS) map
+  }
+
+-- For some reason, the instances below cannot be derived automatically.
+instance (Eq k, Eq v, Eq (t Var)) => Eq (CFS k v t) where
+  cfs1 == cfs2 =
+    cfsStr cfs1 == cfsStr cfs2 &&
+    cfsMap cfs1 == cfsMap cfs2
+
+instance (Ord k, Ord v, Ord (t Var)) => Ord (CFS k v t) where
+  cfs1 `compare` cfs2 = mappend
+    (cfsStr cfs1 `compare` cfsStr cfs2)
+    (cfsMap cfs1 `compare` cfsMap cfs2)
+
+instance (Show k, Show v, Show (t Var)) => Show (CFS k v t) where
+  show CFS{..} = "CFS: " ++ show cfsStr ++ ", " ++ show cfsMap
+
+
+-- | On the first position, a map which maps the environment variable to new,
+-- normalized variables. On the second position, partially constructed `cfsMap`.
+type VarMaps k v =
+  ( M.Map Var Var
+  , M.Map Var (FS k v) )
+
+
+-- | Make the values assigned to the individual variables explicit and replace
+-- the variables by identifiers.
+close
+  :: (Monad m, Traversable t, Ord k)
+  => t Var
+  -> UniT k v m (CFS k v t)
+close =
+  let mkCFS (t, (_, m)) = CFS t m
+  in  fmap mkCFS . flip E.runStateT (M.empty, M.empty) . T.mapM reid
+
+
+-- | Retrieve the value corresponding to the given variable.
+reid :: (Monad m, Ord k) => Var -> E.StateT (VarMaps k v) (UniT k v m) Var
+reid var0 = do
+  var' <- lift $ rep var0
+  mayV <- getID var'
+  case mayV of
+    Just v -> return v
+    Nothing -> do
+      i <- newID var'
+      saveFS i =<< reidFS =<< lift (get var')
+      return i
+
+
+-- | Reidentify the given FS.
+reidFS :: (Monad m, Ord k) => FS k v -> E.StateT (VarMaps k v) (UniT k v m) (FS k v)
+reidFS fs0 = case fs0 of
+  Leaf vs -> return $ Leaf vs
+  Node mp -> do
+    pairs <- forM (M.toList mp) $ \(key, var0) -> do
+      var' <- reid var0
+      return (key, var')
+    return . Node $ M.fromList pairs
+
+
+-- | Retrieve the ID for the given variable.
+getID :: (Monad m) => Var -> E.StateT (VarMaps k v) m (Maybe Var)
+getID v = E.gets $ M.lookup v . fst
+
+
+-- | Create a new ID and assign it to the given variable.
+newID :: (Monad m) => Var -> E.StateT (VarMaps k v) m Var
+newID vr = do
+  i <- E.gets $ Var . M.size . fst
+  E.modify' $ \(m1, m2) -> (M.insert vr i m1, m2)
+  return i
+
+
+-- | Save the new FS and in `VarMaps`.
+saveFS :: (Monad m) => Var -> FS k v -> E.StateT (VarMaps k v) m ()
+saveFS vr fs = E.modify' $ \(m1, m2) -> (m1, M.insert vr fs m2)
+
+
+-- -- | Make the values assigned to the individual variables explicit and replace
+-- -- the variables by identifiers.
+-- identify
+--   :: (Monad m, Traversable t)
+--   => t Var
+--   -> UniT k v m (CFS k v t)
+-- identify =
+--   let mkCFS (t, (_, m)) = CFS t m
+--   in  fmap mkCFS . flip E.runStateT M.empty . T.mapM valFor
+
+
+--------------------------------------------------
+-- Opening FS
+--------------------------------------------------
+
+
+-- | Open the given closed FS in the current environment.
+open :: (Monad m, Traversable t, Ord k, Ord v) => CFS k v t -> UniT k v m (t Var)
+open CFS{..} = do
+  n <- E.gets varNum
+  let varSet = M.keysSet cfsMap
+      prjMap = M.fromList $ zip (S.toList varSet) (map Var [n..])
+  E.modify' $ \env -> env {varNum = n + S.size varSet}
+  forM_ (M.toList cfsMap) $ \(vr, fs0) -> set
+    (project prjMap vr)
+    (shift prjMap fs0)
+  return $ fmap (project prjMap) cfsStr
+  where
+    shift prjMap fs = case fs of
+      Leaf vs -> Leaf vs
+      Node mp -> Node . M.fromList $
+        [ (k, project prjMap v)
+        | (k, v) <- M.toList mp ]
+    project prjMap vr = case M.lookup vr prjMap of
+      Nothing -> error "open: impossible happened (CFS contains a variable not in its map)"
+      Just v' -> v'
+
 
 
 --------------------------------------------------
@@ -280,7 +414,7 @@ fsTestGen1 = print . runUniM $ do
 
   _ <- unify y z
   unify fs1 fs2
-  -- close fs
+  close [fs1]
 
 
 fsTestGen2 :: IO ()
@@ -288,8 +422,8 @@ fsTestGen2 = print . runUniM $ do
   let value = Leaf . S.singleton
       node = Node . M.fromList
 
-  const <- var
-  set const $ value ()
+  constant <- var
+  set constant $ value ()
 
   x1 <- var
   x2 <- var
@@ -301,3 +435,4 @@ fsTestGen2 = print . runUniM $ do
   set y1 $ node [("k1", y1)]
 
   unify x1 y1
+  close [x1]
