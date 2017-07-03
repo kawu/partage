@@ -9,6 +9,7 @@ module NLP.Partage.Test
 ) where
 
 
+import           Control.Arrow (first)
 -- import           Control.Monad (foldM)
 
 -- import qualified Control.Monad.State.Strict as E
@@ -18,12 +19,13 @@ import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import           Data.Maybe (mapMaybe)
 
-import qualified NLP.Partage.FS as FS
-import qualified NLP.Partage.FSTree as FST
-import           NLP.Partage.FSTree (FSTree, node, leaf, foot, term)
-import qualified NLP.Partage.Env as Env
 import qualified NLP.Partage.DAG as DAG
 import qualified NLP.Partage.Tree.Other as O
+
+import qualified NLP.Partage.FS.Flat as FS
+import qualified NLP.Partage.FS.Flat.FSTree2 as FST
+-- import           NLP.Partage.FS.Flat.FSTree2 (FSTree, node, leaf, foot, term)
+import qualified NLP.Partage.FS.Flat.Env as Env
 
 import qualified NLP.Partage.Auto.Trie as Trie
 
@@ -37,6 +39,10 @@ import qualified NLP.Partage.Earley as Earley
 
 
 type Tree n t = R.Tree (O.Node n t)
+
+
+-- type FSTree n t k = FST.OFSTree n t k
+
 
 --------------------------------------------------
 -- Tests
@@ -62,40 +68,40 @@ num = "num"
 sg3 = "sg3"
 
 
-girl :: Env.EnvM V (FSTree N T K)
+girl :: Env.EnvM V (FST.OFSTree N T K)
 girl = do
   numVar <- Env.var
   sg3Var <- Env.var
-  let fs = M.fromList
+  let fs = mkFS
         [ (num, numVar)
         , (sg3, sg3Var) ]
   return $
     node "NP" fs
     [ node "N" fs
-      [ term "girl" fs]
+      [ term "girl" fs ]
     ]
 
 
-sleep :: Env.EnvM V (FSTree N T K)
+sleep :: Env.EnvM V (FST.OFSTree N T K)
 sleep = do
   sg3Var <- Env.var
   let no = M.empty
-      fs = M.fromList
+      fs = mkFS
         [ (sg3, sg3Var) ]
   return $
     node "S" no
     [ leaf "NP" fs
     , node "VP" fs
       [ node "V" fs
-        [term "sleep" fs]
+        [ term "sleep" fs ]
       ]
     ]
 
 
-many :: Env.EnvM V (FSTree N T K)
+many :: Env.EnvM V (FST.OFSTree N T K)
 many = do
   numVar <- Env.var
-  let fs = M.fromList [(num, numVar)]
+  let fs = mkFS [(num, numVar)]
   return $
     node "N" fs
     [ node "Adj" fs [term "many" fs]
@@ -104,14 +110,21 @@ many = do
 
 
 -- | A simple TAG grammar.
-gram :: [(Tree N T, C.Comp (FS.CFS K V))]
+gram :: [(Tree N T, C.Comp (FST.CFS K V))]
+-- gram :: [(FST.CFSTree N T K V, C.Comp (FST.CFS K V))]
 gram = mapMaybe process
   [girl, sleep, many]
   where
     process source = do
-      let comp = FST.compile source
-      tree <- fmap fst <$> FST.extract source
+      let comp = FST.compile "?" source
+      tree <- fmap FST.treeNode <$> FST.extract source
+      -- tree <- FST.extract source
       return (tree, comp)
+
+
+--------------------------------------------------
+-- Main
+--------------------------------------------------
 
 
 theTest :: IO ()
@@ -120,9 +133,9 @@ theTest = do
       tri = Trie.fromGram (DAG.factGram dag)
       aut = Earley.mkAuto (DAG.dagGram dag) tri
   trees <- Earley.parseAuto aut "S" $ Earley.fromList
-    [ ("many", M.fromList [(num, val 0 "pl")])
-    , ("girl", M.fromList [(sg3, val 0 "-"), (num, val 1 "pl")])
-    , ("sleep", M.fromList [(sg3, val 0 "-")]) ]
+    [ ("many", mkFS [(num, val 0 "pl")])
+    , ("girl", mkFS [(sg3, val 0 "-"), (num, val 1 "pl")])
+    , ("sleep", mkFS [(sg3, val 0 "-")]) ]
   mapM_ printTree trees
   where
     printTree = putStrLn . R.drawTree . fmap show . O.encode . Left
@@ -158,3 +171,47 @@ theTest = do
 --     | k > 0     = xs !? (k-1)
 --     | otherwise = Just x
 -- [] !? _ = Nothing
+
+
+--------------------------------------------------
+-- Smart constructors
+--------------------------------------------------
+
+
+-- | Create an internal node.
+node :: n -> FST.OFS k -> [FST.OFSTree n t k] -> FST.OFSTree n t k
+node x fs = R.Node $
+  let nod = simple (O.NonTerm x)
+  in  nod {FST.featStr = fs}
+
+
+-- | Create a leaf node.
+leaf :: n -> FST.OFS k -> FST.OFSTree n t k
+leaf x fs = node x fs []
+
+
+term :: t -> FST.OFS k -> FST.OFSTree n t k
+term x fs =
+  let nod = (simple (O.Term x)) {FST.featStr = fs}
+  in  R.Node nod []
+
+
+foot :: n -> FST.OFSTree n t k
+foot x =
+  let nod = simple (O.Foot x)
+  in  R.Node nod []
+
+
+-- | Construct fs-node with default values: empty FS and no null-adjunction
+-- constraint.
+simple :: O.Node n t -> FST.Node n t (FST.OFS k)
+simple nod = FST.Node
+  { FST.treeNode = nod
+  , FST.featStr = M.empty
+  , FST.nullAdj = False
+  }
+
+
+-- | Create a top-FS.
+mkFS :: (Ord a) => [(a, b)] -> M.Map (FST.Loc a) b
+mkFS = M.fromList . map (first FST.Top)
