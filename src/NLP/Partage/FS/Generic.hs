@@ -210,18 +210,18 @@ flatUnifyFS (Node mp1) (Node mp2) =
 recUnifyFS
   :: (Monad m, Ord k, Ord v)
   => FS k v -> FS k v -> UniT k v m ()
--- recUnifyFS (Node mp1) (Node mp2) = Pipes.runEffect . Pipes.enumerate $ do
---   let keys = S.intersection (M.keysSet mp1) (M.keysSet mp2)
---   key <- each $ S.toList keys
---   case (M.lookup key mp1, M.lookup key mp2) of
---     (Just v1, Just v2) -> lift $ unify v1 v2
---     _ -> error "unifyFS: impossible happened"
 recUnifyFS (Node mp1) (Node mp2) = do
   let keys = S.intersection (M.keysSet mp1) (M.keysSet mp2)
   forM_ (S.toList keys) $ \key -> case (M.lookup key mp1, M.lookup key mp2) of
     (Just v1, Just v2) -> unify v1 v2
     _ -> error "unifyFS: impossible happened"
 recUnifyFS _ _ = return ()
+-- recUnifyFS (Node mp1) (Node mp2) = Pipes.runEffect . Pipes.enumerate $ do
+--   let keys = S.intersection (M.keysSet mp1) (M.keysSet mp2)
+--   key <- each $ S.toList keys
+--   case (M.lookup key mp1, M.lookup key mp2) of
+--     (Just v1, Just v2) -> lift $ unify v1 v2
+--     _ -> error "unifyFS: impossible happened"
 
 
 --------------------------------------------------
