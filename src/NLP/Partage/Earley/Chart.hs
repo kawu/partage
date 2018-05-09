@@ -28,6 +28,7 @@ module NLP.Partage.Earley.Chart
 , finalFrom
 , expectEnd
 , rootSpan
+, rootEnd
 -- , provideBeg'
 -- , provideBegIni
 -- , provideBegAux
@@ -52,6 +53,7 @@ import           NLP.Partage.Earley.Base
 import           NLP.Partage.Earley.Auto      (Auto (..))
 import           NLP.Partage.Earley.ExtWeight
 import           NLP.Partage.Earley.Item
+-- import qualified NLP.Partage.Earley.Item as Item
 
 
 -- | A chart part of the hypergraph.
@@ -61,22 +63,32 @@ data Chart n t = Chart
     -- , doneActive  :: M.Map (ID, Pos) (S.Set (Active n t))
       doneActive  :: M.Map Pos (M.Map ID
         (M.Map Active (S.Set (Trav n t))))
-    -- ^ Processed active items partitioned w.r.t ending
-    -- positions and state IDs.
+    -- ^ Processed active items partitioned w.r.t ending positions and
+    -- FSA state IDs.
 
     -- , donePassive :: S.Set (Passive n t)
     , donePassive :: M.Map (Pos, n, Pos)
         (M.Map (Passive n t) (S.Set (Trav n t)))
-    -- ^ Processed passive items.
+    -- ^ Processed passive items partitioned w.r.t. (starting position,
+    -- non-terminal in the root, ending position).
+
+    , doneActiveByRoot :: M.Map (Pos, n) (S.Set Active)
+    -- ^ Processed active items partitioned w.r.t ending positions and root
+    -- non-terminals, i.e., LHS non-terminals of the corresponding rules. Does
+    -- not contain traversals. The set of active items effectively represented
+    -- by `doneActiveByRoot` is the same as the set represented by `doneActive`.
 
     }
 
 
 -- | Create an empty chart.
 empty :: Chart n t
-empty = Chart
-    { doneActive = M.empty
-    , donePassive = M.empty }
+empty =
+  Chart
+  { doneActive = M.empty
+  , donePassive = M.empty
+  , doneActiveByRoot = M.empty
+  }
 
 
 --------------------
@@ -122,8 +134,7 @@ doneEdgesNum earSt
 
 -- | Return the corresponding set of traversals for an active item.
 activeTrav
-    :: (Ord n, Ord t)
-    => Active -> Chart n t
+    :: Active -> Chart n t
     -> Maybe (S.Set (Trav n t))
 activeTrav p
     = (   M.lookup (p ^. spanA ^. end)
@@ -133,7 +144,7 @@ activeTrav p
 
 
 -- | Check if the active item is not already processed.
-isProcessedA :: (Ord n, Ord t) => Active -> Chart n t -> Bool
+isProcessedA :: Active -> Chart n t -> Bool
 isProcessedA p =
     check . activeTrav p
   where
@@ -144,12 +155,16 @@ isProcessedA p =
 -- | Mark the active item as processed (`done').
 saveActive
     :: (Ord t, Ord n)
-    => Active
+    => M.Map ID n -- ^ See `lhsNonTerm` from `Auto`
+    -> Active
     -> S.Set (Trav n t)
     -> Chart n t
     -> Chart n t
-saveActive p ts chart =
-    chart {doneActive = newDone}
+saveActive lhsMap p ts chart =
+  chart
+  { doneActive = newDone
+  , doneActiveByRoot = newDoneByRoot
+  }
   where
     newDone =
         M.insertWith
@@ -159,16 +174,23 @@ saveActive p ts chart =
             ( M.singleton (p ^. state)
                 ( M.singleton p ts ) )
             ( doneActive chart )
+    newDoneByRoot =
+        M.insertWith
+            ( S.union )
+            ( p ^. spanA ^. end
+            , lhsMap M.! (p ^. state) )
+            ( S.singleton p )
+            ( doneActiveByRoot chart )
 
 
--- | Check if, for the given active item, the given transitions are already                              
--- present in the hypergraph.                                                                            
-hasActiveTrav                                                                                            
-    :: (Ord t, Ord n)                                                                                    
-    => Active                                                                                            
-    -> S.Set (Trav n t)                                                                                  
-    -> Chart n t                                                                                         
-    -> Bool                                                                                              
+-- | Check if, for the given active item, the given transitions are already
+-- present in the hypergraph.
+hasActiveTrav
+    :: (Ord t, Ord n)
+    => Active
+    -> S.Set (Trav n t)
+    -> Chart n t
+    -> Bool
 hasActiveTrav p travSet chart =
   case activeTrav p chart of
     Just travSet' -> travSet `S.isSubsetOf` travSet'
@@ -182,7 +204,7 @@ hasActiveTrav p travSet chart =
 
 -- | Return the corresponding set of traversals for a passive item.
 passiveTrav
-    :: (Ord n, Ord t)
+    :: (Ord n)
     => Passive n t
     -> Auto n t
     -> Chart n t
@@ -196,7 +218,7 @@ passiveTrav p auto chart =
 
 
 -- | Check if the state is not already processed.
-isProcessedP :: (Ord n, Ord t) => Passive n t -> Auto n t -> Chart n t -> Bool
+isProcessedP :: (Ord n) => Passive n t -> Auto n t -> Chart n t -> Bool
 isProcessedP x auto =
     check . passiveTrav x auto
   where
@@ -247,18 +269,20 @@ hasPassiveTrav p travSet auto chart =
 
 -- | Return the list of final passive chart items.
 finalFrom
-    :: (Ord n, Eq t)
+    :: (Ord n)
     => n            -- ^ The start symbol
     -> Int          -- ^ The length of the input sentence
     -> Chart n t    -- ^ Result of the earley computation
     -> [Passive n t]
 finalFrom start n Chart{..} =
-    case M.lookup (0, start, n) donePassive of
-        Nothing -> []
-        Just m ->
-            [ p
-            | p <- M.keys m
-            , p ^. dagID == Left start ]
+  case M.lookup (0, start, n) donePassive of
+    Nothing -> []
+    Just m ->
+      [ p
+      | p <- M.keys m
+      , p ^. dagID == Left root ]
+  where
+    root = Root {rootLabel = start, isSister = False}
 
 
 -- -- | Return all active processed items which:
@@ -316,7 +340,7 @@ finalFrom start n Chart{..} =
 -- * end on the given position.
 expectEnd
     -- :: (HOrd n, HOrd t) => DID -> Pos
-    :: (Ord n, Ord t, MS.MonadState s m)
+    :: (MS.MonadState s m)
     => (s -> Auto n t)
     -> (s -> Chart n t)
     -> DAG.DID
@@ -362,6 +386,22 @@ rootSpan getChart x (i, j) = do
         pSpan = p ^. spanP
     guard $ auxiliary pSpan <= not (isRoot pDID)
     return p
+
+
+-- | Return all active processed items which:
+-- * has the given LHS non-terminal,
+-- * end on the given position.
+rootEnd
+    :: (Ord n, MS.MonadState s m)
+    => (s -> Chart n t)
+    -> n
+    -> Pos
+    -> P.ListT m Active
+rootEnd getChart lhsNT i = do
+    compState <- lift MS.get
+    let Chart{..} = getChart compState
+    doneSet <- some $ M.lookup (i, lhsNT) doneActiveByRoot
+    each (S.toList doneSet)
 
 
 --------------------------------------------------

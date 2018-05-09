@@ -1,5 +1,8 @@
 module NLP.Partage.Earley.Base
-( Pos
+(
+-- * Core Types
+  Pos
+, Root (..)
 -- * Input
 , Input (..)
 , fromList
@@ -16,11 +19,25 @@ import qualified Data.Vector as V
 
 import qualified NLP.Partage.DAG             as DAG
 import qualified NLP.Partage.Tree.Other      as O
-import           NLP.Partage.Earley.Auto      (Auto (..))
+import           NLP.Partage.Earley.Auto      (Auto (..), labNonTerm)
+
+
+--------------------------------------------------
+-- Core Types
+--------------------------------------------------
 
 
 -- | A position in the input sentence.
 type Pos = Int
+
+
+-- | Information corresponding to the root of an ET.
+data Root n = Root
+  { rootLabel :: n
+    -- ^ The corresponding non-terminal
+  , isSister :: Bool
+    -- ^ Is the root marked for sister-adjunction?
+  } deriving (Show, Eq, Ord)
 
 
 --------------------------------------------------
@@ -64,7 +81,7 @@ fromSets xs = Input (V.fromList xs)
 
 
 -- | Take the non-terminal of the underlying DAG node.
-nonTerm :: Either n DAG.DID -> Auto n t -> n
+nonTerm :: Either (Root n) DAG.DID -> Auto n t -> n
 nonTerm i =
     check . nonTerm' i . gramDAG
   where
@@ -73,15 +90,8 @@ nonTerm i =
 
 
 -- | Take the non-terminal of the underlying DAG node.
-nonTerm' :: Either n DAG.DID -> DAG.DAG (O.Node n t) () -> Maybe n
+nonTerm' :: Either (Root n) DAG.DID -> DAG.DAG (O.Node n t) () -> Maybe n
 nonTerm' i dag = case i of
-    Left rootNT -> Just rootNT
+    Left root -> Just (rootLabel root)
     Right did   -> labNonTerm =<< DAG.label did dag
     -- Right did   -> labNonTerm . DAG.label did -- . gramDAG . automat
-
-
--- | Take the non-terminal of the underlying DAG node.
-labNonTerm :: O.Node n t -> Maybe n
-labNonTerm (O.NonTerm y) = Just y
-labNonTerm (O.Foot y) = Just y
-labNonTerm _ = Nothing

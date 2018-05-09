@@ -46,7 +46,7 @@ module NLP.Partage.DAG
 -- * Ensemble
 , Gram (..)
 , mkGram
-, mkFreqGram
+-- , mkFreqGram
 , mkDummy
 
 -- * Conversion
@@ -73,7 +73,7 @@ module NLP.Partage.DAG
 ) where
 
 
-import           Control.Arrow              (first)
+-- import           Control.Arrow              (first)
 import           Control.Monad              (forM)
 import qualified Control.Monad.State.Strict as E
 import           Prelude                    hiding (lookup)
@@ -83,7 +83,7 @@ import qualified Data.MemoCombinators       as Memo
 import qualified Data.Set                   as S
 import qualified Data.Tree                  as R
 
-import qualified NLP.Partage.Tree           as T
+-- import qualified NLP.Partage.Tree           as T
 import qualified NLP.Partage.Tree.Other     as O
 
 
@@ -516,7 +516,7 @@ mkGram
 mkGram ts = Gram
     { dagGram   = dagGram_
     , factGram  = rulesMapFromDAG dagGram_
-    , termWei   = mkTermWei (map (first O.decode) ts) }
+    , termWei   = mkTermWei ts }
   where
     dagGram_ = dagFromWeightedForest ts
 
@@ -530,65 +530,82 @@ mkDummy
 mkDummy ts = Gram
     { dagGram   = dagGram_
     , factGram  = rulesMapFromDAG dagGram_
-    , termWei   = mkTermWei (map (first O.decode) ts) }
+    -- , termWei   = mkTermWei (map (first O.decode) ts) }
+    , termWei   = mkTermWei ts }
   where
     dagGram_ = dummyFromWeightedForest ts
 
 
+-- -- | Compute the lower bound estimates on reading terminal weights.
+-- -- Based on the idea that weights of the elementary trees are evenly
+-- -- distributed over its terminals.
+-- mkTermWei
+--     :: (Ord t)
+--     => [(O.SomeTree n t, Weight)]   -- ^ Weighted grammar
+--     -> M.Map t Weight
+-- mkTermWei ts = M.fromListWith min
+--     [ (x, w / fromIntegral n)
+--     | (t, w) <- ts
+--     , let terms = listTerms t
+--           n = length terms
+--     , x <- terms ]
+
+
 -- | Compute the lower bound estimates on reading terminal weights.
--- Based on the idea that weights of the elementary trees are evenly
--- distributed over its terminals.
+--
+-- Based on the idea that weights of the elementary trees are evenly distributed
+-- over their terminals.
 mkTermWei
     :: (Ord t)
-    => [(O.SomeTree n t, Weight)]   -- ^ Weighted grammar
+    => [(O.Tree n t, Weight)]   -- ^ Weighted grammar
     -> M.Map t Weight
 mkTermWei ts = M.fromListWith min
     [ (x, w / fromIntegral n)
     | (t, w) <- ts
-    , let terms = listTerms t
+    , let terms = O.project t
           n = length terms
     , x <- terms ]
 
 
--- | Construct `Gram` from the given weighted grammar
--- and the given terminals' frequency map.
-mkFreqGram
-    :: (Ord n, Ord t)
-    => M.Map t Int            -- ^ Global terminal frequencies
-    -> [(O.Tree n t, Weight)]
-    -> Gram n t
-mkFreqGram freqMap ts = Gram
-    { dagGram   = dagGram_
-    , factGram  = rulesMapFromDAG dagGram_
-    , termWei   = termWeiFromFreq freqMap (map (first O.decode) ts) }
-  where
-    dagGram_ = dagFromWeightedForest ts
+-- -- | Construct `Gram` from the given weighted grammar and the given terminals'
+-- -- frequency map.
+-- mkFreqGram
+--     :: (Ord n, Ord t)
+--     => M.Map t Int            -- ^ Global terminal frequencies
+--     -> [(O.Tree n t, Weight)]
+--     -> Gram n t
+-- mkFreqGram freqMap ts = Gram
+--     { dagGram   = dagGram_
+--     , factGram  = rulesMapFromDAG dagGram_
+--     , termWei   = termWeiFromFreq freqMap (map (first O.decode) ts) }
+--   where
+--     dagGram_ = dagFromWeightedForest ts
 
 
--- | Compute the lower bound estimates on reading terminal weights.
--- Based on the idea that weights of the elementary trees are
--- distributed over its terminals proportionaly to their global
--- frequencies.
--- We assume that terminals which are not present in the global
--- frequency map are very rare.
-termWeiFromFreq
-    :: (Ord t)
-    => M.Map t Int                  -- ^ Global terminal frequencies
-    -> [(O.SomeTree n t, Weight)]   -- ^ Weighted grammar
-    -> M.Map t Weight
-termWeiFromFreq freqMap gram = M.fromListWith min
-  [ (term, treeWeight * termWeight)
-  | (tree, treeWeight) <- gram
-  , let terms = listTerms tree
-        termWeights = normalize $ map obtainWeight terms
-  , (term, termWeight) <- zip terms termWeights ]
-  where
-    obtainWeight term = case M.lookup term freqMap of
-      Just freq -> fromIntegral freq
-      Nothing   -> 1.0
-    normalize xs =
-      let n = sum xs
-      in  map (/n) xs
+-- -- | Compute the lower bound estimates on reading terminal weights. Based on the
+-- -- idea that weights of the elementary trees are distributed over its terminals
+-- -- proportionaly to their global frequencies.
+-- --
+-- -- We assume that terminals which are not present in the global
+-- -- frequency map are very rare.
+-- termWeiFromFreq
+--     :: (Ord t)
+--     => M.Map t Int                  -- ^ Global terminal frequencies
+--     -> [(O.SomeTree n t, Weight)]   -- ^ Weighted grammar
+--     -> M.Map t Weight
+-- termWeiFromFreq freqMap gram = M.fromListWith min
+--   [ (term, treeWeight * termWeight)
+--   | (tree, treeWeight) <- gram
+--   , let terms = listTerms tree
+--         termWeights = normalize $ map obtainWeight terms
+--   , (term, termWeight) <- zip terms termWeights ]
+--   where
+--     obtainWeight term = case M.lookup term freqMap of
+--       Just freq -> fromIntegral freq
+--       Nothing   -> 1.0
+--     normalize xs =
+--       let n = sum xs
+--       in  map (/n) xs
 
 
 ----------------------
@@ -603,7 +620,7 @@ toTree :: DID -> DAG a b -> Maybe (R.Tree a)
 toTree i dag = do
   x <- label i dag
   let js = children i dag
-  ts <- mapM (flip toTree dag) js 
+  ts <- mapM (flip toTree dag) js
   return $ R.Node x ts
 
 
@@ -612,10 +629,10 @@ toTree i dag = do
 ----------------------
 
 
--- | List the terminal leaves of the tree.
-listTerms :: O.SomeTree n t -> [t]
-listTerms (Left t)  = T.project t
-listTerms (Right a) = T.project (T.auxTree a)
+-- -- | List the terminal leaves of the tree.
+-- listTerms :: O.SomeTree n t -> [t]
+-- listTerms (Left t)  = T.project t
+-- listTerms (Right a) = T.project (T.auxTree a)
 
 
 -- | Reverse map.

@@ -11,9 +11,8 @@ module NLP.Partage.Tree.Other
 -- * TAG Tree
   Tree
 , Node (..)
-, follow
--- ** Base representation
 , SomeTree
+-- , follow
 
 -- * Conversion
 , encode
@@ -32,8 +31,7 @@ module NLP.Partage.Tree.Other
 
 
 -- import           Control.Applicative ((<$>))
-import           Control.Monad (msum, foldM)
--- import           Data.Maybe (isJust)
+import           Control.Monad (msum) -- , foldM)
 import qualified Data.Foldable as F
 
 import qualified Data.Tree as R
@@ -50,6 +48,7 @@ import qualified NLP.Partage.Tree as T
 data Node n t
     = NonTerm n     -- ^ Standard non-terminal
     | Foot n        -- ^ Foot non-terminal
+    | Sister n      -- ^ Sister non-terminal root
     | Term t        -- ^ Terminal
     deriving (Show, Eq, Ord)
 
@@ -77,14 +76,14 @@ type SomeTree n t = Either (T.Tree n t) (T.AuxTree n t)
 ---------------------------------------------------------------------
 
 
--- | Follow the path to a particular subtree.
-follow :: T.Path -> Tree a b -> Maybe (Tree a b)
-follow = flip $ foldM step
-
-
--- | Follow one step of the `Path`.
-step :: R.Tree a -> Int -> Maybe (R.Tree a)
-step t k = R.subForest t !? k
+-- -- | Follow the path to a particular subtree.
+-- follow :: T.Path -> Tree a b -> Maybe (Tree a b)
+-- follow = flip $ foldM step
+--
+--
+-- -- | Follow one step of the `Path`.
+-- step :: R.Tree a -> Int -> Maybe (R.Tree a)
+-- step t k = R.subForest t !? k
 
 
 ---------------------------------------------------------------------
@@ -136,6 +135,9 @@ mkTree (R.Node n xs) = case n of
         { T.labelI = x
         , T.subTrees = [] }
     NonTerm x   -> T.Branch
+        { T.labelI = x
+        , T.subTrees = map mkTree xs }
+    Sister x   -> T.Branch
         { T.labelI = x
         , T.subTrees = map mkTree xs }
 
@@ -195,9 +197,9 @@ hasRoot _ _ = False
 ---------------------------------------------------------------------
 
 
--- | Maybe a k-th element of a list.
-(!?) :: [a] -> Int -> Maybe a
-(x:xs) !? k
-    | k > 0     = xs !? (k-1)
-    | otherwise = Just x
-[] !? _ = Nothing
+-- -- | Maybe a k-th element of a list.
+-- (!?) :: [a] -> Int -> Maybe a
+-- (x:xs) !? k
+--     | k > 0     = xs !? (k-1)
+--     | otherwise = Just x
+-- [] !? _ = Nothing

@@ -18,9 +18,9 @@ import           Prelude hiding             (span, (.))
 import           Data.Lens.Light
 import           Control.Category ((.))
 
-import           NLP.Partage.Earley.Base
+-- import           NLP.Partage.Earley.Base
 import           NLP.Partage.Earley.Item
-import           NLP.Partage.DAG        (Weight)
+-- import           NLP.Partage.DAG        (Weight)
 
 
 --------------------------------------------------
@@ -28,14 +28,14 @@ import           NLP.Partage.DAG        (Weight)
 --------------------------------------------------
 
 
--- | Traversal represents an action of inducing a new item on the
--- basis of one or two other chart items.  It can be seen as an
--- application of one of the inference rules specifying the parsing
--- algorithm.
+-- | Traversal represents an action of inducing a new item on the basis of one
+-- or two other chart items. It can be seen as an application of one of the
+-- inference rules specifying the parsing algorithm.
 --
--- TODO: Sometimes there is no need to store all the arguments of the
--- inference rules, it seems.  From one of the arguments the other
--- one could be derived.
+-- TODO: Sometimes there is no need to store all the arguments of the inference
+-- rules, it seems. From one of the arguments the other one could be derived.
+--
+-- UPDATE 09.05.2018: This should be rather called an 'Arc' or something alike.
 data Trav n t
     = Scan
         { _scanFrom :: Active
@@ -65,6 +65,16 @@ data Trav n t
         -- ^ The modified item
         }
     -- ^ Adjoin terminate with two passive arguments
+    | SisterAdjoin
+        { _passArg  :: Passive n t
+        -- ^ The passive argument of the action
+        , _actArg   :: Active
+        -- ^ The active argument of the action
+        }
+    | Deactivate
+        { _actArg   :: Active
+        -- ^ The active argument of the action
+        }
     deriving (Show, Eq, Ord)
 
 
@@ -130,9 +140,9 @@ data ExtPrio n t = ExtPrio
     -- ^ Traversal leading to the underlying chart item
     } deriving (Show)
 
-instance (Eq n, Eq t) => Eq (ExtPrio n t) where
+instance Eq (ExtPrio n t) where
     (==) = (==) `on` prioVal
-instance (Ord n, Ord t) => Ord (ExtPrio n t) where
+instance Ord (ExtPrio n t) where
     compare = compare `on` prioVal
 
 

@@ -24,7 +24,7 @@ import qualified Data.Set                      as S
 import           Data.DAWG.Ord                 (ID)
 
 import qualified NLP.Partage.Auto              as A
-import           NLP.Partage.DAG      (DID, Rule, Weight)
+import           NLP.Partage.DAG               (DID, Rule, Weight)
 
 
 --------------------------------------------------

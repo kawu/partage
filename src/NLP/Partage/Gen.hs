@@ -6,13 +6,12 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 
--- | A simple, experimental tree generation module, with the aim
--- to generate /all/, or /randomly/, language trees satisfying
--- certain simple constraints.
+-- | A simple, experimental tree generation module, with the aim to generate
+-- /all/, or /randomly/, language trees satisfying certain simple constraints.
 --
--- One of the possible usecases where such a functionality can be
--- useful is to automatically generate test sets over which
--- efficiency of a parser can be measured.
+-- One of the possible usecases where such a functionality can be useful is to
+-- automatically generate test sets over which efficiency of a parser can be
+-- measured.
 
 
 module NLP.Partage.Gen

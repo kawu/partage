@@ -30,13 +30,13 @@ import           Prelude                hiding (span)
 
 import           Data.DAWG.Ord          (ID)
 
-import           NLP.Partage.Earley.Base (Pos)
+import           NLP.Partage.Earley.Base (Pos, Root(..))
 import           NLP.Partage.DAG        (DID)
 import qualified NLP.Partage.DAG as DAG
 
 -- #ifdef DebugOn
 import           NLP.Partage.Earley.Base (nonTerm)
-import           NLP.Partage.Earley.Auto (Auto (..))
+import           NLP.Partage.Earley.Auto (Auto(..))
 -- #endif
 
 
@@ -66,13 +66,12 @@ $( makeLenses [''Active] )
 
 -- | Passive chart item : label + span.
 -- TODO: remove the redundant 't' parameter
-data Passive n t = Passive {
-      -- _label :: Lab n t
-      _dagID :: Either n DID
-      -- ^ We store non-terminal 'n' for items representing
-      -- fully recognized elementary trees.
-    , _spanP :: Span
-    } deriving (Show, Eq, Ord)
+data Passive n t = Passive
+  { _dagID :: Either (Root n) DID
+    -- ^ We store non-terminal 'n' for items representing
+    -- fully recognized elementary trees.
+  , _spanP :: Span
+  } deriving (Show, Eq, Ord)
 $( makeLenses [''Passive] )
 
 
@@ -125,10 +124,12 @@ printPassive p auto = do
     putStr "("
     -- putStr . viewLab $ getL label p
     putStr $ case getL dagID p of
-        Left rootNT -> show rootNT
+        Left root ->
+          show (rootLabel root) ++
+          if isSister root then "*" else ""
         Right did   ->
           show (DAG.unDID did) ++ "[" ++
-          show (nonTerm (getL dagID p) auto) ++ "]"
+          show (nonTerm (Right did) auto) ++ "]"
     putStr ", "
     printSpan $ getL spanP p
     putStrLn ")"

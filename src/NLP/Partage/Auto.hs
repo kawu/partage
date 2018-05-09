@@ -2,10 +2,10 @@
 {-# LANGUAGE RecordWildCards  #-}
 
 
--- | Abstract implementation of an automaton (or a set of automata,
--- in general).  `Auto` provides a minimal interface needed to
--- use automata in parsing and thus allows to use one of the
--- concrete implementations provided by the library:
+-- | Abstract implementation of an automaton (or a set of automata, in general).
+-- `Auto` provides a minimal interface needed to use automata in parsing and
+-- thus allows to use one of the concrete implementations provided by the
+-- library:
 --
 --  * "NLP.Partage.Auto.DAWG": directed acyclic word graph
 --  * "NLP.Partage.Auto.Trie": prefix tree
