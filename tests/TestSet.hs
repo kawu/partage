@@ -397,29 +397,47 @@ sister x = R.Node (O.Sister x)
 
 mkGram5 :: [(O.Tree String String, Weight)]
 mkGram5 = map (,1)
-  [ben, eats, often, pasta]
+  [ben, eatsTra, eatsIntra, vigorously, pasta, tasty, a]
   where
     ben =
       node "NP"
       [ node "N"
         [ term "Ben" ]
       ]
+    a =
+      node "NP"
+      [ node "Det" [ term "a" ]
+      , foot "NP"
+      ]
     pasta =
       node "NP"
       [ node "N"
         [ term "pasta" ]
       ]
-    eats =
+    -- transitive
+    eatsTra =
       node "S"
       [ leaf "NP"
       , node "VP"
         [ node "V" [term "eats"]
         , leaf "NP" ]
       ]
-    often =
+    -- intransitive
+    eatsIntra =
+      node "S"
+      [ leaf "NP"
+      , node "VP"
+        [ node "V" [term "eats"] ]
+      ]
+    vigorously =
       sister "VP"
-      [ node "ADV"
-        [ term "often" ]
+      [ node "Adv"
+        [ term "vigorously" ]
+      ]
+    tasty =
+      sister "N"
+      [ node "Adj"
+        [ term "tasty" ]
       ]
 
 
@@ -428,11 +446,42 @@ mkGram5 = map (,1)
 gram5Tests :: [Test]
 gram5Tests =
     [ Test "S" (words "Ben eats pasta") Yes
-    , Test "S" (words "Ben eats") No
-    , Test "S" (words "Ben often eats pasta") Yes
-    , Test "S" (words "Ben eats pasta often") Yes
+    , Test "S" (words "Ben eats") . Trees . S.singleton $
+      Branch "S"
+      [ Branch "NP"
+        [ Branch "N" [Leaf "Ben"] ]
+      , Branch "VP"
+        [ Branch "V" [Leaf "eats"] ]
+      ]
+    , Test "S" (words "Ben vigorously eats pasta") . Trees . S.singleton $
+      Branch "S"
+      [ Branch "NP"
+        [ Branch "N" [Leaf "Ben"] ]
+      , Branch "VP"
+        [ Branch "Adv" [Leaf "vigorously"]
+        , Branch "V" [Leaf "eats"]
+        , Branch "NP"
+          [ Branch "N" [Leaf "pasta"] ] ]
+      ]
+    , Test "S" (words "Ben eats pasta vigorously") Yes
+    , Test "S" (words "Ben eats vigorously pasta") Yes
+    , Test "S" (words "vigorously Ben eats pasta") No
+    , Test "S" (words "Ben vigorously eats tasty pasta") Yes
+    , Test "S" (words "Ben vigorously eats a tasty pasta") Yes
+    , Test "S" (words "Ben vigorously eats tasty a pasta") No
+    , Test "S" (words "Ben vigorously a eats tasty pasta") No
+
+    -- These following should be perhaps excluded?
+
+    -- Multiple adjunction
+    , Test "S" (words "Ben vigorously eats a a tasty pasta") Yes
+    -- Sister adjunction to the root of an auxiliary tree
     ]
-    -- , Test "S" (words "Ben sleeps vigorously") Yes ]
+
+-- To discuss:
+-- * multiple adjunction
+-- * are there many types of sister-adjunction?
+-- * sister adjunction to the root of an auxiliary tree should be allowed?
 
 
 ---------------------------------------------------------------------

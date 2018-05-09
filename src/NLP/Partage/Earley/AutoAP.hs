@@ -943,33 +943,13 @@ trySisterAdjoin p = void $ P.runListT $ do
     -- make sure that `p` represents a sister tree
     Left root <- return pDID
     guard $ isSister root
-
---     -- the underlying leaf map
---     leafMap <- RWS.gets (leafDID  . automat)
-
---     -- the underlying leaf map
---     lhsMap <- RWS.gets (lhsNonTerm  . automat)
-
---     -- now, we need to choose the DAG node to search for depending on
---     -- whether the DAG node provided by `p' is a root or not
---     theDID <-
---         each . S.toList . maybe S.empty id $
---             M.lookup (rootLabel root) leafMap
-
     -- find active items which end where `p' begins and which have the
     -- corresponding LHS non-terminal
     q <- rootEnd (rootLabel root) (getL beg pSpan)
-
---     -- follow the DAG node
---     j <- follow (getL state q) theDID
-
     -- construct the resultant item with the same state and extended span
-    let q' = setL (end . spanA) (getL end pSpan)
-           $ q
-
+    let q' = setL (end . spanA) (getL end pSpan) $ q
     -- push the resulting state into the waiting queue
     lift $ pushInduced q' $ SisterAdjoin p q
-
 #ifdef DebugOn
     -- print logging information
     hype <- RWS.get
@@ -995,42 +975,27 @@ tryDeactivate p = void $ P.runListT $ do
 #endif
   dag <- RWS.gets (gramDAG . automat)
   did <- heads (getL state p)
-  lift . flip pushPassive (Deactivate p) $
-    if not (DAG.isRoot did dag)
-    then Passive (Right did) (getL spanA p)
-    else check $ do
-      x <- mkRoot <$> DAG.label did dag
-      return $ Passive (Left x) (getL spanA p)
-    where
-      mkRoot node = case node of
-        O.NonTerm x -> Root {rootLabel=x, isSister=False}
-        O.Sister x  -> Root {rootLabel=x, isSister=True}
-        _ -> error "pushInduced: invalid root"
-      check (Just x) = x
-      check Nothing  = error "pushInduced: invalid DID"
-
-
---     -- read the word immediately following the ending position of
---     -- the state
---     c <- readInput $ getL (spanA >>> end) p
---     -- follow appropriate terminal transition outgoing from the
---     -- given automaton state
---     j <- followTerm (getL state p) c
---     -- construct the resultant active item
---     -- let q = p {state = j, end = end p + 1}
---     let q = setL state j
---           . modL' (spanA >>> end) (+1)
---           $ p
---     -- push the resulting state into the waiting queue
---     lift $ pushInduced q $ Scan p c
--- #ifdef DebugOn
---     -- print logging information
---     lift . lift $ do
---         endTime <- Time.getCurrentTime
---         putStr "[S]  " >> printActive p
---         putStr "  :  " >> printActive q
---         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
--- #endif
+  let q = if not (DAG.isRoot did dag)
+          then Passive (Right did) (getL spanA p)
+          else check $ do
+            x <- mkRoot <$> DAG.label did dag
+            return $ Passive (Left x) (getL spanA p)
+  lift $ pushPassive q (Deactivate p)
+#ifdef DebugOn
+  -- print logging information
+  lift . lift $ do
+      endTime <- Time.getCurrentTime
+      putStr "[D]  " >> printActive p
+      putStr "  :  " >> printPassive q
+      putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
+#endif
+  where
+    mkRoot node = case node of
+      O.NonTerm x -> Root {rootLabel=x, isSister=False}
+      O.Sister x  -> Root {rootLabel=x, isSister=True}
+      _ -> error "pushInduced: invalid root"
+    check (Just x) = x
+    check Nothing  = error "pushInduced: invalid DID"
 
 
 --------------------------------------------------
@@ -1154,8 +1119,10 @@ parsedTrees hype start n
         | ts <- fromActive qa
         , t  <- fromPassive qp ]
 
-    fromActiveTrav _ (SisterAdjoin _ _) =
-        error "parsedTrees: SisterAdjoin not implemented yet! (2)"
+    fromActiveTrav _p (SisterAdjoin qp qa) =
+        [ ts' ++ ts
+        | ts  <- fromActive qa
+        , ts' <- T.subTrees <$> fromPassive qp ]
 
     fromActiveTrav _ _ =
         error "parsedTrees: impossible fromActiveTrav"
