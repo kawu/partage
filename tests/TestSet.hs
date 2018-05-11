@@ -397,7 +397,7 @@ sister x = R.Node (O.Sister x)
 
 mkGram5 :: [(O.Tree String String, Weight)]
 mkGram5 = map (,1)
-  [ben, eatsTra, eatsIntra, vigorously, pasta, tasty, a]
+  [ben, eatsTra, eatsIntra, vigorously, pasta, tasty, a, plate]
   where
     ben =
       node "NP"
@@ -439,6 +439,12 @@ mkGram5 = map (,1)
       [ node "Adj"
         [ term "tasty" ]
       ]
+    plate =
+      node "NP"
+      [ leaf "NP"
+      , node "N"
+        [ term "plate" ]
+      ]
 
 
 -- | The purpose of this test is to test the inversed root adjoin
@@ -470,6 +476,7 @@ gram5Tests =
     , Test "S" (words "Ben vigorously eats a tasty pasta") Yes
     , Test "S" (words "Ben vigorously eats tasty a pasta") No
     , Test "S" (words "Ben vigorously a eats tasty pasta") No
+    , Test "S" (words "Ben eats a tasty pasta plate") Yes
 
     -- These following should be perhaps excluded?
 
@@ -479,9 +486,16 @@ gram5Tests =
     ]
 
 -- To discuss:
--- * multiple adjunction
 -- * are there many types of sister-adjunction?
--- * sister adjunction to the root of an auxiliary tree should be allowed?
+--     <- so far implemented only one
+--     <- DECISION: YES (left sister-adjunction means that one can adjoin to a
+--        sister which is placed on the left in the sense of word-order)
+-- * allow sister adjunction to the root of a modifier (sister) tree?
+--     <- DECISION: NO
+-- * allow sister adjunction to the root of an auxiliary tree?
+--     <- DECISION: hard to say, we will see in practice
+-- * allow multiple adjunction
+--     <- DECISION: NO
 
 
 ---------------------------------------------------------------------
