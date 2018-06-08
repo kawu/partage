@@ -13,6 +13,7 @@ module NLP.Partage.Earley.Item
 , Passive (..)
 , dagID
 , spanP
+, isAdjoinedTo
 , regular
 , auxiliary
 , isRoot
@@ -30,7 +31,7 @@ import           Prelude                hiding (span)
 
 import           Data.DAWG.Ord          (ID)
 
-import           NLP.Partage.Earley.Base (Pos, Root(..))
+import           NLP.Partage.Earley.Base (Pos, NotFoot(..))
 import           NLP.Partage.DAG        (DID)
 import qualified NLP.Partage.DAG as DAG
 
@@ -67,10 +68,13 @@ $( makeLenses [''Active] )
 -- | Passive chart item : label + span.
 -- TODO: remove the redundant 't' parameter
 data Passive n t = Passive
-  { _dagID :: Either (Root n) DID
+  { _dagID :: Either (NotFoot n) DID
     -- ^ We store non-terminal 'n' for items representing
     -- fully recognized elementary trees.
   , _spanP :: Span
+    -- ^ Span of the chart item
+  , _isAdjoinedTo :: Bool
+    -- ^ Was the node represented by the item already adjoined to?
   } deriving (Show, Eq, Ord)
 $( makeLenses [''Passive] )
 
@@ -125,7 +129,7 @@ printPassive p auto = do
     -- putStr . viewLab $ getL label p
     putStr $ case getL dagID p of
         Left root ->
-          show (rootLabel root) ++
+          show (notFootLabel root) ++
           if isSister root then "*" else ""
         Right did   ->
           show (DAG.unDID did) ++ "[" ++

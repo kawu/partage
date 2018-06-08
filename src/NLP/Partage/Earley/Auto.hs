@@ -1,7 +1,7 @@
 {-# LANGUAGE Rank2Types      #-}
 
 
--- | Internal automaton data type which, aparat from the automaton itself,
+-- | Internal automaton data type which, apart from the automaton itself,
 -- contains several other components useful for parsing.
 
 
@@ -9,8 +9,8 @@ module NLP.Partage.Earley.Auto
 ( Auto(..)
 , mkAuto
 
--- * Utils
-, labNonTerm
+-- * Core
+, NotFoot(..)
 ) where
 
 
@@ -32,16 +32,17 @@ import qualified NLP.Partage.Tree.Other      as O
 
 
 --------------------------------------------------
--- Utils
+-- Core
 --------------------------------------------------
 
 
--- | Take the non-terminal of the underlying DAG node.
-labNonTerm :: O.Node n t -> Maybe n
-labNonTerm (O.NonTerm y) = Just y
-labNonTerm (O.Sister y) = Just y
-labNonTerm (O.Foot y) = Just y
-labNonTerm _ = Nothing
+-- | Non-terminal which is not a foot.
+data NotFoot n = NotFoot
+  { notFootLabel :: n
+    -- ^ The corresponding non-terminal
+  , isSister :: Bool
+    -- ^ Is the non-terminal marked for sister-adjunction?
+  } deriving (Show, Eq, Ord)
 
 
 --------------------------------------------------
@@ -67,10 +68,10 @@ data Auto n t = Auto
     , leafDID  :: M.Map n (S.Set DID)
     -- ^ A map which assigns DAG IDs to the corresponding leaf
     -- non-terminals.
-    , lhsNonTerm :: M.Map ID n
-    -- ^ A map which uniquely determines the LHS non-terminal corresponding to
-    -- the rule containing ID. WARNING: The LHS non-terminal can only be
-    -- determined if one has a separate FSA/Trie for each such non-terminal!
+    , lhsNonTerm :: M.Map ID (NotFoot n)
+    -- ^ A map which uniquely determines the LHS corresponding to the rule
+    -- containing the given ID. WARNING: The LHS can be uniquely determined only
+    -- if one has a separate FSA/Trie for each such non-terminal!
     }
 
 
@@ -142,7 +143,7 @@ mkLeafDID dag = M.fromListWith S.union
 mkLhsNonTerm
   :: DAG (O.Node n t) w
   -> A.GramAuto
-  -> M.Map ID n
+  -> M.Map ID (NotFoot n)
 mkLhsNonTerm dag auto = M.fromList
   [ (i, pick $ lhs i)
   | i <- S.toList $ A.allIDs auto
@@ -164,3 +165,10 @@ mkLhsNonTerm dag auto = M.fromList
       case xs of
         [x] -> x
         _ -> error "Auto.mkLhsNonTerm: multiple LHS non-terminals per DID"
+    labNonTerm (O.NonTerm y) = Just $ NotFoot
+      { notFootLabel = y
+      , isSister = False }
+    labNonTerm (O.Sister y) = Just $ NotFoot
+      { notFootLabel = y
+      , isSister = True }
+    labNonTerm _ = Nothing

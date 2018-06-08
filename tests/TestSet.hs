@@ -304,17 +304,20 @@ mkGram2 = map (,1) $
 ---------------------------------------------------------------------
 
 
--- | What we test is not really a copy language but rather a
--- language in which there is always the same number of `a`s and
--- `b`s on the left and on the right of the empty `e` symbol.
--- To model the real copy language with a TAG we would need to
--- use either adjunction constraints or feature structures.
+-- | What we test is not really a copy language but rather a language in which
+-- there is always the same number of `a`s and `b`s on the left and on the right
+-- of the empty `e` symbol. To model the real copy language with a TAG we would
+-- need to use either adjunction constraints or feature structures.
+--
+-- UPDATE 08/06/2018: The description above seems not true anymore. When
+-- multiple adjunction is not allowed, this grammar seems to model precisely the
+-- copy language.
 gram2Tests :: [Test]
 gram2Tests =
     [ Test "S" (words "a b e a b") Yes
     , Test "S" (words "a b e a a") No
     , Test "S" (words "a b a b a b a b e a b a b a b a b") Yes
-    , Test "S" (words "a b a b a b a b e a b a b a b a  ") No
+    , Test "S" (words "a b a b a b a b e a b a b a b a") No
     , Test "S" (words "a b e b a") Yes
     , Test "S" (words "b e a") No
     , Test "S" (words "a b a b") No ]
@@ -492,6 +495,7 @@ gram5Tests =
 --        sister which is placed on the left in the sense of word-order)
 -- * allow sister adjunction to the root of a modifier (sister) tree?
 --     <- DECISION: NO
+--     <- OUTCOME: DONE
 -- * allow sister adjunction to the root of an auxiliary tree?
 --     <- DECISION: hard to say, we will see in practice
 -- * allow multiple adjunction

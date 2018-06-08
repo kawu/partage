@@ -73,10 +73,14 @@ data Chart n t = Chart
     -- non-terminal in the root, ending position).
 
     , doneActiveByRoot :: M.Map (Pos, n) (S.Set Active)
-    -- ^ Processed active items partitioned w.r.t ending positions and root
+    -- ^ Processed active items partitioned w.r.t ending positions and parent
     -- non-terminals, i.e., LHS non-terminals of the corresponding rules. Does
-    -- not contain traversals. The set of active items effectively represented
-    -- by `doneActiveByRoot` is the same as the set represented by `doneActive`.
+    -- not contain traversals (in contrast with `doneActive`).
+    --
+    -- The set of active items effectively represented by `doneActiveByRoot` is
+    -- the same as the set represented by `doneActive` *minus* active items
+    -- corresponding to top-level traversals of sister trees (this allows to
+    -- exclude sister adjunction to roots of other sister trees).
 
     }
 
@@ -155,7 +159,7 @@ isProcessedA p =
 -- | Mark the active item as processed (`done').
 saveActive
     :: (Ord t, Ord n)
-    => M.Map ID n -- ^ See `lhsNonTerm` from `Auto`
+    => M.Map ID (NotFoot n) -- ^ See `lhsNonTerm` from `Auto`
     -> Active
     -> S.Set (Trav n t)
     -> Chart n t
@@ -174,13 +178,15 @@ saveActive lhsMap p ts chart =
             ( M.singleton (p ^. state)
                 ( M.singleton p ts ) )
             ( doneActive chart )
-    newDoneByRoot =
-        M.insertWith
-            ( S.union )
-            ( p ^. spanA ^. end
-            , lhsMap M.! (p ^. state) )
-            ( S.singleton p )
-            ( doneActiveByRoot chart )
+    NotFoot{..} = lhsMap M.! (p ^. state)
+    newDoneByRoot
+      | isSister = doneActiveByRoot chart
+      | otherwise = M.insertWith
+        ( S.union )
+        ( p ^. spanA ^. end
+        , notFootLabel )
+        ( S.singleton p )
+        ( doneActiveByRoot chart )
 
 
 -- | Check if, for the given active item, the given transitions are already
@@ -282,7 +288,7 @@ finalFrom start n Chart{..} =
       | p <- M.keys m
       , p ^. dagID == Left root ]
   where
-    root = Root {rootLabel = start, isSister = False}
+    root = NotFoot {notFootLabel = start, isSister = False}
 
 
 -- -- | Return all active processed items which:

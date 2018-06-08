@@ -747,7 +747,7 @@ trySubst p = void $ P.runListT $ do
         -- real substitution
         Left root ->
             each . S.toList . maybe S.empty id $
-                M.lookup (rootLabel root) leafMap
+                M.lookup (notFootLabel root) leafMap
         -- pseudo-substitution
         Right did -> return did
     -- find active items which end where `p' begins and which
@@ -908,10 +908,13 @@ tryAdjoinTerm q = void $ P.runListT $ do
     -- take all passive items with a given span and a given
     -- root non-terminal (IDs irrelevant)
     qNonTerm <- some (nonTerm' qDID dag)
-    -- p <- rootSpan (nonTerm qLab) (gapBeg, gapEnd)
     p <- rootSpan qNonTerm (gapBeg, gapEnd)
+    -- make sure that node represented by `p` was not yet adjoined to
+    guard . not $ getL isAdjoinedTo p
+    -- construct the resulting item
     let p' = setL (spanP >>> beg) (qSpan ^. beg)
            . setL (spanP >>> end) (qSpan ^. end)
+           . setL isAdjoinedTo True
            $ p
     lift $ pushPassive p' $ Adjoin q p
 #ifdef DebugOn
@@ -945,7 +948,7 @@ trySisterAdjoin p = void $ P.runListT $ do
     guard $ isSister root
     -- find active items which end where `p' begins and which have the
     -- corresponding LHS non-terminal
-    q <- rootEnd (rootLabel root) (getL beg pSpan)
+    q <- rootEnd (notFootLabel root) (getL beg pSpan)
     -- construct the resultant item with the same state and extended span
     let q' = setL (end . spanA) (getL end pSpan) $ q
     -- push the resulting state into the waiting queue
@@ -976,10 +979,16 @@ tryDeactivate p = void $ P.runListT $ do
   dag <- RWS.gets (gramDAG . automat)
   did <- heads (getL state p)
   let q = if not (DAG.isRoot did dag)
-          then Passive (Right did) (getL spanA p)
+          then Passive
+               { _dagID = Right did
+               , _spanP = getL spanA p
+               , _isAdjoinedTo = False }
           else check $ do
             x <- mkRoot <$> DAG.label did dag
-            return $ Passive (Left x) (getL spanA p)
+            return $ Passive -- (Left x) (getL spanA p)
+              { _dagID = Left x
+              , _spanP = getL spanA p
+              , _isAdjoinedTo = False }
   lift $ pushPassive q (Deactivate p)
 #ifdef DebugOn
   -- print logging information
@@ -991,8 +1000,8 @@ tryDeactivate p = void $ P.runListT $ do
 #endif
   where
     mkRoot node = case node of
-      O.NonTerm x -> Root {rootLabel=x, isSister=False}
-      O.Sister x  -> Root {rootLabel=x, isSister=True}
+      O.NonTerm x -> NotFoot {notFootLabel=x, isSister=False}
+      O.Sister x  -> NotFoot {notFootLabel=x, isSister=True}
       _ -> error "pushInduced: invalid root"
     check (Just x) = x
     check Nothing  = error "pushInduced: invalid DID"
@@ -1408,5 +1417,5 @@ some = each . maybeToList
 
 
 -- | Take the non-terminal of the underlying DAG node.
-nonTerm :: Either (Root n) DID -> Hype n t -> n
+nonTerm :: Either (NotFoot n) DID -> Hype n t -> n
 nonTerm i = Base.nonTerm i . automat
