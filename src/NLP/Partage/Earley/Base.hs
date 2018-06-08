@@ -33,19 +33,6 @@ type Pos = Int
 
 
 --------------------------------------------------
--- Utils
---------------------------------------------------
-
-
--- | Take the non-terminal of the underlying DAG node.
-labNonTerm :: O.Node n t -> Maybe n
-labNonTerm (O.NonTerm y) = Just y
-labNonTerm (O.Sister y) = Just y
-labNonTerm (O.Foot y) = Just y
-labNonTerm _ = Nothing
-
-
---------------------------------------------------
 -- Input
 --------------------------------------------------
 
@@ -98,5 +85,17 @@ nonTerm i =
 nonTerm' :: Either (NotFoot n) DAG.DID -> DAG.DAG (O.Node n t) () -> Maybe n
 nonTerm' i dag = case i of
     Left root -> Just (notFootLabel root)
-    Right did   -> labNonTerm =<< DAG.label did dag
-    -- Right did   -> labNonTerm . DAG.label did -- . gramDAG . automat
+    Right did -> labNonTerm =<< DAG.label did dag
+
+
+--------------------------------------------------
+-- Utils
+--------------------------------------------------
+
+
+-- | Take the non-terminal of the underlying DAG node.
+labNonTerm :: O.Node n t -> Maybe n
+labNonTerm (O.NonTerm y) = Just y
+labNonTerm (O.Sister y) = Just y
+labNonTerm (O.Foot y) = Just y
+labNonTerm _ = Nothing

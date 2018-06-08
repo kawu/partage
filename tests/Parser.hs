@@ -17,7 +17,7 @@ import qualified Data.Set                as S
 
 import qualified Pipes                   as P
 
--- import qualified NLP.Partage.AStar       as A
+import qualified NLP.Partage.AStar       as A
 -- import qualified NLP.Partage.AStar.Deriv as D
 import qualified NLP.Partage.DAG         as DAG
 import qualified NLP.Partage.Earley      as E
@@ -49,6 +49,40 @@ testEarley =
     --    the Earley parser assumes e.g. that there is at most one node with a given
     --    terminal, which is not true in dummy DAG.
     -- mkTree (t, w) = (O.encode t, w)
+
+
+-- | All the tests of the parsing algorithm.
+testAStar :: TestTree
+testAStar =
+  T.testTree "A*" parser
+  where
+    parser = T.dummyParser
+      { T.recognize = Just recFrom
+      , T.parsedTrees = Just parseFrom
+      }
+--       , T.derivTrees = Just derivFrom
+--       , T.encodes    = Just encodesFrom
+--       , T.derivPipe  = Just derivPipe }
+    recFrom gram start
+      = A.recognizeFrom memoTerm gram start
+      . A.fromList
+    parseFrom gram start input = do
+      let dag = mkGram gram
+          auto = A.mkAuto memoTerm dag
+          onTerm f (O.Term x) = O.Term (f x)
+          onTerm _ (O.NonTerm x) = O.NonTerm x
+          onTerm _ (O.Sister x) = O.Sister x
+          onTerm _ (O.Foot x) = O.Foot x
+      hype <- A.earleyAuto auto (A.fromList input)
+      return
+        . S.fromList
+        -- below we just map (Tok t -> t) but we have to also
+        -- do the corresponding encoding/decoding
+        . map (O.mkTree . fmap (onTerm A.terminal) . O.unTree)
+        $ A.parsedTrees hype start (length input)
+
+    mkGram = DAG.mkGram
+    memoTerm = Memo.list Memo.char
 
 
 -- -- | All the tests of the parsing algorithm.

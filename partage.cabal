@@ -62,6 +62,7 @@ library
       , NLP.Partage.Auto.DAWG
       , NLP.Partage.Auto.Set
       , NLP.Partage.Auto.WeiTrie
+      , NLP.Partage.Auto.WeiSet
 
       , NLP.Partage.Earley
       , NLP.Partage.Earley.Base
@@ -70,27 +71,27 @@ library
       , NLP.Partage.Earley.ExtWeight
       , NLP.Partage.Earley.Chart
 
---       , NLP.Partage.AStar
+      , NLP.Partage.AStar
 --       , NLP.Partage.AStar.Deriv
 --       , NLP.Partage.AStar.Deriv.Gorn
 --       , NLP.Partage.AStar.DepTree
 
---       , NLP.Partage.AStar.Base
---       , NLP.Partage.AStar.Item
---       , NLP.Partage.AStar.Chart
+      , NLP.Partage.AStar.Base
+      , NLP.Partage.AStar.Item
+      , NLP.Partage.AStar.Chart
 
     other-modules:
         NLP.Partage.SOrd
       , NLP.Partage.Earley.AutoAP
---       , NLP.Partage.AStar.Auto
---       , NLP.Partage.AStar.Heuristic
---       , NLP.Partage.AStar.HeuristicNew
---       , NLP.Partage.AStar.HeuristicOld
---       , NLP.Partage.AStar.Heuristic.Bag
+      , NLP.Partage.AStar.Auto
+      , NLP.Partage.AStar.Heuristic
+      , NLP.Partage.AStar.HeuristicNew
+      , NLP.Partage.AStar.HeuristicOld
+      , NLP.Partage.AStar.Heuristic.Bag
 --       , NLP.Partage.AStar.Heuristic.Dummy
 --       , NLP.Partage.AStar.Heuristic.Base
 -- 
---       , NLP.Partage.AStar.ExtWeight
+      , NLP.Partage.AStar.ExtWeight
 
     ghc-options: -Wall
     -- cpp-options: -DDebugOn

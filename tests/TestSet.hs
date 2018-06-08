@@ -253,7 +253,7 @@ gram1Tests =
                 ]
             ]
     , Test "S" ["Tom", "caught", "almost", "a", "mouse"] No
-    , Test "S" ["Tom", "quickly", "almost", "caught", "Tom"] Yes
+    , Test "S" ["Tom", "quickly", "almost", "caught", "Tom"] No
     , Test "S" ["Tom", "caught", "a", "mouse"] Yes
     , Test "S" ["Tom", "caught", "Tom"] Yes
     , Test "S" ["Tom", "caught", "a", "Tom"] No
@@ -318,7 +318,7 @@ gram2Tests =
     , Test "S" (words "a b e a a") No
     , Test "S" (words "a b a b a b a b e a b a b a b a b") Yes
     , Test "S" (words "a b a b a b a b e a b a b a b a") No
-    , Test "S" (words "a b e b a") Yes
+    , Test "S" (words "a b e b a") No
     , Test "S" (words "b e a") No
     , Test "S" (words "a b a b") No ]
 
@@ -480,12 +480,8 @@ gram5Tests =
     , Test "S" (words "Ben vigorously eats tasty a pasta") No
     , Test "S" (words "Ben vigorously a eats tasty pasta") No
     , Test "S" (words "Ben eats a tasty pasta plate") Yes
-
-    -- These following should be perhaps excluded?
-
-    -- Multiple adjunction
-    , Test "S" (words "Ben vigorously eats a a tasty pasta") Yes
-    -- Sister adjunction to the root of an auxiliary tree
+    -- Should fail because of multiple adjunction
+    , Test "S" (words "Ben vigorously eats a a tasty pasta") No
     ]
 
 -- To discuss (May 2018):

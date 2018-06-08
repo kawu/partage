@@ -31,6 +31,7 @@ module NLP.Partage.AStar.Chart
   , finalFrom
   , expectEnd
   , rootSpan
+  , rootEnd
   , provideBeg'
   , provideBegIni
   , provideBegAux
@@ -70,12 +71,20 @@ import           NLP.Partage.AStar.Item
 data Chart n t = Chart
     {
 
-      -- , doneActive  :: M.Map (ID, Pos) (S.Set (Active n t))
       doneActive  :: M.Map Pos (M.Map ID
-        -- (M.Map Active (S.Set (Trav n t))))
         (M.Map Active (ExtWeight n t)))
-    -- ^ Processed active items partitioned w.r.t ending
-    -- positions and state IDs.
+      -- ^ Processed active items partitioned w.r.t ending positions and state
+      -- IDs.
+
+    , doneActiveByRoot :: M.Map (Pos, n) (S.Set Active)
+    -- ^ Processed active items partitioned w.r.t ending positions and parent
+    -- non-terminals, i.e., LHS non-terminals of the corresponding rules. Does
+    -- not contain traversals (in contrast with `doneActive`).
+    --
+    -- The set of active items effectively represented by `doneActiveByRoot` is
+    -- the same as the set represented by `doneActive` *minus* active items
+    -- corresponding to top-level traversals of sister trees (this allows to
+    -- exclude sister adjunction to roots of other sister trees).
 
     -- , donePassive :: M.Map (Pos, n, Pos)
     --    (M.Map (Passive n t) (ExtWeight n t))
@@ -128,10 +137,12 @@ data Chart n t = Chart
 -- | Create an empty chart.
 empty :: Chart n t
 empty = Chart
-    { doneActive  = M.empty
-    , donePassiveIni = M.empty
-    , donePassiveAuxTop = M.empty
-    , donePassiveAuxNoTop = M.empty }
+  { doneActive  = M.empty
+  , doneActiveByRoot = M.empty
+  , donePassiveIni = M.empty
+  , donePassiveAuxTop = M.empty
+  , donePassiveAuxNoTop = M.empty
+  }
 
 
 
@@ -199,21 +210,34 @@ isProcessedA p =
 -- | Mark the active item as processed (`done').
 saveActive
     :: (Ord t, Ord n)
-    => Active
+    => M.Map ID (NotFoot n) -- ^ See `lhsNonTerm` from `Auto`
+    -> Active
     -> ExtWeight n t
     -> Chart n t
     -> Chart n t
-saveActive p ts chart =
-    chart {doneActive = newDone}
+saveActive lhsMap p ts chart =
+  chart
+  { doneActive = newDone
+  , doneActiveByRoot = newDoneByRoot
+  }
   where
     newDone =
-        M.insertWith
-            ( M.unionWith
-                ( M.unionWith joinExtWeight' ) )
-            ( p ^. spanA ^. end )
-            ( M.singleton (p ^. state)
-                ( M.singleton p ts ) )
-            ( doneActive chart )
+      M.insertWith
+      ( M.unionWith
+        ( M.unionWith joinExtWeight' ) )
+      ( p ^. spanA ^. end )
+      ( M.singleton (p ^. state)
+        ( M.singleton p ts ) )
+      ( doneActive chart )
+    NotFoot{..} = lhsMap M.! (p ^. state)
+    newDoneByRoot
+      | isSister = doneActiveByRoot chart
+      | otherwise = M.insertWith
+        ( S.union )
+        ( p ^. spanA ^. end
+        , notFootLabel )
+        ( S.singleton p )
+        ( doneActiveByRoot chart )
 
 
 -- | Check if, for the given active item, the given transitions are already
@@ -346,12 +370,14 @@ finalFrom
     -> Chart n t    -- ^ Result of the earley computation
     -> [Passive n t]
 finalFrom start n Chart{..} =
-    case M.lookup 0 donePassiveIni >>= M.lookup start >>= M.lookup n of
-        Nothing -> []
-        Just m ->
-            [ p
-            | p <- M.keys m
-            , p ^. dagID == Left start ]
+  case M.lookup 0 donePassiveIni >>= M.lookup start >>= M.lookup n of
+    Nothing -> []
+    Just m ->
+      [ p
+      | p <- M.keys m
+      , p ^. dagID == Left root ]
+  where
+    root = NotFoot {notFootLabel = start, isSister = False}
 
 
 -- -- | Return all active processed items which:
@@ -429,6 +455,25 @@ rootSpan getChart x (i, j) = do
     P.each $ case M.lookup i donePassiveAuxNoTop >>= M.lookup x >>= M.lookup j of
       Nothing -> []
       Just m -> map (Arr.second duoWeight) (M.toList m)
+
+
+-- | Return all active processed items which:
+-- * has the given LHS non-terminal,
+-- * end on the given position.
+rootEnd
+    :: (Ord n, Ord t, MS.MonadState s m)
+    => (s -> Chart n t)
+    -> n
+    -> Pos
+    -> P.ListT m (Active, DuoWeight)
+rootEnd getChart lhsNT i = do
+    compState <- lift MS.get
+    let ch@Chart{..} = getChart compState
+    doneSet <- some $ M.lookup (i, lhsNT) doneActiveByRoot
+    each $ do
+      q <- S.toList doneSet
+      e <- maybeToList (activeTrav q ch)
+      return (q, duoWeight e)
 
 
 -- | Return all processed items which:
@@ -524,7 +569,7 @@ provideBegIni
     :: (Ord n, Ord t, MS.MonadState s m)
     => (s -> Auto n t)
     -> (s -> Chart n t)
-    -> Either n DAG.DID -> Pos
+    -> Either (NotFoot n) DAG.DID -> Pos
     -> P.ListT m (Passive n t, DuoWeight)
 provideBegIni getAuto getChart x i = do
   compState <- lift MS.get
@@ -687,39 +732,6 @@ sumTrav :: [(a, ExtWeight n t)] -> Int
 sumTrav xs = sum
     [ S.size (prioTrav ext)
     | (_, ext) <- xs ]
-
-
--- -- -- | Take the non-terminal of the underlying DAG node.
--- -- nonTerm :: Either n DID -> Hype n t -> n
--- -- nonTerm i =
--- --     check . nonTerm' i . gramDAG . automat
--- --   where
--- --     check Nothing  = error "nonTerm: not a non-terminal ID"
--- --     check (Just x) = x
--- 
--- 
--- -- | Take the non-terminal of the underlying DAG node.
--- nonTerm :: Either n DAG.DID -> Auto n t -> n
--- nonTerm i =
---     check . nonTerm' i . gramDAG
---   where
---     check Nothing  = error "nonTerm: not a non-terminal ID"
---     check (Just x) = x
--- 
--- 
--- -- | Take the non-terminal of the underlying DAG node.
--- nonTerm' :: Either n DAG.DID -> DAG.DAG (O.Node n t) w -> Maybe n
--- nonTerm' i dag = case i of
---     Left rootNT -> Just rootNT
---     Right did   -> labNonTerm =<< DAG.label did dag
---     -- Right did   -> labNonTerm . DAG.label did -- . gramDAG . automat
--- 
--- 
--- -- | Take the non-terminal of the underlying DAG node.
--- labNonTerm :: O.Node n t -> Maybe n
--- labNonTerm (O.NonTerm y) = Just y
--- labNonTerm (O.Foot y) = Just y
--- labNonTerm _ = Nothing
 
 
 -- | ListT from a maybe.

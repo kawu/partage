@@ -1,5 +1,6 @@
 module NLP.Partage.AStar.Base
   ( Pos
+  , NotFoot (..)
   -- * Input
   , Input (..)
   , Tok (..)
@@ -16,7 +17,7 @@ import           Data.Function              (on)
 
 import qualified NLP.Partage.DAG             as DAG
 import qualified NLP.Partage.Tree.Other      as O
-import           NLP.Partage.AStar.Auto      (Auto (..))
+import           NLP.Partage.AStar.Auto      (Auto (..), NotFoot(..))
 
 
 -- | A position in the input sentence.
@@ -101,7 +102,7 @@ fromList = Input . map (uncurry Tok) . zip [0..]
 
 
 -- | Take the non-terminal of the underlying DAG node.
-nonTerm :: Either n DAG.DID -> Auto n t -> n
+nonTerm :: Either (NotFoot n) DAG.DID -> Auto n t -> n
 nonTerm i =
     check . nonTerm' i . gramDAG
   where
@@ -110,15 +111,20 @@ nonTerm i =
 
 
 -- | Take the non-terminal of the underlying DAG node.
-nonTerm' :: Either n DAG.DID -> DAG.DAG (O.Node n t) w -> Maybe n
+nonTerm' :: Either (NotFoot n) DAG.DID -> DAG.DAG (O.Node n t) w -> Maybe n
 nonTerm' i dag = case i of
-    Left rootNT -> Just rootNT
+    Left rootNT -> Just (notFootLabel rootNT)
     Right did   -> labNonTerm =<< DAG.label did dag
-    -- Right did   -> labNonTerm . DAG.label did -- . gramDAG . automat
+
+
+--------------------------------------------------
+-- Utils
+--------------------------------------------------
 
 
 -- | Take the non-terminal of the underlying DAG node.
 labNonTerm :: O.Node n t -> Maybe n
 labNonTerm (O.NonTerm y) = Just y
+labNonTerm (O.Sister y) = Just y
 labNonTerm (O.Foot y) = Just y
 labNonTerm _ = Nothing

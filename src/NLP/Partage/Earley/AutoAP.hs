@@ -985,17 +985,18 @@ tryDeactivate p = void $ P.runListT $ do
                , _isAdjoinedTo = False }
           else check $ do
             x <- mkRoot <$> DAG.label did dag
-            return $ Passive -- (Left x) (getL spanA p)
+            return $ Passive
               { _dagID = Left x
               , _spanP = getL spanA p
               , _isAdjoinedTo = False }
   lift $ pushPassive q (Deactivate p)
 #ifdef DebugOn
   -- print logging information
+  hype <- RWS.get
   lift . lift $ do
       endTime <- Time.getCurrentTime
       putStr "[D]  " >> printActive p
-      putStr "  :  " >> printPassive q
+      putStr "  :  " >> printPassive q hype
       putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
 #endif
   where
@@ -1061,25 +1062,6 @@ parsedTrees hype start n
         [ fromPassiveTrav p trav
         | travSet <- maybeToList $ passiveTrav p hype
         , trav <- S.toList travSet ]
-
---     fromPassiveTrav p (Scan q t) =
---         [ T.Branch
---             (nonTerm (getL dagID p) hype)
---             (reverse $ T.Leaf t : ts)
---         | ts <- fromActive q ]
---
---     fromPassiveTrav p (Foot q _p') =
---         [ T.Branch
---             (nonTerm (getL dagID p) hype)
---             (reverse $ T.Branch (nonTerm (p ^. dagID) hype) [] : ts)
---         | ts <- fromActive q ]
---
---     fromPassiveTrav p (Subst qp qa) =
---         [ T.Branch
---             (nonTerm (p ^. dagID) hype)
---             (reverse $ t : ts)
---         | ts <- fromActive qa
---         , t  <- fromPassive qp ]
 
     fromPassiveTrav _p (Adjoin qa qm) =
         [ replaceFoot ini aux

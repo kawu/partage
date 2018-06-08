@@ -13,6 +13,7 @@ module NLP.Partage.AStar.Item
   , Passive (..)
   , dagID
   , spanP
+  , isAdjoinedTo
   , regular
   , auxiliary
   , isRoot
@@ -31,7 +32,7 @@ import           Prelude                hiding (span)
 
 import           Data.DAWG.Ord          (ID)
 
-import           NLP.Partage.AStar.Base (Pos)
+import           NLP.Partage.AStar.Base (Pos, NotFoot(..))
 import           NLP.Partage.DAG        (DID)
 import qualified NLP.Partage.DAG as DAG
 
@@ -62,8 +63,10 @@ $( makeLenses [''Active] )
 
 -- | Passive chart item : label + span.
 data Passive n t = Passive {
-      _dagID :: Either n DID
+      _dagID :: Either (NotFoot n) DID
     , _spanP :: Span
+    , _isAdjoinedTo :: Bool
+      -- ^ Was the node represented by the item already adjoined to?
     } deriving (Show, Eq, Ord)
 $( makeLenses [''Passive] )
 

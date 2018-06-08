@@ -32,7 +32,9 @@ import qualified NLP.Partage.Tree.Other      as O
 
 
 --------------------------------------------------
--- Core
+-- Core (TODO: Should be moved out of here?
+--   Besides, it's also a copy of what is in
+--   Early.Auto).
 --------------------------------------------------
 
 

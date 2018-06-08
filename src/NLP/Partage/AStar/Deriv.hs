@@ -45,6 +45,7 @@ import qualified Pipes                     as P
 
 import           NLP.Partage.AStar         (Tok)
 import qualified NLP.Partage.AStar         as A
+import qualified NLP.Partage.AStar.Base    as Base
 -- import           NLP.Partage.DAG        (Weight)
 import qualified NLP.Partage.Tree.Other    as O
 
@@ -177,6 +178,7 @@ derivRoot :: Deriv n t -> n
 derivRoot R.Node{..} = case node rootLabel of
   O.NonTerm x -> x
   O.Foot _ -> error "passiveDerivs.getRoot: got foot"
+  O.Sister _ -> error "passiveDerivs.getRoot: got sister"
   O.Term _ -> error "passiveDerivs.getRoot: got terminal"
 
 -- | Construct substitution node stemming from the given derivation.
@@ -1033,8 +1035,10 @@ isFinal_
 isFinal_ start n p =
   p ^. A.spanP ^. A.beg == 0 &&
   p ^. A.spanP ^. A.end == n &&
-  p ^. A.dagID == Left start &&
+  p ^. A.dagID == Left root &&
   p ^. A.spanP ^. A.gap == Nothing
+  where
+    root = Base.NotFoot {notFootLabel=start, isSister=False}
 
 
 -- -- | ListT from a list.

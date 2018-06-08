@@ -145,10 +145,20 @@ import qualified NLP.Partage.AStar.Chart as Chart
 
 
 -- For debugging purposes
-#ifdef DebugOn
 import           Control.Monad.IO.Class     (liftIO)
+#ifdef DebugOn
 import qualified Data.Time              as Time
 #endif
+
+
+--------------------------------------------------
+-- Notes
+--------------------------------------------------
+
+
+-- TODO:
+-- * The weighted automaton is now a simple trie. It should be a list of tries,
+--   grouped by LHS non-terminals.
 
 
 --------------------------------------------------
@@ -408,7 +418,9 @@ saveActive
     -> ExtWeight n t
     -> Earley n t ()
 saveActive p ts =
-  RWS.modify' $ \h -> h {chart = Chart.saveActive p ts (chart h)}
+  RWS.modify' $ \h ->
+    let lhsMap = lhsNonTerm (automat h)
+    in  h {chart = Chart.saveActive lhsMap p ts (chart h)}
 
 
 -- | Check if, for the given active item, the given transitions are already
@@ -560,37 +572,38 @@ pushInduced
   -> Trav n t      -- ^ Traversal leading to the new item
   -> Earley n t ()
 pushInduced q newWeight newTrav = do
-    dag <- RWS.gets (gramDAG . automat)
-    hasElems (getL state q) >>= \b ->
-      when b (pushActive q newWeight $ Just newTrav)
-    P.runListT $ do
-        (headCost, did) <- heads (getL state q)
-        let p = if not (DAG.isRoot did dag)
-                then Passive (Right did) (getL spanA q)
-                else check $ do
-                    x <- labNonTerm =<< DAG.label did dag
-                    return $ Passive (Left x) (getL spanA q)
-                where check (Just x) = x
-                      check Nothing  = error "pushInduced: invalid DID"
-        -- estDist <- lift (estimateDistP p)
-        -- let ext  = new priWeight
-        -- let ext' = ext
-        --         { priWeight = priWeight new + headCost
-        --         , estWeight = estDist }
-        -- lift $ pushPassive p ext'
-        let finalWeight = DuoWeight
-              { duoBeta = duoBeta newWeight + headCost
-              , duoGap = duoGap newWeight }
-        lift $ pushPassive p finalWeight newTrav
-#ifdef DebugOn
-        -- print logging information
-        hype <- RWS.get
-        liftIO $ do
-            putStr "[DE] " >> printActive q
-            putStr "  :  " >> printPassive p hype
-            putStr " #W  " >> print (duoBeta finalWeight)
-            -- putStr " #E  " >> print estDis
-#endif
+  pushActive q newWeight (Just newTrav)
+--     dag <- RWS.gets (gramDAG . automat)
+--     hasElems (getL state q) >>= \b ->
+--       when b (pushActive q newWeight $ Just newTrav)
+--     P.runListT $ do
+--         (headCost, did) <- heads (getL state q)
+--         let p = if not (DAG.isRoot did dag)
+--                 then Passive (Right did) (getL spanA q)
+--                 else check $ do
+--                     x <- labNonTerm =<< DAG.label did dag
+--                     return $ Passive (Left x) (getL spanA q)
+--                 where check (Just x) = x
+--                       check Nothing  = error "pushInduced: invalid DID"
+--         -- estDist <- lift (estimateDistP p)
+--         -- let ext  = new priWeight
+--         -- let ext' = ext
+--         --         { priWeight = priWeight new + headCost
+--         --         , estWeight = estDist }
+--         -- lift $ pushPassive p ext'
+--         let finalWeight = DuoWeight
+--               { duoBeta = duoBeta newWeight + headCost
+--               , duoGap = duoGap newWeight }
+--         lift $ pushPassive p finalWeight newTrav
+-- #ifdef DebugOn
+--         -- print logging information
+--         hype <- RWS.get
+--         liftIO $ do
+--             putStr "[DE] " >> printActive q
+--             putStr "  :  " >> printPassive p hype
+--             putStr " #W  " >> print (duoBeta finalWeight)
+--             -- putStr " #E  " >> print estDis
+-- #endif
 
 
 -- | Remove a state from the queue.
@@ -691,6 +704,11 @@ rootSpan
 rootSpan = Chart.rootSpan chart
 
 
+-- | See `Chart.rootEnd`.
+rootEnd :: (Ord n, Ord t) => n -> Pos -> P.ListT (Earley n t) (Active, DuoWeight)
+rootEnd = Chart.rootEnd chart
+
+
 -- | See `Chart.provideBeg'`.
 provideBeg'
     :: (Ord n, Ord t) => n -> Pos
@@ -702,7 +720,17 @@ provideBeg' = Chart.provideBeg' chart
 provideBegIni
     :: (Ord n, Ord t) => Either n DID -> Pos
     -> P.ListT (Earley n t) (Passive n t, DuoWeight)
-provideBegIni = Chart.provideBegIni automat chart
+provideBegIni =
+  Chart.provideBegIni automat chart . Arr.left mkNotFoot
+  where
+    mkNotFoot x = NotFoot {notFootLabel=x, isSister=False}
+
+
+-- | See `Chart.provideBegIni`.
+provideBegIni'
+    :: (Ord n, Ord t) => Either (NotFoot n) DID -> Pos
+    -> P.ListT (Earley n t) (Passive n t, DuoWeight)
+provideBegIni' = Chart.provideBegIni automat chart
 
 
 -- | See `Chart.provideBegAux`.
@@ -789,13 +817,19 @@ trySubst p pw = void $ P.runListT $ do
         pSpan = getL spanP p
     -- make sure that `p' represents regular rules
     guard . regular $ pSpan
+    -- make sure that `p` does not represent sister tree
+    guard $ case pDID of
+        Left root -> not (isSister root)
+        Right _ -> True
     -- the underlying leaf map
     leafMap <- RWS.gets (leafDID  . automat)
     -- now, we need to choose the DAG node to search for depending on
     -- whether the DAG node provided by `p' is a root or not
     theDID <- case pDID of
         -- real substitution
-        Left rootNT -> each . S.toList . maybe S.empty id $ M.lookup rootNT leafMap
+        Left root ->
+          each . S.toList . maybe S.empty id $
+            M.lookup (notFootLabel root) leafMap
         -- pseudo-substitution
         Right did -> return did
     -- find active items which end where `p' begins and which
@@ -1187,8 +1221,11 @@ tryAdjoinTerm q qw = void $ P.runListT $ do
     -- by `rootSpan`)
     qNonTerm <- some (nonTerm' qDID dag)
     (p, pw) <- rootSpan qNonTerm (gapBeg, gapEnd)
+    -- make sure that node represented by `p` was not yet adjoined to
+    guard . not $ getL isAdjoinedTo p
     let p' = setL (spanP >>> beg) (qSpan ^. beg)
            . setL (spanP >>> end) (qSpan ^. end)
+           . setL isAdjoinedTo True
            $ p
     -- lift $ pushPassive p' $ Adjoin q p
     -- compute the estimated distance for the resulting state
@@ -1281,6 +1318,149 @@ tryAdjoinTerm' p pw = void $ P.runListT $ do
 #endif
 
 
+--------------------------------------------------
+-- DEACTIVATE
+--------------------------------------------------
+
+
+-- | Try to perform DEACTIVATE.
+tryDeactivate
+  :: (SOrd t, SOrd n)
+  => Active
+  -> DuoWeight
+  -> Earley n t ()
+tryDeactivate q qw = void $ P.runListT $ do
+#ifdef DebugOn
+  begTime <- liftIO $ Time.getCurrentTime
+#endif
+  dag <- RWS.gets (gramDAG . automat)
+  (headCost, did) <- heads (getL state q)
+  let p = if not (DAG.isRoot did dag)
+          then Passive
+               { _dagID = Right did
+               , _spanP = getL spanA q
+               , _isAdjoinedTo = False }
+          else check $ do
+            x <- mkRoot <$> DAG.label did dag
+            return $ Passive
+              { _dagID = Left x
+              , _spanP = getL spanA q
+              , _isAdjoinedTo = False }
+  -- estDist <- lift (estimateDistP p)
+  -- let ext  = new priWeight
+  -- let ext' = ext
+  --         { priWeight = priWeight new + headCost
+  --         , estWeight = estDist }
+  -- lift $ pushPassive p ext'
+  let finalWeight = DuoWeight
+        { duoBeta = duoBeta qw + headCost
+        , duoGap = duoGap qw }
+  lift $ pushPassive p finalWeight (Deactivate q headCost)
+#ifdef DebugOn
+  -- print logging information
+  hype <- RWS.get
+  liftIO $ do
+      endTime <- Time.getCurrentTime
+      putStr "[DE] " >> printActive q
+      putStr "  :  " >> printPassive p hype
+      putStr " #W  " >> print (duoBeta finalWeight)
+      putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
+      -- putStr " #E  " >> print estDis
+#endif
+  where
+    mkRoot node = case node of
+      O.NonTerm x -> NotFoot {notFootLabel=x, isSister=False}
+      O.Sister x  -> NotFoot {notFootLabel=x, isSister=True}
+      _ -> error "pushInduced: invalid root"
+    check (Just x) = x
+    check Nothing  = error "pushInduced: invalid DID"
+
+
+--------------------------------------------------
+-- SISTER ADJUNCTION
+--------------------------------------------------
+
+
+-- | Try to apply sister-adjunction w.r.t. the given passive item.
+trySisterAdjoin
+  :: (SOrd t, SOrd n)
+  => Passive n t
+  -> DuoWeight
+  -> Earley n t ()
+trySisterAdjoin p pw = void $ P.runListT $ do
+#ifdef DebugOn
+    begTime <- liftIO $ Time.getCurrentTime
+#endif
+    let pDID = getL dagID p
+        pSpan = getL spanP p
+    -- make sure that `p' is not gapped
+    guard . regular $ pSpan
+    -- make sure that `p` represents a sister tree
+    Left root <- return pDID
+    guard $ isSister root
+    -- find active items which end where `p' begins and which have the
+    -- corresponding LHS non-terminal
+    (q, qw) <- rootEnd (notFootLabel root) (getL beg pSpan)
+    -- construct the resultant item with the same state and extended span
+    let q' = setL (end . spanA) (getL end pSpan) $ q
+        newBeta = addWeight (duoBeta pw) (duoBeta qw)
+        newGap = duoGap qw
+        newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
+    -- push the resulting state into the waiting queue
+    lift $ pushInduced q' newDuo (SisterAdjoin p q)
+#ifdef DebugOn
+    -- print logging information
+    hype <- RWS.get
+    liftIO $ do
+        endTime <- Time.getCurrentTime
+        putStr "[I]  " >> printPassive p hype
+        putStr "  +  " >> printActive q
+        putStr "  :  " >> printActive q'
+        putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
+#endif
+
+
+-- | Sister adjunction reversed.
+trySisterAdjoin'
+  :: (SOrd t, SOrd n)
+  => Active
+  -> DuoWeight
+  -> Earley n t ()
+trySisterAdjoin' q qw = void $ P.runListT $ do
+#ifdef DebugOn
+  begTime <- liftIO $ Time.getCurrentTime
+#endif
+  -- the underlying dag
+  dag <- RWS.gets (gramDAG . automat)
+  -- the underlying LHS map
+  lhsMap <- RWS.gets (lhsNonTerm . automat)
+  -- Learn what is the LHS of `q`
+  let lhsNotFoot = lhsMap M.! getL state q
+  guard . not $ isSister lhsNotFoot
+  -- Find processed passive items which begin where `q` ends and which represent
+  -- sister trees.
+  let sister = lhsNotFoot {isSister = True}
+  (p, pw) <- provideBegIni' (Left sister) (q ^. spanA ^. end)
+  -- construct the resulting item with the same state and extended span
+  let pSpan = getL spanP p
+      q' = setL (end . spanA) (getL end pSpan) $ q
+      newBeta = addWeight (duoBeta pw) (duoBeta qw)
+      newGap = duoGap qw
+      newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
+  -- push the resulting state into the waiting queue
+  lift $ pushInduced q' newDuo (SisterAdjoin p q)
+#ifdef DebugOn
+  -- print logging information
+  hype <- RWS.get
+  liftIO $ do
+      endTime <- Time.getCurrentTime
+      putStr "[I'] " >> printPassive p hype
+      putStr "  +  " >> printActive q
+      putStr "  :  " >> printActive q'
+      putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
+#endif
+
+
 ---------------------------
 -- Extracting Parsed Trees
 ---------------------------
@@ -1307,8 +1487,6 @@ fromActive active hype =
     fromActiveTrav _p (Scan q t _) =
         [ T.Leaf t : ts
         | ts <- fromActive q hype ]
-    -- fromActiveTrav _p (Foot q p _) =
-        -- [ T.Branch (nonTerm (p ^. dagID) hype) [] : ts
     fromActiveTrav _p (Foot q x _) =
         [ T.Branch x [] : ts
         | ts <- fromActive q hype ]
@@ -1316,8 +1494,12 @@ fromActive active hype =
         [ t : ts
         | ts <- fromActive qa hype
         , t  <- fromPassive qp hype ]
-    fromActiveTrav _p (Adjoin _ _) =
-        error "parsedTrees: fromActiveTrav called on a passive item"
+    fromActiveTrav _p (SisterAdjoin qp qa) =
+        [ ts' ++ ts
+        | ts  <- fromActive qa hype
+        , ts' <- T.subTrees <$> fromPassive qp hype ]
+    fromActiveTrav _ _ =
+        error "fromActive: impossible fromActiveTrav"
 
 
 -- | Extract the set of the parsed trees w.r.t. to the given passive item.
@@ -1327,26 +1509,18 @@ fromPassive passive hype = concat
   | ext <- maybeToList $ passiveTrav passive hype
   , trav <- S.toList (prioTrav ext) ]
   where
-    fromPassiveTrav p (Scan q t _) =
-        [ T.Branch
-            (nonTerm (getL dagID p) hype)
-            (reverse $ T.Leaf t : ts)
-        | ts <- fromActive q hype ]
-    fromPassiveTrav p (Foot q _x _) =
-        [ T.Branch
-            (nonTerm (getL dagID p) hype)
-            (reverse $ T.Branch (nonTerm (p ^. dagID) hype) [] : ts)
-        | ts <- fromActive q hype ]
-    fromPassiveTrav p (Subst qp qa _) =
-        [ T.Branch
-            (nonTerm (getL dagID p) hype)
-            (reverse $ t : ts)
-        | ts <- fromActive qa hype
-        , t  <- fromPassive qp hype ]
     fromPassiveTrav _p (Adjoin qa qm) =
         [ replaceFoot ini aux
         | aux <- fromPassive qa hype
         , ini <- fromPassive qm hype ]
+    fromPassiveTrav p (Deactivate q _) =
+        [ T.Branch
+            (nonTerm (p ^. dagID) hype)
+            (reverse ts)
+        | ts <- fromActive q hype
+        ]
+    fromPassiveTrav _ _ =
+        error "fromPassive: impossible fromPassiveTrav"
     -- Replace foot (the only non-terminal leaf) by the given initial tree.
     replaceFoot ini (T.Branch _ []) = ini
     replaceFoot ini (T.Branch x ts) = T.Branch x $ map (replaceFoot ini) ts
@@ -1573,7 +1747,9 @@ step (ItemP p :-> e) = do
       , tryAdjoinInit
       , tryAdjoinCont
       , tryAdjoinTerm
-      , tryAdjoinTerm' ]
+      , tryAdjoinTerm'
+      , trySisterAdjoin
+      ]
 step (ItemA p :-> e) = do
     -- TODO: consider moving before the inference applications
     -- UPDATE: DONE
@@ -1585,9 +1761,12 @@ step (ItemA p :-> e) = do
       , modifTrav = e }
     mapM_ (\f -> f p $ duoWeight e)
       [ tryScan
+      , tryDeactivate
       , trySubst'
       , tryAdjoinInit'
-      , tryAdjoinCont' ]
+      , tryAdjoinCont'
+      , trySisterAdjoin'
+      ]
 
 
 --------------------------------------------------
@@ -1704,7 +1883,7 @@ over i j = take (j - i) . drop i
 
 
 -- | Take the non-terminal of the underlying DAG node.
-nonTerm :: Either n DID -> Hype n t -> n
+nonTerm :: Either (NotFoot n) DID -> Hype n t -> n
 nonTerm i = Base.nonTerm i . automat
 
 

@@ -8,6 +8,9 @@
 module NLP.Partage.AStar.Auto
 ( Auto(..)
 , mkAuto
+
+-- * Core
+, NotFoot(..)
 ) where
 
 
@@ -22,9 +25,26 @@ import qualified NLP.Partage.Auto            as A
 import qualified NLP.Partage.AStar.Heuristic as H
 -- import qualified NLP.Partage.AStar.Heuristic.Base as H
 import qualified NLP.Partage.Auto.WeiTrie    as Trie
+import qualified NLP.Partage.Auto.WeiSet     as WS
 import           NLP.Partage.DAG             (DAG, DID, Gram, Weight)
 import qualified NLP.Partage.DAG             as DAG
 import qualified NLP.Partage.Tree.Other      as O
+
+
+--------------------------------------------------
+-- Core (TODO: Should be moved out of here?
+--   Besides, it's also a copy of what is in
+--   Early.Auto).
+--------------------------------------------------
+
+
+-- | Non-terminal which is not a foot.
+data NotFoot n = NotFoot
+  { notFootLabel :: n
+    -- ^ The corresponding non-terminal
+  , isSister :: Bool
+    -- ^ Is the non-terminal marked for sister-adjunction?
+  } deriving (Show, Eq, Ord)
 
 
 --------------------------------------------------
@@ -42,31 +62,29 @@ data Auto n t = Auto
     , gramAuto :: A.WeiGramAuto n t
     -- ^ The underlying grammar automaton
     , withBody :: M.Map DID (S.Set ID)
-    -- , withBody  :: H.CuckooHashTable (Lab n t) (S.Set ID)
-    -- ^ A data structure which, for each label, determines the
-    -- set of automaton states from which this label goes out
-    -- as a body transition.
+    -- ^ A data structure which, for each label, determines the set of automaton
+    -- states from which this label goes out as a body transition.
     -- , termWei  :: M.Map t Weight
-    -- ^ The lower bound estimates on reading terminal weights.
-    -- Based on the idea that weights of the elementary trees are
-    -- evenly distributed over its terminals.
+    -- ^ The lower bound estimates on reading terminal weights. Based on the
+    -- idea that weights of the elementary trees are evenly distributed over its
+    -- terminals.
     , termDID  :: M.Map t (S.Set DID)
-    -- ^ A map which assigns DAG IDs to the corresponding terminals.
-    -- Note that each grammar terminal is represented by exactly
-    -- one grammar DAG node.
+    -- ^ A map which assigns DAG IDs to the corresponding terminals. Note that
+    -- each grammar terminal is represented by exactly one grammar DAG node.
     , footDID  :: M.Map n (S.Set DID)
-    -- ^ A map which assigns DAG IDs to the corresponding foot
-    -- non-terminals.  Note that each grammar foot non-terminal
-    -- is represented by exactly one grammar DAG node.
+    -- ^ A map which assigns DAG IDs to the corresponding foot non-terminals.
+    -- Note that each grammar foot non-terminal is represented by exactly one
+    -- grammar DAG node.
     , leafDID  :: M.Map n (S.Set DID)
-    -- ^ A map which assigns DAG IDs to the corresponding leaf
-    -- non-terminals.  Note that each grammar leaf non-terminal
-    -- is represented by exactly one grammar DAG node.
+    -- ^ A map which assigns DAG IDs to the corresponding leaf non-terminals.
+    -- Note that each grammar leaf non-terminal is represented by exactly one
+    -- grammar DAG node.
     , estiCost :: H.Esti t
     -- ^ Heuristic estimations.
-    --
-    -- TODO: Consider using hashtables to reresent termDID and
-    -- footDID.
+    , lhsNonTerm :: M.Map ID (NotFoot n)
+    -- ^ A map which uniquely determines the LHS corresponding to the rule
+    -- containing the given ID. WARNING: The LHS can be uniquely determined only
+    -- if one has a separate FSA/Trie for each such non-terminal!
     }
 
 
@@ -78,12 +96,9 @@ mkAuto
   -> Gram n t
   -> Auto n t
 mkAuto memoTerm gram =
-    let auto = Trie.fromGram (DAG.factGram gram)
-        -- dag0 = DAG.dagGram gram
+    let auto = WS.fromGram Trie.fromGram (DAG.factGram gram)
         dag = DAG.dagGram gram
-        -- here we need the DAG with injected weights because
-        -- afterwards we use it to compute heuristic's values
-        -- dag  = Inj.injectWeights auto dag0
+        lhsMap = mkLhsNonTerm dag auto
     in  Auto
         { gramDAG  = dag
         , isSpine  = DAG.isSpine dag
@@ -93,7 +108,12 @@ mkAuto memoTerm gram =
         , termDID  = mkTermDID dag
         , footDID  = mkFootDID dag
         , leafDID  = mkLeafDID dag
-        , estiCost = H.mkEsti memoTerm gram auto }
+        , estiCost = H.mkEsti memoTerm gram auto
+        , lhsNonTerm = lhsMap
+        }
+
+
+-- TODO: the code below is a copy of the code in 'Early.Auto'!
 
 
 -- | Create the `withBody` component based on the automaton.
@@ -137,3 +157,38 @@ mkLeafDID dag = M.fromListWith S.union
     | i <- S.toList (DAG.nodeSet dag)
     , DAG.isLeaf i dag
     , O.NonTerm x <- maybeToList (DAG.label i dag) ]
+
+
+-- | Create the `lhsNonTerm` component.
+mkLhsNonTerm
+  :: DAG (O.Node n t) w
+  -> A.WeiGramAuto n t
+  -> M.Map ID (NotFoot n)
+mkLhsNonTerm dag auto = M.fromList
+  [ (i, pick $ lhs i)
+  | i <- S.toList $ A.allIDs (A.fromWei auto)
+  , (not . null) (A.edgesWei auto i) ]
+  where
+    -- lhs = Memo.wrap DID unDID Memo.integral lhs'
+    lhs = Memo.integral lhs'
+    lhs' i = concat
+      [ case edge of
+          A.Head did -> [label did]
+          A.Body _ -> lhs j
+      | (edge, _, j) <- A.edgesWei auto i
+      ]
+    label did =
+      case DAG.label did dag >>= labNonTerm of
+        Just x -> x
+        Nothing -> error "Auto.mkLhsNonTerm: unknown DID"
+    pick xs =
+      case xs of
+        [x] -> x
+        _ -> error "Auto.mkLhsNonTerm: multiple LHS non-terminals per DID"
+    labNonTerm (O.NonTerm y) = Just $ NotFoot
+      { notFootLabel = y
+      , isSister = False }
+    labNonTerm (O.Sister y) = Just $ NotFoot
+      { notFootLabel = y
+      , isSister = True }
+    labNonTerm _ = Nothing
