@@ -488,19 +488,19 @@ gram5Tests =
     -- Sister adjunction to the root of an auxiliary tree
     ]
 
--- To discuss:
+-- To discuss (May 2018):
+-- * allow sister adjunction to the root of a modifier (sister) tree?
+--     <- DECISION: NO
+--     <- OUTCOME: DONE
+-- * allow multiple adjunction
+--     <- DECISION: NO
+--     <- OUTCOME: DONE
 -- * are there many types of sister-adjunction?
 --     <- so far implemented only one
 --     <- DECISION: YES (left sister-adjunction means that one can adjoin to a
 --        sister which is placed on the left in the sense of word-order)
--- * allow sister adjunction to the root of a modifier (sister) tree?
---     <- DECISION: NO
---     <- OUTCOME: DONE
 -- * allow sister adjunction to the root of an auxiliary tree?
 --     <- DECISION: hard to say, we will see in practice
--- * allow multiple adjunction
---     <- DECISION: NO
-
 
 ---------------------------------------------------------------------
 -- Resources
