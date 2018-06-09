@@ -55,6 +55,9 @@ import qualified NLP.Partage.Tree.Other    as O
 -- themselves take the form of derivation trees.  Whether the modification
 -- represents a substitution or an adjunction can be concluded on the basis of
 -- the type (leaf or internal) of the node.
+--
+-- UPDATE 09/06/2018: We now also have sister-adjunction. For the moment, it is
+-- not represented as a modifier, but as a regular 'Sister' node.
 type Deriv n t = R.Tree (DerivNode n t)
 
 
@@ -87,8 +90,12 @@ deriv4show =
   where
     go isMod t = addDep isMod $ R.Node
       { R.rootLabel = Regular . node . R.rootLabel $ t
-      , R.subForest = map (go False) (R.subForest t)
+      , R.subForest = map goSubtree (R.subForest t)
                    ++ map (go True) (modif $ R.rootLabel t) }
+    goSubtree t =
+      case node (R.rootLabel t) of
+        O.Sister _ -> go True t
+        _ -> go False t
     addDep isMod t
       | isMod == True = R.Node Dependent [t]
       | otherwise = t
@@ -153,7 +160,18 @@ only x = DerivNode {node = x, modif =  []}
 
 -- | Several constructors which allow to build non-modified nodes.
 mkRoot :: A.Hype n t -> A.Passive n t -> DerivNode n (Tok t)
-mkRoot hype p = only . O.NonTerm $ A.nonTerm (getL A.dagID p) hype
+-- mkRoot hype p = only . O.NonTerm $ A.nonTerm (getL A.dagID p) hype
+mkRoot hype p = only $
+  case dagID of
+    Left notFoot ->
+      if Base.isSister notFoot
+      then O.Sister labNT
+      else O.NonTerm labNT
+    Right did -> O.NonTerm labNT
+  where
+    dagID = getL A.dagID p
+    labNT = A.nonTerm dagID hype
+
 
 mkFoot :: n -> DerivNode n t
 mkFoot x = only . O.Foot $ x

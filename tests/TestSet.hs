@@ -599,6 +599,8 @@ testTree modName TagParser{..} = do
     testDerivsIsSet gram Test{..} = case derivTrees of
         Just derivs -> do
           ds <- derivs gram startSym testSent
+          -- putStrLn ""
+          -- forM_ ds $ putStrLn . R.drawTree . fmap show . Deriv.deriv4show
           length ds @?= length (nub ds)
         _ -> return ()
 
