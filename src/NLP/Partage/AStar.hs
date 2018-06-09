@@ -1356,6 +1356,14 @@ tryDeactivate q qw = void $ P.runListT $ do
         { duoBeta = duoBeta qw + headCost
         , duoGap = duoGap qw }
   lift $ pushPassive p finalWeight (Deactivate q headCost)
+#ifdef CheckMonotonic
+  totalQ <- lift $ est2total qw <$> estimateDistA q
+  totalP <- lift $ est2total finalWeight <$> estimateDistP p
+  when (totalP + epsilon < totalQ) $ do
+    P.liftIO . putStrLn $
+      "[DEACTIVATE: MONOTONICITY TEST FAILED] TAIL WEIGHT: " ++ show totalP ++
+      ", HEAD WEIGHT: " ++ show totalQ
+#endif
 #ifdef DebugOn
   -- print logging information
   hype <- RWS.get
@@ -1408,6 +1416,9 @@ trySisterAdjoin p pw = void $ P.runListT $ do
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
     -- push the resulting state into the waiting queue
     lift $ pushInduced q' newDuo (SisterAdjoin p q)
+#ifdef CheckMonotonic
+    lift $ testMono "SISTER-ADJOIN" (p, pw) (q, qw) (q', newDuo)
+#endif
 #ifdef DebugOn
     -- print logging information
     hype <- RWS.get
@@ -1449,6 +1460,9 @@ trySisterAdjoin' q qw = void $ P.runListT $ do
       newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
   -- push the resulting state into the waiting queue
   lift $ pushInduced q' newDuo (SisterAdjoin p q)
+#ifdef CheckMonotonic
+  lift $ testMono "SISTER-ADJOIN'" (p, pw) (q, qw) (q', newDuo)
+#endif
 #ifdef DebugOn
   -- print logging information
   hype <- RWS.get

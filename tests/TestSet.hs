@@ -43,9 +43,9 @@ import           Test.Tasty.HUnit          (testCase)
 
 import qualified Pipes                     as P
 
--- import           NLP.Partage.AStar         (Tok)
--- import qualified NLP.Partage.AStar         as AStar
--- import qualified NLP.Partage.AStar.Deriv   as Deriv
+import           NLP.Partage.AStar         (Tok)
+import qualified NLP.Partage.AStar         as AStar
+import qualified NLP.Partage.AStar.Deriv   as Deriv
 import           NLP.Partage.DAG           (Weight)
 import           NLP.Partage.Tree          (AuxTree (..), Tree (..))
 import qualified NLP.Partage.Tree.Other    as O
@@ -59,9 +59,9 @@ import qualified NLP.Partage.Tree.Other    as O
 type Tr    = Tree String String
 type AuxTr = AuxTree String String
 type Other = O.SomeTree String String
--- type Hype  = AStar.Hype String String
--- type Deriv = Deriv.Deriv String (Tok String)
--- type ModifDerivs = Deriv.ModifDerivs String String
+type Hype  = AStar.Hype String String
+type Deriv = Deriv.Deriv String (Tok String)
+type ModifDerivs = Deriv.ModifDerivs String String
 
 
 ---------------------------------------------------------------------
@@ -532,26 +532,26 @@ data TagParser = TagParser
     -- ^ Recognition function
   , parsedTrees :: Maybe ([(O.Tree String String, Weight)] -> String -> [String] -> IO (S.Set Tr))
     -- ^ Function which retrieves derived trees
---   , derivTrees :: Maybe ([(Other, Weight)] -> String -> [String] -> IO [Deriv])
---     -- ^ Function which retrieves derivation trees; the result is a set of
---     -- derivations but it takes the form of a list so that derivations can be
---     -- generated gradually; the property that the result is actually a set
---     -- should be verified separately.
+  -- , derivTrees :: Maybe ([(Other, Weight)] -> String -> [String] -> IO [Deriv])
+  , derivTrees :: Maybe ([(O.Tree String String, Weight)] -> String -> [String] -> IO [Deriv])
+    -- ^ Function which retrieves derivation trees; the result is a set of
+    -- derivations but it takes the form of a list so that derivations can be
+    -- generated gradually; the property that the result is actually a set
+    -- should be verified separately.
 --   , encodes :: Maybe (Hype -> String -> [String] -> Deriv -> Bool)
 --     -- ^ Function which checks whether the given derivation is encoded in
 --     -- the given hypergraph
---   , derivPipe :: Maybe
---     ( [(Other, Weight)] -> String -> [String] ->
---       (P.Producer ModifDerivs IO Hype)
---     )
---     -- ^ A pipe (producer) which generates derivations on-the-fly
+  , derivPipe :: Maybe
+    ( [(O.Tree String String, Weight)] -> String -> [String] ->
+      (P.Producer ModifDerivs IO Hype)
+    )
+    -- ^ A pipe (producer) which generates derivations on-the-fly
   }
 
 
 -- | Dummy parser which doesn't provide anything.
 dummyParser :: TagParser
--- dummyParser = TagParser Nothing Nothing Nothing Nothing Nothing
-dummyParser = TagParser Nothing Nothing
+dummyParser = TagParser Nothing Nothing Nothing Nothing
 
 
 -- | All the tests of the parsing algorithm.
@@ -579,11 +579,11 @@ testTree modName TagParser{..} = do
         gram <- getGram <$> resIO
         testRecognition gram test
         testParsing gram test
---         testDerivsIsSet gram test
---         testFlyingDerivsIsSet gram test
---         testDerivsEqual gram test
+        testDerivsIsSet gram test
+        testFlyingDerivsIsSet gram test
+        testDerivsEqual gram test
+        testWeightsAscend gram test
 --         testEachDerivEncoded gram test
---         testWeightsAscend gram test
 
     -- Check if the recognition result is as expected
     testRecognition gram Test{..} = case recognize of
@@ -595,36 +595,36 @@ testTree modName TagParser{..} = do
         (Just pa, Trees ts) -> pa gram startSym testSent @@?= ts
         _ -> return ()
 
---     -- Here we only check if the list of derivations is actually a set
---     testDerivsIsSet gram Test{..} = case derivTrees of
---         Just derivs -> do
---           ds <- derivs gram startSym testSent
---           length ds @?= length (nub ds)
---         _ -> return ()
+    -- Here we only check if the list of derivations is actually a set
+    testDerivsIsSet gram Test{..} = case derivTrees of
+        Just derivs -> do
+          ds <- derivs gram startSym testSent
+          length ds @?= length (nub ds)
+        _ -> return ()
 
---     -- Like `testDerivsIsSet` but for on-the-fly generated derivations
---     testFlyingDerivsIsSet gram Test{..} = case derivPipe of
---         Just mkPipe -> do
---           derivsRef <- newIORef []
---           let pipe = mkPipe gram startSym testSent
---           void $ P.runEffect . P.for pipe $ \(_modif, derivs) -> do
---             lift $ modifyIORef' derivsRef (++ derivs)
---           ds <- readIORef derivsRef
---           length ds @?= length (nub ds)
---         _ -> return ()
+    -- Like `testDerivsIsSet` but for on-the-fly generated derivations
+    testFlyingDerivsIsSet gram Test{..} = case derivPipe of
+        Just mkPipe -> do
+          derivsRef <- newIORef []
+          let pipe = mkPipe gram startSym testSent
+          void $ P.runEffect . P.for pipe $ \(_modif, derivs) -> do
+            lift $ modifyIORef' derivsRef (++ derivs)
+          ds <- readIORef derivsRef
+          length ds @?= length (nub ds)
+        _ -> return ()
 
---     -- Test if `testDerivsIsSet` and `testFlyingDerivsIsSet`
---     -- give the same results
---     testDerivsEqual gram Test{..} = case (derivTrees, derivPipe) of
---       (Just derivs, Just mkPipe) -> do
---         derivsRef <- newIORef []
---         let pipe = mkPipe gram startSym testSent
---         void $ P.runEffect . P.for pipe $ \(_modif, modifDerivs) -> do
---           lift $ modifyIORef' derivsRef (++ modifDerivs)
---         ds1 <- readIORef derivsRef
---         ds2 <- derivs gram startSym testSent
---         S.fromList ds1 @?= S.fromList ds2
---       _ -> return ()
+    -- Test if `testDerivsIsSet` and `testFlyingDerivsIsSet`
+    -- give the same results
+    testDerivsEqual gram Test{..} = case (derivTrees, derivPipe) of
+      (Just derivs, Just mkPipe) -> do
+        derivsRef <- newIORef []
+        let pipe = mkPipe gram startSym testSent
+        void $ P.runEffect . P.for pipe $ \(_modif, modifDerivs) -> do
+          lift $ modifyIORef' derivsRef (++ modifDerivs)
+        ds1 <- readIORef derivsRef
+        ds2 <- derivs gram startSym testSent
+        S.fromList ds1 @?= S.fromList ds2
+      _ -> return ()
 
 --     -- Test if every output derivation is encoded in the final hypergraph
 --     testEachDerivEncoded gram Test{..} = case (derivPipe, encodes) of
@@ -638,34 +638,34 @@ testTree modName TagParser{..} = do
 --             enc hype startSym testSent deriv @?= True
 --         _ -> return ()
 
---     -- Check if the chart items are popped from the queue in the ascending
---     -- order of their weights; we assume here that weights are non-negative
---     testWeightsAscend gram Test{..} = case derivPipe of
---         Just mkPipe -> do
---           weightRef <- newIORef 0.0
---           let pipe = mkPipe gram startSym testSent
---           void $ P.runEffect . P.for pipe $ \(hypeModif, _derivs) -> void . lift . runMaybeT $ do
---             guard $ AStar.modifType hypeModif == AStar.NewNode
--- #ifdef NewHeuristic
--- #else
---             guard $ case AStar.modifItem hypeModif of
---               AStar.ItemA q -> AStar._gap (AStar._spanA q) == Nothing
---               AStar.ItemP p -> AStar._gap (AStar._spanP p) == Nothing
--- #endif
---             let trav = AStar.modifTrav hypeModif
---                 -- newWeight = AStar.priWeight trav + AStar.estWeight trav
---                 newWeight = AStar.totalWeight trav
---             lift $ do
---               curWeight <- readIORef weightRef
--- --             if newWeight < curWeight then do
--- --               putStr "NEW: " >> print newWeight
--- --               putStr "NEW: " >> print (roundTo newWeight 10)
--- --               putStr "CUR: " >> print curWeight
--- --               putStr "CUR: " >> print (curWeight `roundTo` 10)
--- --               else return ()
---               newWeight `roundTo` 10 >= curWeight `roundTo` 10 @?= True
---               writeIORef weightRef newWeight
---         _ -> return ()
+    -- Check if the chart items are popped from the queue in the ascending
+    -- order of their weights; we assume here that weights are non-negative
+    testWeightsAscend gram Test{..} = case derivPipe of
+        Just mkPipe -> do
+          weightRef <- newIORef 0.0
+          let pipe = mkPipe gram startSym testSent
+          void $ P.runEffect . P.for pipe $ \(hypeModif, _derivs) -> void . lift . runMaybeT $ do
+            guard $ AStar.modifType hypeModif == AStar.NewNode
+#ifdef NewHeuristic
+#else
+            guard $ case AStar.modifItem hypeModif of
+              AStar.ItemA q -> AStar._gap (AStar._spanA q) == Nothing
+              AStar.ItemP p -> AStar._gap (AStar._spanP p) == Nothing
+#endif
+            let trav = AStar.modifTrav hypeModif
+                -- newWeight = AStar.priWeight trav + AStar.estWeight trav
+                newWeight = AStar.totalWeight trav
+            lift $ do
+              curWeight <- readIORef weightRef
+--             if newWeight < curWeight then do
+--               putStr "NEW: " >> print newWeight
+--               putStr "NEW: " >> print (roundTo newWeight 10)
+--               putStr "CUR: " >> print curWeight
+--               putStr "CUR: " >> print (curWeight `roundTo` 10)
+--               else return ()
+              newWeight `roundTo` 10 >= curWeight `roundTo` 10 @?= True
+              writeIORef weightRef newWeight
+        _ -> return ()
 
     simplify No         = False
     simplify Yes        = True

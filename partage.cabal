@@ -72,7 +72,7 @@ library
       , NLP.Partage.Earley.Chart
 
       , NLP.Partage.AStar
---       , NLP.Partage.AStar.Deriv
+      , NLP.Partage.AStar.Deriv
 --       , NLP.Partage.AStar.Deriv.Gorn
 --       , NLP.Partage.AStar.DepTree
 
@@ -95,8 +95,8 @@ library
 
     ghc-options: -Wall
     -- cpp-options: -DDebugOn
-    -- cpp-options: -DNewHeuristic
-    -- cpp-options: -DCheckMonotonic
+    cpp-options: -DNewHeuristic
+    cpp-options: -DCheckMonotonic
 
 
 source-repository head
