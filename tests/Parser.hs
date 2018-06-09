@@ -60,6 +60,7 @@ testAStar =
       { T.recognize = Just recFrom
       , T.parsedTrees = Just parseFrom
       , T.derivTrees = Just derivFrom
+      , T.encodes = Just encodesFrom
       , T.derivPipe  = Just derivPipe
       }
 --       , T.encodes    = Just encodesFrom
@@ -85,6 +86,7 @@ testAStar =
           auto = A.mkAuto memoTerm dag
       hype <- A.earleyAuto auto (A.fromList input)
       return $ D.derivTrees hype start (length input)
+    encodesFrom hype start input = D.encodes hype start (length input)
     derivPipe gram start sent =
       let dag = DAG.mkGram gram
           auto = A.mkAuto memoTerm dag

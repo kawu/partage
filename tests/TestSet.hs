@@ -538,9 +538,9 @@ data TagParser = TagParser
     -- derivations but it takes the form of a list so that derivations can be
     -- generated gradually; the property that the result is actually a set
     -- should be verified separately.
---   , encodes :: Maybe (Hype -> String -> [String] -> Deriv -> Bool)
---     -- ^ Function which checks whether the given derivation is encoded in
---     -- the given hypergraph
+  , encodes :: Maybe (Hype -> String -> [String] -> Deriv -> Bool)
+    -- ^ Function which checks whether the given derivation is encoded in
+    -- the given hypergraph
   , derivPipe :: Maybe
     ( [(O.Tree String String, Weight)] -> String -> [String] ->
       (P.Producer ModifDerivs IO Hype)
@@ -551,7 +551,7 @@ data TagParser = TagParser
 
 -- | Dummy parser which doesn't provide anything.
 dummyParser :: TagParser
-dummyParser = TagParser Nothing Nothing Nothing Nothing
+dummyParser = TagParser Nothing Nothing Nothing Nothing Nothing
 
 
 -- | All the tests of the parsing algorithm.
@@ -583,7 +583,7 @@ testTree modName TagParser{..} = do
         testFlyingDerivsIsSet gram test
         testDerivsEqual gram test
         testWeightsAscend gram test
---         testEachDerivEncoded gram test
+        testEachDerivEncoded gram test
 
     -- Check if the recognition result is as expected
     testRecognition gram Test{..} = case recognize of
@@ -628,17 +628,17 @@ testTree modName TagParser{..} = do
         S.fromList ds1 @?= S.fromList ds2
       _ -> return ()
 
---     -- Test if every output derivation is encoded in the final hypergraph
---     testEachDerivEncoded gram Test{..} = case (derivPipe, encodes) of
---         (Just mkPipe, Just enc) -> do
---           derivsRef <- newIORef []
---           let pipe = mkPipe gram startSym testSent
---           hype <- P.runEffect . P.for pipe $ \(_modif, derivs) -> do
---             lift $ modifyIORef' derivsRef (++ derivs)
---           ds <- readIORef derivsRef
---           forM_ ds $ \deriv ->
---             enc hype startSym testSent deriv @?= True
---         _ -> return ()
+    -- Test if every output derivation is encoded in the final hypergraph
+    testEachDerivEncoded gram Test{..} = case (derivPipe, encodes) of
+        (Just mkPipe, Just enc) -> do
+          derivsRef <- newIORef []
+          let pipe = mkPipe gram startSym testSent
+          hype <- P.runEffect . P.for pipe $ \(_modif, derivs) -> do
+            lift $ modifyIORef' derivsRef (++ derivs)
+          ds <- readIORef derivsRef
+          forM_ ds $ \deriv ->
+            enc hype startSym testSent deriv @?= True
+        _ -> return ()
 
     -- Check if the chart items are popped from the queue in the ascending
     -- order of their weights; we assume here that weights are non-negative

@@ -11,7 +11,7 @@ module NLP.Partage.AStar.Deriv
 , derivTrees
 , fromPassive
 , deriv4show
--- , encodes
+, encodes
 
 , RevHype (..)
 , DerivR (..)
@@ -291,16 +291,6 @@ fromPassiveTrav
   -> A.Hype n t
   -> [Deriv n (Tok t)]
 fromPassiveTrav p trav hype = case trav of
---   A.Scan q t _ ->
---     [ mkTree hype p (termNode t : ts)
---     | ts <- activeDerivs q ]
---   A.Foot q x _ ->
---     [ mkTree hype p (footNode x : ts)
---     | ts <- activeDerivs q ]
---   A.Subst qp qa _ ->
---     [ mkTree hype p (substNode qp t : ts)
---     | ts <- activeDerivs qa
---     , t  <- passiveDerivs qp ]
   A.Adjoin qa qm ->
     [ adjoinTree ini aux
     | aux <- passiveDerivs qa
@@ -366,154 +356,146 @@ fromActiveTrav _p trav hype = case trav of
     passiveDerivs = flip fromPassive hype
 
 
--- --------------------------------------------------
--- -- Check if derivation trees is in the graph
--- --------------------------------------------------
+--------------------------------------------------
+-- Check if derivation trees is in the graph
+--------------------------------------------------
+
+
+-- | Check if the derivation is present in the chart.
 --
---
--- -- | Check if the derivation is present in the chart.
--- --
--- -- TODO: The start symbol and the sentence length could be computed
--- -- automatically, based on the input derivation.
--- encodes
---     :: (Ord n, Ord t)
---     => A.Hype n t   -- ^ Final state of the earley parser
---     -> n            -- ^ The start symbol
---     -> Int          -- ^ Length of the input sentence
---     -> Deriv n (Tok t)
---     -> Bool
--- encodes hype begSym sentLen deriv = or
---   [ passiveEncodes p hype deriv
---   | p <- A.finalFrom begSym sentLen hype ]
--- --   where
--- --     begSym = undefined
--- --     sentLen = undefined
---
---
--- -- | Check if the derivation is represented by the passive item.
--- passiveEncodes
---   :: (Ord n, Ord t)
---   => A.Passive n t
---   -> A.Hype n t
---   -> Deriv n (Tok t)
---   -> Bool
--- passiveEncodes passive hype deriv = case A.passiveTrav passive hype of
---   Nothing -> case Q.lookup (A.ItemP passive) (A.waiting hype) of
---     Just _ -> error "fromPassive: passive item in the waiting queue"
---     Nothing -> error "fromPassive: unknown passive item (not even in the queue)"
---   Just ext -> or
---     [ passiveTravEncodes passive trav hype deriv
---     | trav <- S.toList (A.prioTrav ext) ]
---
---
--- -- | Check if the derivation is represented by the passive item
--- -- together with the corresponding traversal (hyperarc).
--- passiveTravEncodes
---   :: (Ord n, Ord t)
---   => A.Passive n t
---   -> A.Trav n t
---   -> A.Hype n t
---   -> Deriv n (Tok t)
---   -> Bool
--- passiveTravEncodes p trav hype root = case trav of
---
---   A.Scan q t _ -> isJust $ do
---     deriv : ts <- unTree hype p root
---     guard $ deriv == termNode t
---     guard $ activeEncodes q hype ts
---
--- --     [ mkTree hype p (termNode t : ts)
--- --     | ts <- activeDerivs q ]
---
---   A.Foot q x _ -> isJust $ do
---     deriv : ts <- unTree hype p root
---     guard $ deriv == footNode x
---     guard $ activeEncodes q hype ts
---
--- --     [ mkTree hype p (footNode x : ts)
--- --     | ts <- activeDerivs q ]
---
---   A.Subst qp qa _ -> isJust $ do
---     deriv : ts <- unTree hype p root
---     t <- unSubstNode qp deriv
---     guard $ passiveEncodes qp hype t
---     guard $ activeEncodes qa hype ts
---
--- --     [ mkTree hype p (substNode qp t : ts)
--- --     | ts <- activeDerivs qa
--- --     , t  <- passiveDerivs qp ]
---
---   A.Adjoin qa qm -> isJust $ do
---     (ini, aux) <- unAdjoinTree root
---     guard $ passiveEncodes qa hype aux
---     guard $ passiveEncodes qm hype ini
---
--- --     [ adjoinTree ini aux
--- --     | aux <- passiveDerivs qa
--- --     , ini <- passiveDerivs qm ]
---
---
--- -- | Check if the derivation is represented by the active item.
--- activeEncodes
---   :: (Ord n, Ord t)
---   => A.Active
---   -> A.Hype n t
---   -> [Deriv n (Tok t)]
---   -> Bool
--- activeEncodes active hype deriv = case A.activeTrav active hype of
---   Nothing  -> case Q.lookup (A.ItemA active) (A.waiting hype) of
---     Just _ -> error $
---       "fromActive: active item in the waiting queue"
---       ++ "\n" ++ show active
---     Nothing -> error $
---       "fromActive: unknown active item (not even in the queue)"
---       ++ "\n" ++ show active
---   Just ext -> if S.null (A.prioTrav ext)
---     then deriv == []
---     else or
---          [ activeTravEncodes active trav hype deriv
---          | trav <- S.toList (A.prioTrav ext) ]
---
---
--- -- | Check if the derivation is represented by the active item
--- -- together with the corresponding traversal (hyperarc).
--- activeTravEncodes
---   :: (Ord n, Ord t)
---   => A.Active
---   -> A.Trav n t
---   -> A.Hype n t
---   -> [Deriv n (Tok t)]
---   -> Bool
--- activeTravEncodes _p trav hype root = case trav of
---
---   A.Scan q t _ -> isJust $ do
---     deriv : ts <- return root
---     guard $ deriv == termNode t
---     guard $ activeEncodes q hype ts
---
--- --     [ termNode t : ts
--- --     | ts <- activeDerivs q ]
---
---   A.Foot q x _ -> isJust $ do
---     deriv : ts <- return root
---     guard $ deriv == footNode x
---     guard $ activeEncodes q hype ts
---
--- --     [ footNode x : ts
--- --     | ts <- activeDerivs q ]
---
---   A.Subst qp qa _ -> isJust $ do
---     deriv : ts <- return root
---     t <- unSubstNode qp deriv
---     guard $ passiveEncodes qp hype t
---     guard $ activeEncodes qa hype ts
---
--- --     [ substNode qp t : ts
--- --     | ts <- activeDerivs qa
--- --     , t  <- passiveDerivs qp ]
---
---   A.Adjoin _ _ ->
---     error "fromActiveTrav: called on a passive item"
+-- TODO: The start symbol and the sentence length could be computed
+-- automatically, based on the input derivation.
+encodes
+    :: (Ord n, Ord t)
+    => A.Hype n t   -- ^ Final state of the earley parser
+    -> n            -- ^ The start symbol
+    -> Int          -- ^ Length of the input sentence
+    -> Deriv n (Tok t)
+    -> Bool
+encodes hype begSym sentLen deriv = or
+  [ passiveEncodes p hype deriv
+  | p <- A.finalFrom begSym sentLen hype ]
+--   where
+--     begSym = undefined
+--     sentLen = undefined
+
+
+-- | Check if the derivation is represented by the passive item.
+passiveEncodes
+  :: (Ord n, Ord t)
+  => A.Passive n t
+  -> A.Hype n t
+  -> Deriv n (Tok t)
+  -> Bool
+passiveEncodes passive hype deriv = case A.passiveTrav passive hype of
+  Nothing -> case Q.lookup (A.ItemP passive) (A.waiting hype) of
+    Just _ -> error "fromPassive: passive item in the waiting queue"
+    Nothing -> error "fromPassive: unknown passive item (not even in the queue)"
+  Just ext -> or
+    [ passiveTravEncodes passive trav hype deriv
+    | trav <- S.toList (A.prioTrav ext) ]
+
+
+-- | Check if the derivation is represented by the passive item
+-- together with the corresponding traversal (hyperarc).
+passiveTravEncodes
+  :: (Ord n, Ord t)
+  => A.Passive n t
+  -> A.Trav n t
+  -> A.Hype n t
+  -> Deriv n (Tok t)
+  -> Bool
+passiveTravEncodes p trav hype root = case trav of
+
+  A.Adjoin qa qm -> isJust $ do
+    (ini, aux) <- unAdjoinTree root
+    guard $ passiveEncodes qa hype aux
+    guard $ passiveEncodes qm hype ini
+
+--     [ adjoinTree ini aux
+--     | aux <- passiveDerivs qa
+--     , ini <- passiveDerivs qm ]
+
+  A.Deactivate q _ -> isJust $ do
+    ts <- unTree hype p root
+    guard $ activeEncodes q hype ts
+
+--     [ mkTree hype p ts
+--     | ts <- activeDerivs q ]
+
+  _ -> error "Deriv.passiveTravEncodes: impossible happened"
+
+
+-- | Check if the derivation is represented by the active item.
+activeEncodes
+  :: (Ord n, Ord t)
+  => A.Active
+  -> A.Hype n t
+  -> [Deriv n (Tok t)]
+  -> Bool
+activeEncodes active hype deriv = case A.activeTrav active hype of
+  Nothing  -> case Q.lookup (A.ItemA active) (A.waiting hype) of
+    Just _ -> error $
+      "fromActive: active item in the waiting queue"
+      ++ "\n" ++ show active
+    Nothing -> error $
+      "fromActive: unknown active item (not even in the queue)"
+      ++ "\n" ++ show active
+  Just ext -> if S.null (A.prioTrav ext)
+    then deriv == []
+    else or
+         [ activeTravEncodes active trav hype deriv
+         | trav <- S.toList (A.prioTrav ext) ]
+
+
+-- | Check if the derivation is represented by the active item
+-- together with the corresponding traversal (hyperarc).
+activeTravEncodes
+  :: (Ord n, Ord t)
+  => A.Active
+  -> A.Trav n t
+  -> A.Hype n t
+  -> [Deriv n (Tok t)]
+  -> Bool
+activeTravEncodes _p trav hype root = case trav of
+
+  A.Scan q t _ -> isJust $ do
+    deriv : ts <- return root
+    guard $ deriv == termNode t
+    guard $ activeEncodes q hype ts
+
+--     [ termNode t : ts
+--     | ts <- activeDerivs q ]
+
+  A.Foot q x _ -> isJust $ do
+    deriv : ts <- return root
+    guard $ deriv == footNode x
+    guard $ activeEncodes q hype ts
+
+--     [ footNode x : ts
+--     | ts <- activeDerivs q ]
+
+  A.Subst qp qa _ -> isJust $ do
+    deriv : ts <- return root
+    t <- unSubstNode qp deriv
+    guard $ passiveEncodes qp hype t
+    guard $ activeEncodes qa hype ts
+
+--     [ substNode qp t : ts
+--     | ts <- activeDerivs qa
+--     , t  <- passiveDerivs qp ]
+
+  A.SisterAdjoin qp qa -> isJust $ do
+    t : ts <- return root
+    guard $ passiveEncodes qp hype t
+    guard $ activeEncodes qa hype ts
+
+--     [ t : ts
+--     | ts <- activeDerivs qa
+--     , t  <- passiveDerivs qp ]
+
+  _ ->
+    error "Deriv.activeTravEncodes: impossible happened"
 
 
 --------------------------------------------------
