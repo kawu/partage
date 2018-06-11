@@ -11,7 +11,7 @@ import           Options.Applicative
 import qualified Data.Tree as R
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
--- import qualified Data.Text.Lazy as L
+import qualified Data.Text.Lazy as L
 import qualified Data.Text.Lazy.IO as LIO
 
 import qualified NLP.Partage.Tree.Other as O
@@ -27,28 +27,25 @@ import qualified NLP.Partage.Format.Brackets as Br
 
 
 data Command
-    = Early
-      { inputPath :: FilePath
-      , startSym  :: T.Text
+    = Earley
+      { startSym  :: T.Text
       , showParses :: Maybe Int
       }
-      -- ^ Parse the given sentences using the Early-style chart parser
+    -- ^ Parse the given sentences using the Earley-style chart parser
+    | RemoveCol
+      { colNum :: Int
+      }
+    -- ^ Remove the given column from .tsv file
 
 
 --------------------------------------------------
--- Early options
+-- Options
 --------------------------------------------------
 
 
-earlyOptions :: Parser Command
-earlyOptions = Early
-  <$> strOption
-  ( long "input"
-    <> short 'i'
-    <> metavar "FILE"
-    <> help "Input file with sentences to parse"
-  )
-  <*> (fmap T.pack . strOption)
+earleyOptions :: Parser Command
+earleyOptions = Earley
+  <$> (fmap T.pack . strOption)
   ( long "start"
     <> short 's'
     <> help "Start symbol"
@@ -61,6 +58,15 @@ earlyOptions = Early
   )
 
 
+removeColOptions :: Parser Command
+removeColOptions = RemoveCol
+  <$> option auto
+  ( long "colnum"
+    <> short 'c'
+    <> help "Column to remove"
+  )
+
+
 --------------------------------------------------
 -- Global options
 --------------------------------------------------
@@ -68,14 +74,15 @@ earlyOptions = Early
 
 opts :: Parser Command
 opts = subparser
-  ( command "early"
-    (info (helper <*> earlyOptions)
+  ( command "earley"
+    (info (helper <*> earleyOptions)
       (progDesc "Parse the input grammar file")
     )
---     <> command "lexicon"
---     (info (helper <*> lexicOptions)
---       (progDesc "Parse and print the lexicon")
---     )
+    <>
+    command "remcol"
+    (info (helper <*> removeColOptions)
+      (progDesc "Remove the given column from the input .tsv file")
+    )
   )
 
 
@@ -83,8 +90,8 @@ opts = subparser
 run :: Command -> IO ()
 run cmd =
   case cmd of
-    Early{..} -> do
-      file <- LIO.readFile inputPath
+    Earley{..} -> do
+      file <- LIO.getContents
       let super = Br.parseSuper file
       forM_ super $ \sent -> do
         let input = map Br.tokWord sent
@@ -104,6 +111,13 @@ run cmd =
               putStrLn ""
               putStrLn . R.drawTree . fmap show . O.unTree $ tree
             -- putStrLn ""
+    RemoveCol{..} -> do
+      file <- LIO.getContents
+      forM_ (L.lines file)
+        $ LIO.putStrLn
+        . L.intercalate "\t"
+        . remove (colNum-1)
+        . L.splitOn "\t"
 
 
 main :: IO ()
@@ -116,3 +130,13 @@ main =
         <> progDesc "Parsing with ParTAGe"
         <> header "partage"
       )
+
+
+--------------------------------------------------
+-- Utils
+--------------------------------------------------
+
+
+-- | Remove the k-th element in the list.
+remove :: Int -> [a] -> [a]
+remove k xs = take k xs ++ drop (k+1) xs

@@ -161,8 +161,8 @@ anchorP = Anchor <$ Atto.string "<>"
 -- (sister/foot).
 nonTermP :: Atto.Parser (NonTerm, Bool)
 nonTermP = do
+  nonTerm <- Atto.takeTill $ \c -> C.isSpace c || c == '*'
   starred <- (True <$ Atto.char '*') <|> pure False
-  nonTerm <- Atto.takeTill C.isSpace
   return (nonTerm, starred)
 
 
