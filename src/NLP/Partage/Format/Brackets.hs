@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
 
 
 module NLP.Partage.Format.Brackets
@@ -7,7 +8,7 @@ module NLP.Partage.Format.Brackets
     -- * Types
     Tree
   , NonTerm
-  , Term
+  , Term(..)
   , LexTree
   , Super
   , SuperSent
@@ -15,18 +16,26 @@ module NLP.Partage.Format.Brackets
 
     -- * Anchoring
   , anchor
+  , mapTerm
 
     -- * Parsing
   , parseTree
+  , parseTree'
   , parseSuper
+
+    -- * Rendering
+  , showTree
   )
 where
 
 
 import           Control.Applicative ((<|>))
+-- import           Data.List (intersperse)
+import           Data.Monoid (mconcat, mappend)
 import qualified Data.Char as C
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as L
+import qualified Data.Text.Lazy.Builder as B
 import qualified Data.Attoparsec.Text as Atto
 import qualified Data.Tree as R
 
@@ -85,11 +94,23 @@ type Super = [SuperSent]
 
 -- | Replace the anchor with the given terminal.
 anchor :: T.Text -> Tree -> LexTree
-anchor lex =
+anchor lx =
   fmap onNode
   where
-    onNode (O.Term Anchor) = O.Term lex
+    onNode (O.Term Anchor) = O.Term lx
     onNode (O.Term (Term x)) = O.Term x
+    onNode (O.NonTerm x) = O.NonTerm x
+    onNode (O.Sister x) = O.Sister x
+    onNode (O.Foot x) = O.Foot x
+
+
+-- | A generalized `anchor`ing function, which applies the given function to all
+-- terminals, both anchors and regular ones (see `Term`).
+mapTerm :: (Term -> a) -> Tree -> O.Tree NonTerm a
+mapTerm f =
+  fmap onNode
+  where
+    onNode (O.Term t) = O.Term (f t)
     onNode (O.NonTerm x) = O.NonTerm x
     onNode (O.Sister x) = O.Sister x
     onNode (O.Foot x) = O.Foot x
@@ -148,9 +169,9 @@ leafP =
 
 terminalP :: Atto.Parser Term
 terminalP =
-  Term <$> Atto.takeWhile1 pred
+  Term <$> Atto.takeWhile1 pr
   where
-    pred c = not $ C.isSpace c || elem c [')', '(']
+    pr c = not $ C.isSpace c || elem c [')', '(']
 
 
 anchorP :: Atto.Parser Term
@@ -195,6 +216,42 @@ parseSuper
   . L.splitOn "\n\n"
   where
     realSent = not . L.null
+
+
+-------------------------------------------------------------
+-- Tree Rendering
+-------------------------------------------------------------
+
+
+-- | Render the given lexicalized tree in the bracketed format.
+showTree :: LexTree -> L.Text
+showTree = B.toLazyText . buildTree
+
+
+buildTree :: LexTree -> B.Builder
+buildTree tree
+  | null (R.subForest tree) =
+      buildLabel (R.rootLabel tree)
+  | otherwise = mconcat
+      [ "("
+      , buildLabel (R.rootLabel tree)
+      , buildForest (R.subForest tree)
+      , ")"
+      ]
+
+
+buildForest :: [LexTree] -> B.Builder
+buildForest =
+  mconcat . map (mappend " " . buildTree)
+  -- mconcat . intersperse " " . map buildTree
+
+
+buildLabel :: O.Node NonTerm T.Text -> B.Builder
+buildLabel = \case
+  O.NonTerm x -> B.fromText x
+  O.Term x -> B.fromText x
+  O.Sister x -> B.fromText x `mappend` "*"
+  O.Foot x -> B.fromText x `mappend` "*"
 
 
 -------------------------------------------------------------
