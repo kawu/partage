@@ -6,9 +6,10 @@
 
 
 -- import           Prelude hiding (words)
-import           Control.Monad (forM_)
+import           Control.Monad (forM_, when)
 import           Data.Monoid ((<>))
 import           Options.Applicative
+import qualified Data.Set as S
 import qualified Data.Tree as R
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -34,6 +35,7 @@ data Command
       , startSym :: T.Text
       , showParses :: Maybe Int
       , brackets :: Bool
+      , checkRepetitions :: Bool
       }
     -- ^ Parse the given sentences using the Earley-style chart parser
     | RemoveCol
@@ -74,6 +76,11 @@ earleyOptions = Earley
   ( long "brackets"
     <> short 'b'
     <> help "Render trees in the bracketed format"
+  )
+  <*> switch
+  ( long "check-repetitions"
+    <> short 'r'
+    <> help "Issue WARNINGs if there are repetitions among the parsed trees (requires -g)"
   )
 
 
@@ -158,6 +165,8 @@ run cmd =
             parses <- map (fmap rmTokID . O.unTree) <$>
               E.parse gram startSym (E.fromList input)
             print (tree `elem` parses)
+            when (checkRepetitions && length parses /= length (nub parses)) $ do
+              putStrLn "WARNING: repetitions in the set of parsed trees!"
           Nothing -> do
             reco <- E.recognizeFrom gram startSym (E.fromList input)
             print reco
@@ -215,3 +224,8 @@ rmTokID = \case
   O.NonTerm x -> O.NonTerm x
   O.Sister x -> O.Sister x
   O.Foot x -> O.Foot x
+
+
+-- | Remove the repeating elements from the input list.
+nub :: Ord a => [a] -> [a]
+nub = S.toList . S.fromList
