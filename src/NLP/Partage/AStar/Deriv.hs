@@ -17,6 +17,9 @@ module NLP.Partage.AStar.Deriv
 , DerivR (..)
 , derivsPipe
 , parseAndPrint
+
+  -- * Provisional
+, isFinal_
 ) where
 
 
@@ -996,6 +999,7 @@ isFinal p = do
 
 
 -- | Check whether the given passive item is final or not.
+-- TODO: Move to some core module?
 isFinal_
   :: (Eq n)
   => n             -- ^ The start symbol

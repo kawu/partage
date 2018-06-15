@@ -7,20 +7,31 @@
 
 -- import           Prelude hiding (words)
 import           Control.Monad (forM_, when)
+import qualified Control.Arrow as Arr
 import           Data.Monoid ((<>))
 import           Options.Applicative
+import qualified Data.IORef as IORef
 import qualified Data.Set as S
+import qualified Data.Map.Strict as M
+import qualified Data.Vector as V
 import qualified Data.Tree as R
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Data.Text.Lazy as L
 import qualified Data.Text.Lazy.IO as LIO
+import qualified Data.MemoCombinators as Memo
+
+import qualified Data.Time as Time
+import qualified Pipes as P
 
 import qualified NLP.Partage.Tree.Other as O
 import qualified NLP.Partage.DAG as DAG
 import qualified NLP.Partage.AStar as A
+import qualified NLP.Partage.AStar.Deriv as D
 import qualified NLP.Partage.Earley as E
 import qualified NLP.Partage.Format.Brackets as Br
+
+import Debug.Trace (trace)
 
 
 --------------------------------------------------
@@ -31,13 +42,30 @@ import qualified NLP.Partage.Format.Brackets as Br
 data Command
     = Earley
       { inputPath :: FilePath
+      , withProb :: Bool
+      , maxTags :: Maybe Int
+      , minProb :: Maybe Double
+      , betaParam :: Maybe Double
       , goldPath :: Maybe FilePath
       , startSym :: T.Text
       , showParses :: Maybe Int
       , brackets :: Bool
       , checkRepetitions :: Bool
       }
-    -- ^ Parse the given sentences using the Earley-style chart parser
+    -- ^ Parse the input sentences using the Earley-style chart parser
+    | AStar
+      { inputPath :: FilePath
+      , maxTags :: Maybe Int
+      , minProb :: Maybe Double
+      , betaParam :: Maybe Double
+      , startSym :: T.Text
+      , fullHype :: Bool
+      , maxLen :: Maybe Int
+--       , showParses :: Maybe Int
+--       , brackets :: Bool
+--       , checkRepetitions :: Bool
+      }
+    -- ^ Parse the input sentences using the Earley-style chart parser
     | RemoveCol
       { colNum :: Int
       }
@@ -55,6 +83,24 @@ earleyOptions = Earley
   ( long "input"
     <> short 'i'
     <> help "Input file with supertagging results"
+  )
+  <*> switch
+  ( long "with-prob"
+    <> short 'p'
+    <> help "Set on if the input file contains info about probabilities"
+  )
+  <*> (optional . option auto)
+  ( long "max-tags"
+    <> short 'm'
+    <> help "Maximum number of the most probable supertags to take"
+  )
+  <*> (optional . option auto)
+  ( long "min-prob"
+    <> help "Minimum probability of a supertag to take"
+  )
+  <*> (optional . option auto)
+  ( long "beta"
+    <> help "Beta parameter à la Clark & Curran"
   )
   <*> (optional . strOption)
   ( long "gold"
@@ -84,6 +130,41 @@ earleyOptions = Earley
   )
 
 
+astarOptions :: Parser Command
+astarOptions = AStar
+  <$> strOption
+  ( long "input"
+    <> short 'i'
+    <> help "Input file with supertagging results"
+  )
+  <*> (optional . option auto)
+  ( long "max-tags"
+    <> short 'm'
+    <> help "Maximum number of the most probable supertags to take"
+  )
+  <*> (optional . option auto)
+  ( long "min-prob"
+    <> help "Minimum probability of a supertag to take"
+  )
+  <*> (optional . option auto)
+  ( long "beta"
+    <> help "Beta parameter à la Clark & Curran"
+  )
+  <*> (fmap T.pack . strOption)
+  ( long "start"
+    <> short 's'
+    <> help "Start symbol"
+  )
+  <*> switch
+  ( long "full-hype"
+    <> help "Create a full hypergraph"
+  )
+  <*> (optional . option auto)
+  ( long "max-len"
+    <> help "Limit on sentence length"
+  )
+
+
 removeColOptions :: Parser Command
 removeColOptions = RemoveCol
   <$> option auto
@@ -102,7 +183,12 @@ opts :: Parser Command
 opts = subparser
   ( command "earley"
     (info (helper <*> earleyOptions)
-      (progDesc "Parse the input grammar file")
+      (progDesc "Parse the input grammar file with Earley")
+    )
+    <>
+    command "astar"
+    (info (helper <*> astarOptions)
+      (progDesc "Parse the input grammar file with A*")
     )
     <>
     command "remcol"
@@ -121,7 +207,16 @@ run cmd =
     Earley{..} -> do
 
       -- Read input supertagging file
-      super <- Br.parseSuper <$> LIO.readFile inputPath
+      let parseSuper =
+            if withProb
+            then Br.parseSuperProb
+            else Br.parseSuper
+      super <-
+          limitTagsProb minProb
+        . limitTagsBeta betaParam
+        . limitTagsNum maxTags
+        . parseSuper
+        <$> LIO.readFile inputPath
 
       -- Read the gold file
       gold <- case goldPath of
@@ -142,17 +237,12 @@ run cmd =
           -- Add token IDs in order to distinguish tokens with identical word
           -- forms (which may have different supertags)
           input = zip [0 :: Int ..] (map Br.tokWord sent)
-          anchorTag tokID tokWord = Br.mapTerm $ \case
-            Br.Anchor -> (tokID, tokWord)
-            Br.Term _ -> error "Cannot process a co-anchor terminal node"
-          anchorTags tokID Br.SuperTok{..} =
-            map (anchorTag tokID tokWord) tokTags
 
           -- Create the compressed grammar representation
           gram
             = DAG.mkGram
-            . map (,0)
-            . concatMap (uncurry anchorTags)
+            -- . (\xs -> trace (show $ length xs) xs)
+            . anchorTagsIgnoreProbs
             . zip [0 :: Int ..]
             $ sent
 
@@ -168,8 +258,18 @@ run cmd =
             when (checkRepetitions && length parses /= length (nub parses)) $ do
               putStrLn "WARNING: repetitions in the set of parsed trees!"
           Nothing -> do
-            reco <- E.recognizeFrom gram startSym (E.fromList input)
+            -- reco <- E.recognizeFrom gram startSym (E.fromList input)
+            begTime <- Time.getCurrentTime
+            hype <- E.earley gram (E.fromList input)
+            let n = length input
+                reco = (not.null) (E.finalFrom startSym n hype)
             print reco
+            endTime <- Time.getCurrentTime
+            putStr (show n)
+            putStr "\t"
+            putStr (show $ E.hyperEdgesNum hype)
+            putStr "\t"
+            print (endTime `Time.diffUTCTime` begTime)
 
         -- Show the parsed trees
         case showParses of
@@ -186,6 +286,80 @@ run cmd =
             putStrLn ""
 
 
+    AStar{..} -> do
+
+      -- Read input supertagging file
+      let parseSuper = Br.parseSuperProb
+      super <-
+          filter ((<=maxLen) . Just . length)
+        . limitTagsProb minProb
+        . limitTagsBeta betaParam
+        . limitTagsNum maxTags
+        . parseSuper
+        <$> LIO.readFile inputPath
+
+      forM_ super $ \sent -> do
+
+        let
+          -- Add token IDs in order to distinguish tokens with identical word
+          -- forms (which may have different supertags)
+          input = zip [0 :: Int ..] (map Br.tokWord sent)
+          inputVect = V.fromList (map Br.tokWord sent)
+
+          -- Create the compressed grammar representation
+          gram
+            = DAG.mkGram
+            . anchorTags
+            . zip [0 :: Int ..]
+            $ sent
+          auto = A.mkAuto memoTerm gram
+          memoTerm = Memo.wrap
+            (\i -> (i, inputVect V.! i))
+            (\(i, _w) -> i)
+            Memo.integral
+
+        -- Check against the gold file or perform simple recognition
+        putStr "# "
+        TIO.putStr . T.unwords $ map snd input
+        LIO.putStr " => "
+
+        begTime <- Time.getCurrentTime
+        hypeRef <- IORef.newIORef Nothing
+        let n = length input
+            consume = do
+              A.HypeModif{..} <- P.await
+              case (modifType, modifItem) of
+                (A.NewNode, A.ItemP p) ->
+                  if (D.isFinal_ startSym n p) then do
+                    semiTime <- P.liftIO Time.getCurrentTime
+                    P.liftIO . IORef.writeIORef hypeRef $ Just (modifHype, semiTime)
+                    if fullHype
+                      then consume
+                      else return modifHype
+                  else consume
+                _ -> consume
+        finalHype <- P.runEffect $
+          A.earleyAutoP auto (A.fromList input)
+          P.>-> consume
+        endTime <- Time.getCurrentTime
+        (semiHype, semiTime) <- maybe (finalHype, endTime) id
+          <$> IORef.readIORef hypeRef
+        let reco = (not.null) (A.finalFrom startSym n semiHype)
+        print reco
+        putStr (show n)
+        putStr "\t"
+        putStr (show $ A.hyperEdgesNum semiHype)
+        putStr "\t"
+        putStr $ show (semiTime `Time.diffUTCTime` begTime)
+        if fullHype then do
+          putStr "\t"
+          putStr (show $ A.hyperEdgesNum finalHype)
+          putStr "\t"
+          print (endTime `Time.diffUTCTime` begTime)
+        else do
+          putStrLn ""
+
+
     RemoveCol{..} -> do
       file <- LIO.getContents
       forM_ (L.lines file)
@@ -193,6 +367,26 @@ run cmd =
         . L.intercalate "\t"
         . remove (colNum-1)
         . L.splitOn "\t"
+
+  where
+
+    limitTagsProb = \case
+      Nothing -> id
+      Just p -> map . map $ \superTok -> superTok
+        {Br.tokTags = filter ((>=p) . snd) (Br.tokTags superTok)}
+    limitTagsBeta = \case
+      Nothing -> id
+      Just beta -> map . map $ \superTok ->
+        let maxProb = case map snd (Br.tokTags superTok) of
+              [] -> 0.0
+              xs -> maximum xs
+            p = maxProb * beta
+        in  superTok
+            {Br.tokTags = filter ((>=p) . snd) (Br.tokTags superTok)}
+    limitTagsNum = \case
+      Nothing -> id
+      Just m -> map . map $ \superTok -> superTok
+        {Br.tokTags = take m (Br.tokTags superTok)}
 
 
 main :: IO ()
@@ -205,6 +399,51 @@ main =
         <> progDesc "Parsing with ParTAGe"
         <> header "partage"
       )
+
+
+--------------------------------------------------
+-- Anchoring
+--------------------------------------------------
+
+
+-- | Tag anchoring function which:
+--
+--   (a) Joins identical trees with different terminals
+--   (b) Replaces the weights by 0s (stems from (a))
+--
+anchorTagsIgnoreProbs
+  :: [(Int, Br.SuperTok)]
+  -> [(O.Tree T.Text (S.Set (Int, T.Text)), DAG.Weight)]
+anchorTagsIgnoreProbs xs = do
+  (tag, termSet) <- M.toList tagMap
+  return (anchorTag termSet tag, 0)
+  where
+    tagMap = M.fromListWith S.union $ do
+      (tokID, Br.SuperTok{..}) <- xs
+      (tag, _weight) <- tokTags
+      return (tag, S.singleton (tokID, tokWord))
+
+
+-- | A version of `anchorTagsIgnoreProbs` which preserves probabilities, but
+-- does not join identical supertags.  Besides, it replaces each probability
+-- `p` by `-log(p)`.
+anchorTags
+  :: [(Int, Br.SuperTok)]
+  -> [(O.Tree T.Text (Int, T.Text), DAG.Weight)]
+anchorTags =
+  concatMap (uncurry anchor)
+  where
+    anchor tokID Br.SuperTok{..} = map
+      ( Arr.first (anchorTag (tokID, tokWord))
+      . Arr.second (\p -> -log(p))
+      )
+      tokTags
+
+
+anchorTag :: t -> Br.Tree -> O.Tree T.Text t
+anchorTag x = fmap . O.mapTerm $ \case
+  Br.Anchor -> x
+  Br.Term _ -> error "Cannot process a co-anchor terminal node"
 
 
 --------------------------------------------------

@@ -24,7 +24,7 @@ import qualified Data.MemoCombinators    as Memo
 
 import qualified NLP.Partage.Auto            as A
 
-import           NLP.Partage.DAG             (DAG, DID(..))
+import           NLP.Partage.DAG             (DID(..))
 import qualified NLP.Partage.DAG             as DAG
 import qualified NLP.Partage.Tree.Other      as O
 
@@ -52,24 +52,33 @@ data NotFoot n = NotFoot
 --------------------------------------------------
 
 
+type DAG n t w = DAG.DAG (O.Node n (S.Set t)) w
+
+
 -- | Local automaton type based on `A.GramAuto`.
 data Auto n t = Auto
-    { gramDAG  :: DAG (O.Node n t) ()
+    { gramDAG  :: DAG n t ()
     -- ^ The underlying grammar DAG
     , gramAuto :: A.GramAuto
     -- ^ The underlying grammar automaton
     , withBody :: M.Map DID (S.Set ID)
-    -- ^ A data structure which, for each label, determines the
-    -- set of automaton states from which this label goes out
-    -- as a body transition.
+    -- ^ A data structure which, for each label, determines the set of automaton
+    -- states from which this label goes out as a body transition.
     , termDID  :: M.Map t (S.Set DID)
     -- ^ A map which assigns DAG IDs to the corresponding terminals.
+    --
+    -- NOTE: There can be actually many DAG IDs corresponding to a given
+    -- terminal even with subtree sharing turned on, which is related to
+    -- non-determinism at the level of terminals (see `gramDAG`).
+    --
     , footDID  :: M.Map n (S.Set DID)
-    -- ^ A map which assigns DAG IDs to the corresponding foot
-    -- non-terminals.
+    -- ^ A map which assigns DAG IDs to the corresponding foot non-terminals.
+    --
+    -- NOTE: With subtree sharing, there should be one DAG ID corresponding to
+    -- any given foot. This note applies to `leafDID` as well.
+    --
     , leafDID  :: M.Map n (S.Set DID)
-    -- ^ A map which assigns DAG IDs to the corresponding leaf
-    -- non-terminals.
+    -- ^ A map which assigns DAG IDs to the corresponding leaf non-terminals.
     , lhsNonTerm :: M.Map ID (NotFoot n)
     -- ^ A map which uniquely determines the LHS corresponding to the rule
     -- containing the given ID. WARNING: The LHS can be uniquely determined only
@@ -81,7 +90,7 @@ data Auto n t = Auto
 mkAuto
     -- :: (Hashable t, Ord t, Hashable n, Ord n)
     :: (Ord t, Ord n)
-    => DAG (O.Node n t) w
+    => DAG n t w
     -> A.GramAuto
     -> Auto n t
     -- -> IO Auto
@@ -110,18 +119,20 @@ mkWithBody dag = M.fromListWith S.union
 -- | Create the `termDID` component.
 mkTermDID
     :: (Ord t)
-    => DAG (O.Node n t) w
+    => DAG n t w
     -> M.Map t (S.Set DID)
 mkTermDID dag = M.fromListWith S.union
     [ (t, S.singleton i)
     | i <- S.toList (DAG.nodeSet dag)
-    , O.Term t <- maybeToList (DAG.label i dag) ]
+    , O.Term ts <- maybeToList (DAG.label i dag)
+    , t <- S.toList ts
+    ]
 
 
 -- | Create the `footDID` component.
 mkFootDID
     :: (Ord n)
-    => DAG (O.Node n t) w
+    => DAG n t w
     -> M.Map n (S.Set DID)
 mkFootDID dag = M.fromListWith S.union
     [ (x, S.singleton i)
@@ -132,7 +143,7 @@ mkFootDID dag = M.fromListWith S.union
 -- | Create the `leafDID` component.
 mkLeafDID
     :: (Ord n)
-    => DAG (O.Node n t) w
+    => DAG n t w
     -> M.Map n (S.Set DID)
 mkLeafDID dag = M.fromListWith S.union
     [ (x, S.singleton i)
@@ -143,7 +154,7 @@ mkLeafDID dag = M.fromListWith S.union
 
 -- | Create the `lhsNonTerm` component.
 mkLhsNonTerm
-  :: DAG (O.Node n t) w
+  :: DAG n t w
   -> A.GramAuto
   -> M.Map ID (NotFoot n)
 mkLhsNonTerm dag auto = M.fromList

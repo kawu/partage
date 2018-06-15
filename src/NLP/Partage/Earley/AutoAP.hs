@@ -46,6 +46,7 @@ module NLP.Partage.Earley.AutoAP
 
 -- * Provisional
 , Item(..)
+, finalFrom
 ) where
 
 
@@ -1124,11 +1125,14 @@ parsedTrees hype start n
 --------------------------------------------------
 
 
+type DAGram n t = DAG.Gram n (S.Set t)
+
+
 -- | Does the given grammar generate the given sentence?
 -- Uses the `earley` algorithm under the hood.
 recognize
     :: (SOrd t, SOrd n)
-    => DAG.Gram n t       -- ^ The grammar (set of rules)
+    => DAGram n t         -- ^ The grammar (set of rules)
     -> Input t            -- ^ Input sentence
     -> IO Bool
 recognize DAG.Gram{..} input = do
@@ -1143,7 +1147,7 @@ recognize DAG.Gram{..} input = do
 -- hood.
 recognizeFrom
     :: (SOrd t, SOrd n)
-    => DAG.Gram n t         -- ^ The grammar
+    => DAGram n t           -- ^ The grammar
     -> n                    -- ^ The start symbol
     -> Input t              -- ^ Input sentence
     -> IO Bool
@@ -1156,7 +1160,7 @@ recognizeFrom DAG.Gram{..} start input = do
 -- | Parse the given sentence and return the set of parsed trees.
 parse
     :: (SOrd t, SOrd n)
-    => DAG.Gram n t         -- ^ The grammar (set of rules)
+    => DAGram n t           -- ^ The grammar (set of rules)
     -> n                    -- ^ The start symbol
     -> Input t              -- ^ Input sentence
     -> IO [T.Tree n t]
@@ -1170,7 +1174,7 @@ parse DAG.Gram{..} start input = do
 -- the input sentence.
 earley
     :: (SOrd t, SOrd n)
-    => DAG.Gram n t         -- ^ The grammar (set of rules)
+    => DAGram n t           -- ^ The grammar (set of rules)
     -> Input t              -- ^ Input sentence
     -> IO (Hype n t)
 earley DAG.Gram{..} input = do

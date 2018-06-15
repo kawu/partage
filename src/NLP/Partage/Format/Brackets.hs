@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TupleSections #-}
 
 
 module NLP.Partage.Format.Brackets
@@ -16,12 +17,12 @@ module NLP.Partage.Format.Brackets
 
     -- * Anchoring
   , anchor
-  , mapTerm
 
     -- * Parsing
   , parseTree
   , parseTree'
   , parseSuper
+  , parseSuperProb
 
     -- * Rendering
   , showTree
@@ -34,6 +35,7 @@ import           Control.Applicative ((<|>))
 import           Data.Monoid (mconcat, mappend)
 import qualified Data.Char as C
 import qualified Data.Text as T
+import qualified Data.Text.Read as TR
 import qualified Data.Text.Lazy as L
 import qualified Data.Text.Lazy.Builder as B
 import qualified Data.Attoparsec.Text as Atto
@@ -71,11 +73,12 @@ type LexTree = O.Tree NonTerm T.Text
 -- | Supertagging token is a pair (word, tags), where:
 --
 --   * word -- word on the given position in the sentence
---   * tags -- list of possible supertags interpretation of the word
+--   * tags -- list of possible supertags interpretation of the word +
+--             the corresponding probabilities
 --
 data SuperTok = SuperTok
   { tokWord :: T.Text
-  , tokTags :: [Tree]
+  , tokTags :: [(Tree, Double)]
   } deriving (Show, Eq)
 
 
@@ -99,18 +102,6 @@ anchor lx =
   where
     onNode (O.Term Anchor) = O.Term lx
     onNode (O.Term (Term x)) = O.Term x
-    onNode (O.NonTerm x) = O.NonTerm x
-    onNode (O.Sister x) = O.Sister x
-    onNode (O.Foot x) = O.Foot x
-
-
--- | A generalized `anchor`ing function, which applies the given function to all
--- terminals, both anchors and regular ones (see `Term`).
-mapTerm :: (Term -> a) -> Tree -> O.Tree NonTerm a
-mapTerm f =
-  fmap onNode
-  where
-    onNode (O.Term t) = O.Term (f t)
     onNode (O.NonTerm x) = O.NonTerm x
     onNode (O.Sister x) = O.Sister x
     onNode (O.Foot x) = O.Foot x
@@ -199,7 +190,7 @@ parseSuperTok xs =
     [_] -> error "Brackets.parseSuperTok: no supertags"
     word : tags -> SuperTok
       { tokWord = word
-      , tokTags = map (parseTree') tags
+      , tokTags = map ((,0) . parseTree') tags
       }
 
 
@@ -212,6 +203,50 @@ parseSuperSent = map parseSuperTok . T.lines
 parseSuper :: L.Text -> Super
 parseSuper
   = map (parseSuperSent . L.toStrict)
+  . filter realSent
+  . L.splitOn "\n\n"
+  where
+    realSent = not . L.null
+
+
+-------------------------------------------------------------
+-- Super Parsing with Probabilities
+-------------------------------------------------------------
+
+
+-- | Parse the tree in the bracketed format with a probability put on the right
+-- after the colon. The probability itself is not returned by the function,
+-- though.
+parseTreeProb :: T.Text -> (Tree, Double)
+parseTreeProb txt =
+  case T.breakOn ":" (T.reverse txt) of
+    (probTxt, treeTxt) ->
+      ( parseTree' (T.reverse $ T.tail treeTxt)
+      , case TR.double (T.reverse probTxt) of
+          Right (prob, "") -> prob
+          _ -> error "Brackets.parseTreeProb: failed to parse probability"
+      )
+
+
+parseSuperTokProb :: T.Text -> SuperTok
+parseSuperTokProb xs =
+  case T.splitOn "\t" xs of
+    [] -> error "Brackets.parseSuperTok: empty line"
+    tags -> SuperTok
+      { tokWord = "#"
+      , tokTags = map parseTreeProb tags
+      }
+
+
+-- | Parse a sentence in a supertagged file.
+parseSuperSentProb :: T.Text -> SuperSent
+parseSuperSentProb = map parseSuperTokProb . T.lines
+
+
+-- | Parse a supertagged file.
+parseSuperProb :: L.Text -> Super
+parseSuperProb
+  = map (parseSuperSentProb . L.toStrict)
   . filter realSent
   . L.splitOn "\n\n"
   where

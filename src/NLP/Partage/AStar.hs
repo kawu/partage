@@ -1575,10 +1575,9 @@ parsedTrees hype start n
 --     recognizeAuto auto input
 
 
--- | Does the given grammar generate the given sentence from the
--- given non-terminal symbol (i.e. from an initial tree with this
--- symbol in its root)?  Uses the `earley` algorithm under the
--- hood.
+-- | Does the given grammar generate the given sentence from the given
+-- non-terminal symbol (i.e. from an initial tree with this symbol in its root)?
+-- Uses the `earley` algorithm under the hood.
 recognizeFrom
     :: (SOrd t, SOrd n)
     => Memo.Memo t             -- ^ Memoization strategy for terminals

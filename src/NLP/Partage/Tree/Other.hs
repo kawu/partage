@@ -22,6 +22,7 @@ module NLP.Partage.Tree.Other
 
 -- * Utils
 , isTerm
+, mapTerm
 , isFinal
 , isInitial
 , isAuxiliary
@@ -57,6 +58,18 @@ data Node n t
 isTerm :: Node n t -> Bool
 isTerm (Term _) = True
 isTerm _        = False
+
+
+-- | A generalized `anchor`ing function, which applies the given function to all
+-- terminals, both anchors and regular ones (see `Term`).
+mapTerm :: (t -> t') -> Node n t -> Node n t'
+mapTerm f =
+  onNode
+  where
+    onNode (Term t) = Term (f t)
+    onNode (NonTerm x) = NonTerm x
+    onNode (Sister x) = Sister x
+    onNode (Foot x) = Foot x
 
 
 -- | An initial or auxiliary TAG tree.  Note that the type doesn't

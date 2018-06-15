@@ -4,12 +4,12 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 
--- | DAG representation of TAG grammars.
+-- | Directed acyclic graph (DAG) representation of TAG grammars.
 --
 -- The input TAG can be seen as a set of elementary (initial and auxiliary)
--- grammar trees.  This module provides an alternative, more compact representation
--- in which common subtrees are shared amongst the corresponding elementary trees.
--- In this representation the grammar takes for form of a directed acyclic graph (DAG)
+-- grammar trees. This module provides an alternative, more compact
+-- representation in which common subtrees are shared among the corresponding
+-- elementary trees. In this representation the grammar takes for form of a DAG
 -- which allows to represent sharing in a natural way.
 
 
@@ -490,21 +490,20 @@ parents i = maybe S.empty id . M.lookup i
 ----------------------
 
 
--- | A datatype which contains the grammar in its various forms
--- needed for parsing.  The main component is the `dagGram` DAG, from
--- which the other two elements (`factGram` and `termWei`) can be derived.
+-- | A datatype which contains the grammar in its various forms needed for
+-- parsing. The main component is the `dagGram` DAG, from which the other two
+-- elements (`factGram` and `termWei`) can be derived.
 data Gram n t = Gram
     { dagGram  :: DAG (O.Node n t) Weight
     -- ^ Grammar as a DAG.
     , factGram :: M.Map Rule Weight
-    -- ^ Grammar as a set of production rules, with a weight assigned
-    -- to each rule.
+    -- ^ Grammar as a set of production rules, with a weight assigned to each
+    -- rule.
     , termWei  :: M.Map t Weight
-    -- ^ The lower bound estimates on reading terminal weights.
-    -- Based on the idea that weights of the elementary trees can
-    -- be evenly distributed over their terminals which, in turn,
-    -- can serve to compute the lower bound estimates on the cost of
-    -- parsing the remaining part of an input sentence.
+    -- ^ The lower bound estimates on reading terminal weights. Based on the
+    -- idea that weights of the elementary trees can be evenly distributed over
+    -- their terminals which, in turn, can serve to compute the lower bound
+    -- estimates on the cost of parsing the remaining part of an input sentence.
     }
 
 

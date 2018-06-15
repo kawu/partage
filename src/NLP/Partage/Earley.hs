@@ -35,6 +35,7 @@ module NLP.Partage.Earley
 
 -- * Provisional
 , Item(..)
+, finalFrom
 ) where
 
 
