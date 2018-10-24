@@ -86,7 +86,7 @@ earleyOptions = Earley
   )
   <*> switch
   ( long "with-prob"
-    <> short 'p'
+    -- <> short 'p'
     <> help "Set on if the input file contains info about probabilities"
   )
   <*> (optional . option auto)
@@ -290,8 +290,12 @@ run cmd =
 
       -- Read input supertagging file
       let parseSuper = Br.parseSuperProb
+          filterLen =
+            case maxLen of
+              Nothing -> id
+              Just ml -> filter ((<=ml) . length)
       super <-
-          filter ((<=maxLen) . Just . length)
+          filterLen
         . limitTagsProb minProb
         . limitTagsBeta betaParam
         . limitTagsNum maxTags
