@@ -11,6 +11,7 @@ import qualified Control.Arrow as Arr
 import           Data.Monoid ((<>))
 import           Options.Applicative
 import qualified Data.IORef as IORef
+-- import qualified Data.List as List
 import qualified Data.Set as S
 import qualified Data.Map.Strict as M
 import qualified Data.Vector as V
@@ -31,7 +32,7 @@ import qualified NLP.Partage.AStar.Deriv as D
 import qualified NLP.Partage.Earley as E
 import qualified NLP.Partage.Format.Brackets as Br
 
-import Debug.Trace (trace)
+-- import Debug.Trace (trace)
 
 
 --------------------------------------------------
@@ -49,8 +50,10 @@ data Command
       , goldPath :: Maybe FilePath
       , startSym :: T.Text
       , showParses :: Maybe Int
+      , showParseNum :: Maybe Int
       , brackets :: Bool
       , checkRepetitions :: Bool
+      , maxLen :: Maybe Int
       }
     -- ^ Parse the input sentences using the Earley-style chart parser
     | AStar
@@ -118,6 +121,11 @@ earleyOptions = Earley
     <> value Nothing
     <> help "Show the given number of parsed trees (at most)"
   )
+  <*> option (Just <$> auto)
+  ( long "print-parse-num"
+    <> value Nothing
+    <> help "Show the number of parsed trees (at most)"
+  )
   <*> switch
   ( long "brackets"
     <> short 'b'
@@ -127,6 +135,10 @@ earleyOptions = Earley
   ( long "check-repetitions"
     <> short 'r'
     <> help "Issue WARNINGs if there are repetitions among the parsed trees (requires -g)"
+  )
+  <*> (optional . option auto)
+  ( long "max-len"
+    <> help "Limit on sentence length"
   )
 
 
@@ -211,8 +223,13 @@ run cmd =
             if withProb
             then Br.parseSuperProb
             else Br.parseSuper
+          filterLen =
+            case maxLen of
+              Nothing -> id
+              Just ml -> filter ((<=ml) . length)
       super <-
-          limitTagsProb minProb
+          filterLen
+        . limitTagsProb minProb
         . limitTagsBeta betaParam
         . limitTagsNum maxTags
         . parseSuper
@@ -269,7 +286,20 @@ run cmd =
             putStr "\t"
             putStr (show $ E.hyperEdgesNum hype)
             putStr "\t"
-            print (endTime `Time.diffUTCTime` begTime)
+            putStr (show $ endTime `Time.diffUTCTime` begTime)
+            -- Show the number of parsed trees
+            case showParseNum of
+              Nothing -> return ()
+              Just k -> do
+                putStr "\t"
+                parses <- E.parse gram startSym (E.fromList input)
+                putStr . show $ sum
+                  -- We have to evaluate them to alleviate the memory leak
+                  [ L.length txtTree `seq` (1 :: Int)
+                  | tree <- take k parses
+                  , let txtTree = (Br.showTree . fmap rmTokID $ O.unTree tree)
+                  ]
+            putStrLn ""
 
         -- Show the parsed trees
         case showParses of
@@ -316,7 +346,7 @@ run cmd =
             . anchorTags
             . zip [0 :: Int ..]
             $ sent
-          auto = A.mkAuto memoTerm gram
+          automat = A.mkAuto memoTerm gram
           memoTerm = Memo.wrap
             (\i -> (i, inputVect V.! i))
             (\(i, _w) -> i)
@@ -343,7 +373,7 @@ run cmd =
                   else consume
                 _ -> consume
         finalHype <- P.runEffect $
-          A.earleyAutoP auto (A.fromList input)
+          A.earleyAutoP automat (A.fromList input)
           P.>-> consume
         endTime <- Time.getCurrentTime
         (semiHype, semiTime) <- maybe (finalHype, endTime) id
