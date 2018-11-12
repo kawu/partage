@@ -267,6 +267,9 @@ run cmd =
             . zip [0 :: Int ..]
             $ sent
 
+          -- Create the corresponding position map
+          depMap = mkDepMap $ zip [0 :: Int ..] sent
+
         -- Check against the gold file or perform simple recognition
         putStr "# "
         TIO.putStr . T.unwords $ map snd input
@@ -274,14 +277,14 @@ run cmd =
         case goldTree of
           Just tree -> do
             parses <- map (fmap rmTokID . O.unTree) <$>
-              E.parse gram startSym posMap M.empty (E.fromList input)
+              E.parse gram startSym posMap depMap (E.fromList input)
             print (tree `elem` parses)
             when (checkRepetitions && length parses /= length (nub parses)) $ do
               putStrLn "WARNING: repetitions in the set of parsed trees!"
           Nothing -> do
             -- reco <- E.recognizeFrom gram startSym (E.fromList input)
             begTime <- Time.getCurrentTime
-            hype <- E.earley gram posMap M.empty (E.fromList input)
+            hype <- E.earley gram posMap depMap (E.fromList input)
             let n = length input
                 reco = (not.null) (E.finalFrom startSym n hype)
             print reco
@@ -296,7 +299,7 @@ run cmd =
               Nothing -> return ()
               Just k -> do
                 putStr "\t"
-                parses <- E.parse gram startSym posMap M.empty (E.fromList input)
+                parses <- E.parse gram startSym posMap depMap (E.fromList input)
                 putStr . show $ sum
                   -- We have to evaluate them to alleviate the memory leak
                   [ L.length txtTree `seq` (1 :: Int)
@@ -309,7 +312,7 @@ run cmd =
         case showParses of
           Nothing -> return ()
           Just k -> do
-            parses <- E.parse gram startSym posMap M.empty (E.fromList input)
+            parses <- E.parse gram startSym posMap depMap (E.fromList input)
             forM_ (take k parses) $ \tree -> do
               if brackets
                 then do
@@ -496,6 +499,15 @@ anchorTag :: t -> Br.Tree -> O.Tree T.Text t
 anchorTag x = fmap . O.mapTerm $ \case
   Br.Anchor -> x
   Br.Term _ -> error "Cannot process a co-anchor terminal node"
+
+
+-- | Create the dependency map corresponding to the given list of tokens.  Note
+-- that the `Br.deph` values have to be handled carefully -- in the
+-- corresponding format, tokens are numbered from 1 and not from 0.
+mkDepMap :: [(Int, Br.SuperTok)] -> M.Map Int Int
+mkDepMap toks = M.fromList
+  [ (pos, tokDeph - 1)
+  | (pos, Br.SuperTok{..}) <- toks ]
 
 
 --------------------------------------------------

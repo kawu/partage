@@ -75,10 +75,12 @@ type LexTree = O.Tree NonTerm T.Text
 --   * word -- word on the given position in the sentence
 --   * tags -- list of possible supertags interpretation of the word +
 --             the corresponding probabilities
+--   * deph -- the position of the dependency head
 --
 data SuperTok = SuperTok
   { tokWord :: T.Text
   , tokTags :: [(Tree, Double)]
+  , tokDeph :: Int
   } deriving (Show, Eq)
 
 
@@ -188,9 +190,11 @@ parseSuperTok xs =
   case T.splitOn "\t" xs of
     [] -> error "Brackets.parseSuperTok: empty line"
     [_] -> error "Brackets.parseSuperTok: no supertags"
-    word : tags -> SuperTok
+    [_, _] -> error "Brackets.parseSuperTok: no dependency head"
+    word : deph : tags -> SuperTok
       { tokWord = word
       , tokTags = map ((,0) . parseTree') tags
+      , tokDeph = read (T.unpack deph)
       }
 
 
@@ -235,6 +239,7 @@ parseSuperTokProb xs =
     tags -> SuperTok
       { tokWord = "#"
       , tokTags = map parseTreeProb tags
+      , tokDeph = error "not implemented"
       }
 
 
