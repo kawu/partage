@@ -512,12 +512,13 @@ mkGram
     :: (Ord n, Ord t)
     => [(O.Tree n t, Weight)]
     -> Gram n t
-mkGram ts = Gram
-    { dagGram   = dagGram_
-    , factGram  = rulesMapFromDAG dagGram_
-    , termWei   = mkTermWei ts }
-  where
-    dagGram_ = dagFromWeightedForest ts
+mkGram = mkDummy
+-- mkGram ts = Gram
+--     { dagGram   = dagGram_
+--     , factGram  = rulesMapFromDAG dagGram_
+--     , termWei   = mkTermWei ts }
+--   where
+--     dagGram_ = dagFromWeightedForest ts
 
 
 -- | Construct a dummy `Gram` (no subtree sharing) from the given weighted

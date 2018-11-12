@@ -10,12 +10,14 @@ module NLP.Partage.Earley.Base
 -- * Utils
 , nonTerm
 , nonTerm'
+, isSister'
 , labNonTerm
 ) where
 
 
 import qualified Data.Set as S
 import qualified Data.Vector as V
+import           Data.Maybe (isJust)
 
 import qualified NLP.Partage.DAG             as DAG
 import qualified NLP.Partage.Tree.Other      as O
@@ -73,24 +75,34 @@ fromSets xs = Input (V.fromList xs)
 
 
 -- | Take the non-terminal of the underlying DAG node.
-nonTerm :: Either (NotFoot n) DAG.DID -> Auto n t -> n
+nonTerm :: DAG.DID -> Auto n t -> n
 nonTerm i =
     check . nonTerm' i . gramDAG
   where
     check Nothing  = error "nonTerm: not a non-terminal ID"
     check (Just x) = x
+-- nonTerm :: Either (NotFoot n) DAG.DID -> Auto n t -> n
+-- nonTerm i =
+--     check . nonTerm' i . gramDAG
+--   where
+--     check Nothing  = error "nonTerm: not a non-terminal ID"
+--     check (Just x) = x
 
 
 -- | Take the non-terminal of the underlying DAG node.
-nonTerm' :: Either (NotFoot n) DAG.DID -> DAG.DAG (O.Node n t) () -> Maybe n
-nonTerm' i dag = case i of
-    Left root -> Just (notFootLabel root)
-    Right did -> labNonTerm =<< DAG.label did dag
+nonTerm' :: DAG.DID -> DAG.DAG (O.Node n t) () -> Maybe n
+nonTerm' did dag = labNonTerm =<< DAG.label did dag
+-- nonTerm' :: Either (NotFoot n) DAG.DID -> DAG.DAG (O.Node n t) () -> Maybe n
+-- nonTerm' i dag = case i of
+--     Left root -> Just (notFootLabel root)
+--     Right did -> labNonTerm =<< DAG.label did dag
 
 
---------------------------------------------------
--- Utils
---------------------------------------------------
+-- | Is the node marked for sister adjunction?
+isSister' :: DAG.DID -> DAG.DAG (O.Node n t) () -> Bool
+isSister' did dag = isJust $ do
+  O.Sister _ <- DAG.label did dag
+  return $ Just ()
 
 
 -- | Take the non-terminal of the underlying DAG node.

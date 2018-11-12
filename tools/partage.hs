@@ -68,7 +68,7 @@ data Command
 --       , brackets :: Bool
 --       , checkRepetitions :: Bool
       }
-    -- ^ Parse the input sentences using the Earley-style chart parser
+    -- ^ Parse the input sentences using the Earley-style A* chart parser
     | RemoveCol
       { colNum :: Int
       }
@@ -254,12 +254,16 @@ run cmd =
           -- Add token IDs in order to distinguish tokens with identical word
           -- forms (which may have different supertags)
           input = zip [0 :: Int ..] (map Br.tokWord sent)
+          -- Calculate the position map (mapping from tokens to their
+          -- positions)
+          posMap = M.fromList [(x, fst x) | x <- input]
 
           -- Create the compressed grammar representation
           gram
             = DAG.mkGram
             -- . (\xs -> trace (show $ length xs) xs)
-            . anchorTagsIgnoreProbs
+            . anchorTags'
+            -- . anchorTagsIgnoreProbs
             . zip [0 :: Int ..]
             $ sent
 
@@ -270,14 +274,14 @@ run cmd =
         case goldTree of
           Just tree -> do
             parses <- map (fmap rmTokID . O.unTree) <$>
-              E.parse gram startSym (E.fromList input)
+              E.parse gram startSym posMap M.empty (E.fromList input)
             print (tree `elem` parses)
             when (checkRepetitions && length parses /= length (nub parses)) $ do
               putStrLn "WARNING: repetitions in the set of parsed trees!"
           Nothing -> do
             -- reco <- E.recognizeFrom gram startSym (E.fromList input)
             begTime <- Time.getCurrentTime
-            hype <- E.earley gram (E.fromList input)
+            hype <- E.earley gram posMap M.empty (E.fromList input)
             let n = length input
                 reco = (not.null) (E.finalFrom startSym n hype)
             print reco
@@ -292,7 +296,7 @@ run cmd =
               Nothing -> return ()
               Just k -> do
                 putStr "\t"
-                parses <- E.parse gram startSym (E.fromList input)
+                parses <- E.parse gram startSym posMap M.empty (E.fromList input)
                 putStr . show $ sum
                   -- We have to evaluate them to alleviate the memory leak
                   [ L.length txtTree `seq` (1 :: Int)
@@ -305,7 +309,7 @@ run cmd =
         case showParses of
           Nothing -> return ()
           Just k -> do
-            parses <- E.parse gram startSym (E.fromList input)
+            parses <- E.parse gram startSym posMap M.empty (E.fromList input)
             forM_ (take k parses) $ \tree -> do
               if brackets
                 then do
@@ -469,6 +473,20 @@ anchorTags =
   where
     anchor tokID Br.SuperTok{..} = map
       ( Arr.first (anchorTag (tokID, tokWord))
+      . Arr.second (\p -> -log(p))
+      )
+      tokTags
+
+
+-- | A version of `anchorTags`.
+anchorTags'
+  :: [(Int, Br.SuperTok)]
+  -> [(O.Tree T.Text (S.Set (Int, T.Text)), DAG.Weight)]
+anchorTags' =
+  concatMap (uncurry anchor)
+  where
+    anchor tokID Br.SuperTok{..} = map
+      ( Arr.first (anchorTag $ S.singleton (tokID, tokWord))
       . Arr.second (\p -> -log(p))
       )
       tokTags

@@ -15,6 +15,7 @@ import           Test.Tasty              (TestTree)
 
 import qualified Data.MemoCombinators    as Memo
 import qualified Data.Set                as S
+import qualified Data.Map                as M
 
 import qualified Pipes                   as P
 
@@ -37,11 +38,11 @@ testEarley =
       , T.parsedTrees = Just parseFrom }
     recFrom gram start input = do
         let dag = mkGram gram
-        E.recognizeFrom dag start (E.fromList input)
+        E.recognizeFrom dag start M.empty M.empty (E.fromList input)
     parseFrom gram start input = do
         let dag = mkGram gram
         fmap S.fromList
-            . E.parse dag start
+            . E.parse dag start M.empty M.empty
             . E.fromList
             $ input
     mkGram = DAG.mkGram . map (Arr.first termToSet)

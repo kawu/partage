@@ -85,11 +85,12 @@ import qualified NLP.Partage.DAG as DAG
 import           NLP.Partage.Earley.Auto (Auto(..), mkAuto)
 import qualified NLP.Partage.Auto as A
 import qualified NLP.Partage.Auto.Set   as AS
+import qualified NLP.Partage.Auto.List  as AL
 import qualified NLP.Partage.Auto.DAWG  as D
 import qualified NLP.Partage.Tree.Other as O
 import qualified NLP.Partage.Tree       as T
 
-import           NLP.Partage.Earley.Base hiding (nonTerm)
+import           NLP.Partage.Earley.Base
 import qualified NLP.Partage.Earley.Base as Base
 import           NLP.Partage.Earley.Item hiding (printPassive)
 import           NLP.Partage.Earley.ExtWeight
@@ -98,7 +99,7 @@ import qualified NLP.Partage.Earley.Chart as Chart
 -- For debugging purposes
 #ifdef DebugOn
 import qualified NLP.Partage.Earley.Item as Item
-import qualified Data.Time              as Time
+import qualified Data.Time               as Time
 #endif
 
 
@@ -109,14 +110,14 @@ import qualified Data.Time              as Time
 
 -- | Passive or active item.
 data Item n t
-    = ItemP (Passive n t)
+    = ItemP (Passive n)
     | ItemA Active
     deriving (Show, Eq, Ord)
 
 
 #ifdef DebugOn
 -- | Print a passive item.
-printPassive :: (Show n) => Passive n t -> Hype n t -> IO ()
+printPassive :: (Show n) => Passive n -> Hype n t -> IO ()
 printPassive p hype = Item.printPassive p (automat hype)
 
 
@@ -300,6 +301,7 @@ sumTrav xs = sum
     [ S.size (prioTrav ext)
     | (_, ext) <- xs ]
 
+
 --------------------
 -- Active items
 --------------------
@@ -367,14 +369,14 @@ saveActive p ts = do
 
 -- -- | List all passive done items together with the corresponding
 -- -- traversals.
--- listPassive :: Hype n t -> [(Passive n t, S.Set (Trav n t))]
+-- listPassive :: Hype n t -> [(Passive n, S.Set (Trav n t))]
 -- listPassive = (M.elems >=> M.toList) . donePassive
 --
 --
 -- -- | Return the corresponding set of traversals for a passive item.
 -- passiveTrav
 --     :: (Ord n, Ord t)
---     => Passive n t -> Hype n t
+--     => Passive n -> Hype n t
 --     -> Maybe (S.Set (Trav n t))
 -- passiveTrav p hype =
 --     ( M.lookup
@@ -385,7 +387,7 @@ saveActive p ts = do
 --
 --
 -- -- | Check if the state is not already processed.
--- _isProcessedP :: (Ord n, Ord t) => Passive n t -> Hype n t -> Bool
+-- _isProcessedP :: (Ord n, Ord t) => Passive n -> Hype n t -> Bool
 -- _isProcessedP x =
 --     check . passiveTrav x
 --   where
@@ -394,7 +396,7 @@ saveActive p ts = do
 
 
 -- | Check if the passive item is not already processed.
-isProcessedP :: (Ord n) => Passive n t -> Earley n t Bool
+isProcessedP :: (Ord n) => Passive n -> Earley n t Bool
 isProcessedP p = do
   h <- RWS.get
   return $ Chart.isProcessedP p (automat h) (chart h)
@@ -403,7 +405,7 @@ isProcessedP p = do
 -- | Mark the passive item as processed (`done').
 savePassive
     :: (Ord t, Ord n)
-    => Passive n t
+    => Passive n
     -> S.Set (Trav n t)
     -> Earley n t ()
 savePassive p ts =
@@ -415,7 +417,7 @@ savePassive p ts =
 -- -- present in the hypergraph.
 -- hasPassiveTrav
 --     :: (Ord t, Ord n)
---     => Passive n t
+--     => Passive n
 --     -> S.Set (Trav n t)
 --     -> Earley n t Bool
 -- hasPassiveTrav p travSet = do
@@ -437,30 +439,17 @@ pushActive p t = isProcessedA p >>= \b -> if b
   where
     newWait = Q.insertWith joinPrio (ItemA p) newPrio
     newPrio = ExtPrio (prioA p) (S.singleton t)
--- pushActive p = RWS.state $ \s ->
---     let waiting' = if isProcessedA p s
---             then waiting s
---             else Q.insert (ItemA p) (prioA p) (waiting s)
---     in  ((), s {waiting = waiting'})
 
 
 -- | Add the passive item to the waiting queue.  Check first if it
 -- is not already in the set of processed (`done') states.
-pushPassive :: (Ord t, Ord n) => Passive n t -> Trav n t -> Earley n t ()
+pushPassive :: (Ord t, Ord n) => Passive n -> Trav n t -> Earley n t ()
 pushPassive p t = isProcessedP p >>= \b -> if b
     then savePassive p $ S.singleton t
     else modify' $ \s -> s {waiting = newWait (waiting s)}
   where
     newWait = Q.insertWith joinPrio (ItemP p) newPrio
     newPrio = ExtPrio (prioP p) (S.singleton t)
--- -- | Add the passive item to the waiting queue.  Check first if it
--- -- is not already in the set of processed (`done') states.
--- pushPassive :: (Ord t, Ord n) => Passive n t -> Earley n t ()
--- pushPassive p = RWS.state $ \s ->
---     let waiting' = if isProcessedP p s
---             then waiting s
---             else Q.insert (ItemP p) (prioP p) (waiting s)
---     in  ((), s {waiting = waiting'})
 
 
 -- | Add to the waiting queue all items induced from
@@ -468,24 +457,6 @@ pushPassive p t = isProcessedP p >>= \b -> if b
 pushInduced :: (Ord t, Ord n) => Active -> Trav n t -> Earley n t ()
 pushInduced p t = do
     pushActive p t
---     dag <- RWS.gets (gramDAG . automat)
---     hasElems (getL state p) >>= \b -> when b
---         (pushActive p t)
---     P.runListT $ do
---         did <- heads (getL state p)
---         lift . flip pushPassive t $
---             if not (DAG.isRoot did dag)
---             then Passive (Right did) (getL spanA p)
---             else check $ do
---                 x <- mkRoot <$> DAG.label did dag
---                 return $ Passive (Left x) (getL spanA p)
---             where
---               mkRoot node = case node of
---                 O.NonTerm x -> Root {rootLabel=x, isSister=False}
---                 O.Sister x  -> Root {rootLabel=x, isSister=True}
---                 _ -> error "pushInduced: invalid root"
---               check (Just x) = x
---               check Nothing  = error "pushInduced: invalid DID"
 
 
 -- | Remove a state from the queue.
@@ -510,8 +481,8 @@ expectEnd = Chart.expectEnd automat chart
 -- * the given span
 rootSpan
     :: Ord n => n -> (Pos, Pos)
-    -> P.ListT (Earley n t) (Passive n t)
-rootSpan = Chart.rootSpan chart
+    -> P.ListT (Earley n t) (Passive n)
+rootSpan = Chart.rootSpan chart automat
 
 
 -- | See `Chart.rootEnd`.
@@ -598,7 +569,7 @@ rootEnd = Chart.rootEnd chart
 -- -- * the given span
 -- rootSpan
 --     :: Ord n => n -> (Pos, Pos)
---     -> P.ListT (Earley n t) (Passive n t)
+--     -> P.ListT (Earley n t) (Passive n)
 -- rootSpan x (i, j) = do
 --     Hype{..} <- lift RWS.get
 --     -- listValues (i, x, j) donePassive
@@ -727,7 +698,7 @@ tryScan p = void $ P.runListT $ do
 
 -- | Try to use the passive item `p` to complement (=> substitution) other
 -- rules. Implementation of regular substitution as well as pseudo-substitution.
-trySubst :: (SOrd t, SOrd n) => Passive n t -> Earley n t ()
+trySubst :: (SOrd t, SOrd n) => Passive n -> Earley n t ()
 trySubst p = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- lift . lift $ Time.getCurrentTime
@@ -736,21 +707,38 @@ trySubst p = void $ P.runListT $ do
         pSpan = getL spanP p
     -- make sure that `p' represents regular rules
     guard . regular $ pSpan
+    -- the underlying grammar dag/automat
+    hype <- RWS.get
+    let auto = automat hype
+        dag = gramDAG auto
     -- make sure that `p` does not represent sister tree
-    guard $ case pDID of
-        Left root -> not (isSister root)
-        Right _ -> True
-    -- the underlying leaf map
-    leafMap <- RWS.gets (leafDID  . automat)
+    guard $ not (isSister' pDID dag)
+    -- some underlying maps
+    let leafMap = leafDID auto
+        anchorMap = anchorPos auto
+        headMap = headPos auto
     -- now, we need to choose the DAG node to search for depending on whether
     -- the DAG node provided by `p' is a root or not
-    theDID <- case pDID of
-        -- real substitution
-        Left root ->
-            each . S.toList . maybe S.empty id $
-                M.lookup (notFootLabel root) leafMap
-        -- pseudo-substitution
-        Right did -> return did
+    theDID <-
+      if DAG.isRoot pDID dag
+         -- real substitution
+         then do
+           -- determine the position of the dependent tree
+           let depPos = M.lookup pDID anchorMap
+           -- take the `DID` of a leaf with the appropriate non-terminal
+           did <- each . S.toList . maybe S.empty id $
+             M.lookup (nonTerm pDID auto) leafMap
+           -- determine the position of the head  tree
+           let hedPos = M.lookup did anchorMap
+           -- verify that the substitution is OK w.r.t. the dependency info
+           -- guard $ (flip M.lookup headMap =<< depPos) == hedPos
+           guard $ case flip M.lookup headMap =<< depPos of
+                     Nothing -> True
+                     Just pos -> Just pos == hedPos
+           return did
+         -- pseudo-substitution
+         else do
+           return pDID
     -- find active items which end where `p' begins and which
     -- expect the DAG node provided by `p'
     q <- expectEnd theDID (getL beg pSpan)
@@ -782,7 +770,7 @@ trySubst p = void $ P.runListT $ do
 -- | `tryAdjoinInit p q':
 -- * `p' is a completed state (regular or auxiliary)
 -- * `q' not completed and expects a *real* foot
-tryAdjoinInit :: (SOrd n, SOrd t) => Passive n t -> Earley n t ()
+tryAdjoinInit :: (SOrd n, SOrd t) => Passive n -> Earley n t ()
 tryAdjoinInit p = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- lift . lift $ Time.getCurrentTime
@@ -795,8 +783,8 @@ tryAdjoinInit p = void $ P.runListT $ do
     -- make sure that the corresponding rule is either regular or
     -- intermediate auxiliary ((<=) used as implication here)
     -- guard $ auxiliary pSpan <= not (topLevel pLab)
-    -- guard $ auxiliary pSpan <= not (DAG.isRoot pDID dag)
-    guard $ auxiliary pSpan <= not (isRoot pDID)
+    guard $ auxiliary pSpan <= not (DAG.isRoot pDID dag)
+    -- guard $ auxiliary pSpan <= not (isRoot pDID)
     -- what is the symbol in the p's DAG node?
     footNT <- some (nonTerm' pDID dag)
 --     footNT <- case pDID of
@@ -839,30 +827,20 @@ tryAdjoinInit p = void $ P.runListT $ do
 -- | `tryAdjoinCont p q':
 -- * `p' is a completed, auxiliary state
 -- * `q' not completed and expects a *dummy* foot
-tryAdjoinCont :: (SOrd n, SOrd t) => Passive n t -> Earley n t ()
+tryAdjoinCont :: (SOrd n, SOrd t) => Passive n -> Earley n t ()
 tryAdjoinCont p = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- lift . lift $ Time.getCurrentTime
 #endif
     let pDID = p ^. dagID
         pSpan = p ^. spanP
-    -- the underlying dag grammar
-    -- dag <- RWS.gets (gramDAG . automat)
-    -- make sure the label is not top-level (internal spine
-    -- non-terminal)
-    -- guard . not $ topLevel pLab
-    -- guard . not $ DAG.isRoot pDID dag
-    -- guard . not $ isRoot pDID
-    did <- some $ case pDID of
-        Left _rootNT -> Nothing
-        Right did -> Just did
     -- make sure that `p' is an auxiliary item
     guard . auxiliary $ pSpan
     -- find all rules which expect a spine non-terminal provided
     -- by `p' and which end where `p' begins
-    q <- expectEnd did (pSpan ^. beg)
+    q <- expectEnd pDID (pSpan ^. beg)
     -- follow the spine non-terminal
-    j <- follow (q ^. state) did
+    j <- follow (q ^. state) pDID
     -- construct the resulting state; the span of the gap of the
     -- inner state `p' is copied to the outer state based on `q'
     let q' = setL state j
@@ -888,21 +866,20 @@ tryAdjoinCont p = void $ P.runListT $ do
 --------------------------------------------------
 
 
--- | Adjoin a fully-parsed auxiliary state `p` to a partially parsed
--- tree represented by a fully parsed rule/state `q`.
-tryAdjoinTerm :: (SOrd t, SOrd n) => Passive n t -> Earley n t ()
+-- | Adjoin a fully-parsed auxiliary state `q` to a partially parsed
+-- tree represented by a fully parsed rule/state `p`.
+tryAdjoinTerm :: (SOrd t, SOrd n) => Passive n -> Earley n t ()
 tryAdjoinTerm q = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- lift . lift $ Time.getCurrentTime
 #endif
-    -- let qLab = q ^. label
     let qDID = q ^. dagID
         qSpan = q ^. spanP
-    -- the underlying dag grammar
-    dag <- RWS.gets (gramDAG . automat)
+    -- the underlying grammar
+    auto <- RWS.gets automat
+    let dag = gramDAG auto
     -- make sure the label is top-level
-    -- guard $ topLevel qLab
-    guard $ isRoot qDID
+    guard $ DAG.isRoot qDID dag
     -- make sure that it is an auxiliary item (by definition only
     -- auxiliary states have gaps)
     (gapBeg, gapEnd) <- some $ qSpan ^. gap
@@ -912,6 +889,15 @@ tryAdjoinTerm q = void $ P.runListT $ do
     p <- rootSpan qNonTerm (gapBeg, gapEnd)
     -- make sure that node represented by `p` was not yet adjoined to
     guard . not $ getL isAdjoinedTo p
+    -- check w.r.t. the dependency structure
+    let anchorMap = anchorPos auto
+        headMap = headPos auto
+        depPos = M.lookup qDID anchorMap
+        hedPos = M.lookup (p ^. dagID) anchorMap
+    -- guard $ (flip M.lookup headMap =<< depPos) == hedPos
+    guard $ case flip M.lookup headMap =<< depPos of
+              Nothing -> True
+              Just pos -> Just pos == hedPos
     -- construct the resulting item
     let p' = setL (spanP >>> beg) (qSpan ^. beg)
            . setL (spanP >>> end) (qSpan ^. end)
@@ -935,7 +921,7 @@ tryAdjoinTerm q = void $ P.runListT $ do
 
 
 -- | Try to apply sister-adjunction w.r.t. the given passive item.
-trySisterAdjoin :: (SOrd t, SOrd n) => Passive n t -> Earley n t ()
+trySisterAdjoin :: (SOrd t, SOrd n) => Passive n -> Earley n t ()
 trySisterAdjoin p = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- lift . lift $ Time.getCurrentTime
@@ -944,12 +930,25 @@ trySisterAdjoin p = void $ P.runListT $ do
         pSpan = getL spanP p
     -- make sure that `p' is not gapped
     guard . regular $ pSpan
+    -- the underlying dag
+    auto <- RWS.gets automat
+    let dag = gramDAG auto
     -- make sure that `p` represents a sister tree
-    Left root <- return pDID
-    guard $ isSister root
+    guard $ DAG.isRoot pDID dag && isSister' pDID dag
     -- find active items which end where `p' begins and which have the
     -- corresponding LHS non-terminal
-    q <- rootEnd (notFootLabel root) (getL beg pSpan)
+    q <- rootEnd (nonTerm pDID auto) (getL beg pSpan)
+    -- q <- rootEnd (notFootLabel pDID) (getL beg pSpan)
+    -- check w.r.t. the dependency structure
+    let anchorMap = anchorPos auto
+        anchorMap' = anchorPos' auto
+        headMap = headPos auto
+        depPos = M.lookup pDID anchorMap
+        hedPos = M.lookup (q ^. state) anchorMap'
+    -- guard $ (flip M.lookup headMap =<< depPos) == hedPos
+    guard $ case flip M.lookup headMap =<< depPos of
+              Nothing -> True
+              Just pos -> Just pos == hedPos
     -- construct the resultant item with the same state and extended span
     let q' = setL (end . spanA) (getL end pSpan) $ q
     -- push the resulting state into the waiting queue
@@ -979,17 +978,21 @@ tryDeactivate p = void $ P.runListT $ do
 #endif
   dag <- RWS.gets (gramDAG . automat)
   did <- heads (getL state p)
-  let q = if not (DAG.isRoot did dag)
-          then Passive
-               { _dagID = Right did
-               , _spanP = getL spanA p
-               , _isAdjoinedTo = False }
-          else check $ do
-            x <- mkRoot <$> DAG.label did dag
-            return $ Passive
-              { _dagID = Left x
-              , _spanP = getL spanA p
-              , _isAdjoinedTo = False }
+--   let q = if not (DAG.isRoot did dag)
+--           then Passive
+--                { _dagID = Right did
+--                , _spanP = getL spanA p
+--                , _isAdjoinedTo = False }
+--           else check $ do
+--             x <- mkRoot <$> DAG.label did dag
+--             return $ Passive
+--               { _dagID = Left x
+--               , _spanP = getL spanA p
+--               , _isAdjoinedTo = False }
+  let q = Passive
+          { _dagID = did
+          , _spanP = getL spanA p
+          , _isAdjoinedTo = False }
   lift $ pushPassive q (Deactivate p)
 #ifdef DebugOn
   -- print logging information
@@ -1058,7 +1061,7 @@ parsedTrees hype start n
 
   where
 
-    fromPassive :: Passive n t -> [T.Tree n t]
+    fromPassive :: Passive n -> [T.Tree n t]
     fromPassive p = concat
         [ fromPassiveTrav p trav
         | travSet <- maybeToList $ passiveTrav p hype
@@ -1071,7 +1074,7 @@ parsedTrees hype start n
 
     fromPassiveTrav p (Deactivate q) =
         [ T.Branch
-            (nonTerm (p ^. dagID) hype)
+            (nonTermH (p ^. dagID) hype)
             (reverse ts)
         | ts <- fromActive q
         ]
@@ -1103,7 +1106,7 @@ parsedTrees hype start n
         | ts <- fromActive q ]
 
     fromActiveTrav _p (Foot q p) =
-        [ T.Branch (nonTerm (p ^. dagID) hype) [] : ts
+        [ T.Branch (nonTermH (p ^. dagID) hype) [] : ts
         | ts <- fromActive q ]
 
     fromActiveTrav _p (Subst qp qa) =
@@ -1125,6 +1128,7 @@ parsedTrees hype start n
 --------------------------------------------------
 
 
+-- | TODO: What `S.Set t` means in this context?  Alternative?
 type DAGram n t = DAG.Gram n (S.Set t)
 
 
@@ -1133,11 +1137,13 @@ type DAGram n t = DAG.Gram n (S.Set t)
 recognize
     :: (SOrd t, SOrd n)
     => DAGram n t         -- ^ The grammar (set of rules)
+    -> M.Map t Int        -- ^ Position map
+    -> M.Map Int Int      -- ^ Head map
     -> Input t            -- ^ Input sentence
     -> IO Bool
-recognize DAG.Gram{..} input = do
+recognize DAG.Gram{..} posMap hedMap input = do
     let gram = fromGram (M.keysSet factGram)
-        auto = mkAuto dagGram gram
+        auto = mkAuto dagGram gram posMap hedMap
     recognizeAuto auto input
 
 
@@ -1149,11 +1155,13 @@ recognizeFrom
     :: (SOrd t, SOrd n)
     => DAGram n t           -- ^ The grammar
     -> n                    -- ^ The start symbol
+    -> M.Map t Int          -- ^ Position map
+    -> M.Map Int Int        -- ^ Head map
     -> Input t              -- ^ Input sentence
     -> IO Bool
-recognizeFrom DAG.Gram{..} start input = do
+recognizeFrom DAG.Gram{..} start posMap hedMap input = do
     let gram = fromGram (M.keysSet factGram)
-        auto = mkAuto dagGram gram
+        auto = mkAuto dagGram gram posMap hedMap
     recognizeFromAuto auto start input
 
 
@@ -1162,11 +1170,13 @@ parse
     :: (SOrd t, SOrd n)
     => DAGram n t           -- ^ The grammar (set of rules)
     -> n                    -- ^ The start symbol
+    -> M.Map t Int          -- ^ Position map
+    -> M.Map Int Int        -- ^ Head map
     -> Input t              -- ^ Input sentence
     -> IO [T.Tree n t]
-parse DAG.Gram{..} start input = do
+parse DAG.Gram{..} start posMap hedMap input = do
     let gram = fromGram (M.keysSet factGram)
-        auto = mkAuto dagGram gram
+        auto = mkAuto dagGram gram posMap hedMap
     parseAuto auto start input
 
 
@@ -1175,17 +1185,20 @@ parse DAG.Gram{..} start input = do
 earley
     :: (SOrd t, SOrd n)
     => DAGram n t           -- ^ The grammar (set of rules)
+    -> M.Map t Int          -- ^ Position map
+    -> M.Map Int Int        -- ^ Head map
     -> Input t              -- ^ Input sentence
     -> IO (Hype n t)
-earley DAG.Gram{..} input = do
+earley DAG.Gram{..} posMap hedMap input = do
     let gram = fromGram (M.keysSet factGram)
-        auto = mkAuto dagGram gram
+        auto = mkAuto dagGram gram posMap hedMap
     earleyAuto auto input
 
 
 -- | Default grammar automaton creation method.
 fromGram :: S.Set DAG.Rule -> A.GramAuto
-fromGram = AS.fromGram D.fromGram
+-- fromGram = AS.fromGram D.fromGram
+fromGram = AL.fromGram
 
 
 --------------------------------------------------
@@ -1273,7 +1286,7 @@ earleyAuto auto input = do
 --     => n            -- ^ The start symbol
 --     -> Int          -- ^ The length of the input sentence
 --     -> Hype n t     -- ^ Result of the earley computation
---     -> [Passive n t]
+--     -> [Passive n]
 -- finalFrom start n Hype{..} =
 --     case M.lookup (0, start, n) donePassive of
 --         Nothing -> []
@@ -1288,7 +1301,7 @@ earleyAuto auto input = do
 -- --     :: (Ord n, Eq t)
 -- --     -> Int          -- ^ The length of the input sentence
 -- --     -> Hype n t    -- ^ Result of the earley computation
--- --     -> [Passive n t]
+-- --     -> [Passive n]
 -- -- final start n Hype{..} =
 -- --     case M.lookup (0, start, n) donePassive of
 -- --         Nothing -> []
@@ -1317,8 +1330,8 @@ isRecognized input Hype{..} =
         , item ^. spanP ^. end == n
         , isNothing (item ^. spanP ^. gap)
         -- admit only *fully* recognized trees
-        , isRoot (item ^. dagID) ]
-        -- , DAG.isRoot (item ^. dagID) (gramDAG automat) ]
+        -- , isRoot (item ^. dagID) ]
+        , DAG.isRoot (item ^. dagID) (gramDAG automat) ]
         -- , isRoot (item ^. label) ]
     agregate = S.unions . map M.keysSet . M.elems
     -- isRoot (NonT _ Nothing) = True
@@ -1341,7 +1354,7 @@ activeTrav p h = Chart.activeTrav p (chart h)
 -- | Return the corresponding set of traversals for a passive item.
 passiveTrav
   :: (Ord n)
-  => Passive n t
+  => Passive n
   -> Hype n t
   -> Maybe (S.Set (Trav n t))
 passiveTrav p h = Chart.passiveTrav p (automat h) (chart h)
@@ -1353,8 +1366,8 @@ finalFrom
     => n            -- ^ The start symbol
     -> Int          -- ^ The length of the input sentence
     -> Hype n t     -- ^ Result of the earley computation
-    -> [Passive n t]
-finalFrom start n hype = Chart.finalFrom start n (chart hype)
+    -> [Passive n]
+finalFrom start n hype = Chart.finalFrom start n (automat hype) (chart hype)
 
 
 --------------------------------------------------
@@ -1403,5 +1416,7 @@ some = each . maybeToList
 
 
 -- | Take the non-terminal of the underlying DAG node.
-nonTerm :: Either (NotFoot n) DID -> Hype n t -> n
-nonTerm i = Base.nonTerm i . automat
+nonTermH :: DID -> Hype n t -> n
+nonTermH i = Base.nonTerm i . automat
+-- nonTerm :: Either (NotFoot n) DID -> Hype n t -> n
+-- nonTerm i = Base.nonTerm i . automat
