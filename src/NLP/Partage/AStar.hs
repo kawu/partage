@@ -845,7 +845,7 @@ trySubst p pw = void $ P.runListT $ do
            -- take the `DID` of a leaf with the appropriate non-terminal
            did <- each . S.toList . maybe S.empty id $
              M.lookup (nonTerm pDID auto) leafMap
-           -- determine the position of the head  tree
+           -- determine the position of the head tree
            let hedPos = M.lookup did anchorMap
            -- verify that the substitution is OK w.r.t. the dependency info
            -- guard $ (flip M.lookup headMap =<< depPos) == hedPos
@@ -908,8 +908,12 @@ trySubst' q qw = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- liftIO $ Time.getCurrentTime
 #endif
-    -- the underlying dag
-    dag <- RWS.gets (gramDAG . automat)
+    -- some underlying maps
+    auto <- RWS.gets automat
+    let dag = gramDAG auto
+        leafMap = leafDID auto
+        anchorMap = anchorPos auto
+        headMap = headPos auto
     -- Learn what non-terminals `q` actually expects.
     -- WARNING: in the automaton-based parser, this seems not
     -- particularly efficient in some corner cases...
@@ -918,11 +922,12 @@ trySubst' q qw = void $ P.runListT $ do
     -- (r@NonT{}, _) <- some $ expects' (q ^. state)
     -- (qLab@NonT{}, tranCost, j) <- elems (q ^. state)
     (qDID, tranCost, j) <- elems (q ^. state)
-    qNT <- some $ if DAG.isLeaf qDID dag
-              then do
-                   O.NonTerm x <- DAG.label qDID dag
-                   return (Left x)
-              else return (Right qDID)
+    qNT <- some $ 
+      if DAG.isLeaf qDID dag
+         then do
+           O.NonTerm x <- DAG.label qDID dag
+           return (Left x)
+         else return (Right qDID)
 --     -- Make sure `qDID` actually corresponds to a non-terminal
 --     guard . isJust $ do
 --       O.NonTerm _ <- DAG.label qDID dag
@@ -930,7 +935,23 @@ trySubst' q qw = void $ P.runListT $ do
     -- Find processed items which begin where `q` ends and which
     -- provide the non-terminal expected by `q`.
     (p, pw) <- provideBegIni qNT (q ^. spanA ^. end)
---     (p, pw) <- provideBegIni qDID (q ^. spanA ^. end)
+
+    -- Check if the dependencies match (but only in case of actual
+    -- substitution) (NEW: 13.12.2018)
+    guard $ 
+      if DAG.isLeaf qDID dag
+         then
+           -- determine the position of the head tree
+           let hedPos = M.lookup qDID anchorMap
+           -- determine the position of the dependent tree
+               depPos = M.lookup (p ^. dagID) anchorMap
+           -- verify that the substitution is OK w.r.t. the dependency info
+           -- guard $ (flip M.lookup headMap =<< depPos) == hedPos
+           in  case flip M.lookup headMap =<< depPos of
+                 Nothing -> True
+                 Just pos -> Just pos == hedPos
+         else True
+
     let pSpan = p ^. spanP
     -- construct the resultant state
     let q' = setL state j
@@ -1244,13 +1265,14 @@ tryAdjoinTerm q qw = void $ P.runListT $ do
     let qDID = q ^. dagID
         qSpan = q ^. spanP
     -- the underlying dag grammar
-    dag <- RWS.gets (gramDAG . automat)
+    auto <- RWS.gets automat
+    let dag = gramDAG auto
     -- make sure the label is top-level, i.e. that
     -- `qDID` represents a fully parsed (auxiliary) tree
     guard $ DAG.isRoot qDID dag
     -- make sure that it is an auxiliary item (by definition only
     -- auxiliary states have gaps)
-    (gapBeg, gapEnd) <- each $ maybeToList $ qSpan ^. gap
+    (gapBeg, gapEnd) <- some $ qSpan ^. gap
     -- take all passive items with a given span and a given
     -- root non-terminal (IDs irrelevant); it must not be
     -- a top-level auxiliary item (which should be guaranteed
@@ -1259,6 +1281,15 @@ tryAdjoinTerm q qw = void $ P.runListT $ do
     (p, pw) <- rootSpan qNonTerm (gapBeg, gapEnd)
     -- make sure that node represented by `p` was not yet adjoined to
     guard . not $ getL isAdjoinedTo p
+    -- check w.r.t. the dependency structure
+    let anchorMap = anchorPos auto
+        headMap = headPos auto
+        depPos = M.lookup (q ^. dagID) anchorMap
+        hedPos = M.lookup (p ^. dagID) anchorMap
+    guard $ case flip M.lookup headMap =<< depPos of
+              Nothing -> True
+              Just pos -> Just pos == hedPos
+    -- construct the resulting item
     let p' = setL (spanP >>> beg) (qSpan ^. beg)
            . setL (spanP >>> end) (qSpan ^. end)
            . setL isAdjoinedTo True
@@ -1307,7 +1338,8 @@ tryAdjoinTerm' p pw = void $ P.runListT $ do
     let pDID = p ^. dagID
         pSpan = p ^. spanP
     -- the underlying dag grammar
-    dag <- RWS.gets (gramDAG . automat)
+    auto <- RWS.gets automat
+    let dag = gramDAG auto
     -- Ensure that `p` is auxiliary but not top-level
     guard $ auxiliary pSpan <= not (DAG.isRoot pDID dag)
     -- Retrieve the non-terminal in the p's root
@@ -1320,6 +1352,14 @@ tryAdjoinTerm' p pw = void $ P.runListT $ do
         ( p ^. spanP ^. beg
         , p ^. spanP ^. end )
     let qSpan = q ^. spanP
+    -- check w.r.t. the dependency structure
+    let anchorMap = anchorPos auto
+        headMap = headPos auto
+        depPos = M.lookup (q ^. dagID) anchorMap
+        hedPos = M.lookup (p ^. dagID) anchorMap
+    guard $ case flip M.lookup headMap =<< depPos of
+              Nothing -> True
+              Just pos -> Just pos == hedPos
     -- Construct the resulting state:
     let p' = setL (spanP >>> beg) (qSpan ^. beg)
            . setL (spanP >>> end) (qSpan ^. end)
@@ -1430,7 +1470,8 @@ trySisterAdjoin p pw = void $ P.runListT $ do
     begTime <- liftIO $ Time.getCurrentTime
 #endif
     hype <- RWS.get
-    let dag = (gramDAG . automat) hype
+    let auto = automat hype
+        dag = gramDAG auto
         pDID = getL dagID p
         pSpan = getL spanP p
     -- make sure that `p' is not gapped
@@ -1442,6 +1483,15 @@ trySisterAdjoin p pw = void $ P.runListT $ do
     -- corresponding LHS non-terminal
 --     (q, qw) <- rootEnd (notFootLabel root) (getL beg pSpan)
     (q, qw) <- rootEnd (nonTermH pDID hype) (getL beg pSpan)
+    -- check w.r.t. the dependency structure
+    let anchorMap = anchorPos auto
+        anchorMap' = anchorPos' auto
+        headMap = headPos auto
+        depPos = M.lookup (p ^. dagID) anchorMap
+        hedPos = M.lookup (q ^. state) anchorMap'
+    guard $ case flip M.lookup headMap =<< depPos of
+              Nothing -> True
+              Just pos -> Just pos == hedPos
     -- construct the resultant item with the same state and extended span
     let q' = setL (end . spanA) (getL end pSpan) $ q
         newBeta = addWeight (duoBeta pw) (duoBeta qw)
@@ -1475,7 +1525,8 @@ trySisterAdjoin' q qw = void $ P.runListT $ do
   begTime <- liftIO $ Time.getCurrentTime
 #endif
   -- the underlying dag
-  dag <- RWS.gets (gramDAG . automat)
+  auto <- RWS.gets automat
+  let dag = gramDAG auto
   -- the underlying LHS map
   lhsMap <- RWS.gets (lhsNonTerm . automat)
   -- Learn what is the LHS of `q`
@@ -1485,6 +1536,15 @@ trySisterAdjoin' q qw = void $ P.runListT $ do
   -- sister trees.
   let sister = lhsNotFoot {isSister = True}
   (p, pw) <- provideBegIni' (Left sister) (q ^. spanA ^. end)
+  -- check w.r.t. the dependency structure
+  let anchorMap = anchorPos auto
+      anchorMap' = anchorPos' auto
+      headMap = headPos auto
+      depPos = M.lookup (p ^. dagID) anchorMap
+      hedPos = M.lookup (q ^. state) anchorMap'
+  guard $ case flip M.lookup headMap =<< depPos of
+            Nothing -> True
+            Just pos -> Just pos == hedPos
   -- construct the resulting item with the same state and extended span
   let pSpan = getL spanP p
       q' = setL (end . spanA) (getL end pSpan) $ q
