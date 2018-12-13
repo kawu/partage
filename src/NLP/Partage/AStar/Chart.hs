@@ -34,6 +34,7 @@ module NLP.Partage.AStar.Chart
   , rootEnd
   , provideBeg'
   , provideBegIni
+  , provideBegIni'
   , provideBegAux
   , auxModifyGap
 )
@@ -59,7 +60,7 @@ import           Data.DAWG.Ord               (ID)
 import           NLP.Partage.SOrd
 import           NLP.Partage.DAG             (Weight)
 import qualified NLP.Partage.DAG             as DAG
--- import qualified NLP.Partage.Tree.Other      as O
+import qualified NLP.Partage.Tree.Other      as O
 
 import           NLP.Partage.AStar.Auto      (Auto (..))
 import           NLP.Partage.AStar.Base
@@ -277,7 +278,7 @@ passiveTrav p auto hype
 --     M.lookup (nonTerm (p ^. dagID) hype) >>=
 --     M.lookup (p ^. spanP ^. end) >>=
 --     M.lookup p
-  | isRoot (p ^. dagID) = lookup4
+  | DAG.isRoot (p ^. dagID) dag = lookup4
       (fst . fromJust $ p ^. spanP ^. gap)
       (nonTerm (p ^. dagID) auto)
       (snd . fromJust $ p ^. spanP ^. gap)
@@ -295,6 +296,8 @@ passiveTrav p auto hype
 --     M.lookup (nonTerm (p ^. dagID) hype) >>=
 --     M.lookup (p ^. spanP ^. end) >>=
 --     M.lookup p
+  where
+    dag = gramDAG auto
 
 
 -- | Check if the state is not already processed.
@@ -324,7 +327,7 @@ savePassive p ts auto chart
              -- (p ^. dagID)
              p ts (donePassiveIni chart)
       in chart {donePassiveIni = newDone}
-  | isRoot (p ^. dagID) =
+  | DAG.isRoot (p ^. dagID) dag =
        let newDone =
              insertWith4 joinExtWeight'
                (fst . fromJust $ p ^. spanP ^. gap)
@@ -340,6 +343,8 @@ savePassive p ts auto chart
                (p ^. spanP ^. end)
                p ts (donePassiveAuxNoTop chart)
        in chart {donePassiveAuxNoTop = newDone}
+  where
+    dag = gramDAG auto
 
 
 -- | Check if, for the given active item, the given transitions are already
@@ -367,17 +372,22 @@ finalFrom
     :: (Ord n, Eq t)
     => n            -- ^ The start symbol
     -> Int          -- ^ The length of the input sentence
+    -> Auto n t     -- ^ The underlying Earl yautomaton
     -> Chart n t    -- ^ Result of the earley computation
     -> [Passive n t]
-finalFrom start n Chart{..} =
+finalFrom start n auto Chart{..} =
   case M.lookup 0 donePassiveIni >>= M.lookup start >>= M.lookup n of
     Nothing -> []
     Just m ->
       [ p
       | p <- M.keys m
-      , p ^. dagID == Left root ]
+      -- , p ^. dagID == Left root ]
+      , DAG.isRoot (p ^. dagID) dag
+      , getLabel (p ^. dagID) == Just start ]
   where
-    root = NotFoot {notFootLabel = start, isSister = False}
+    dag = gramDAG auto
+    -- root = NotFoot {notFootLabel = start, isSister = False}
+    getLabel did = labNonTerm =<< DAG.label did dag
 
 
 -- -- | Return all active processed items which:
@@ -569,13 +579,23 @@ provideBegIni
     :: (Ord n, Ord t, MS.MonadState s m)
     => (s -> Auto n t)
     -> (s -> Chart n t)
-    -> Either (NotFoot n) DAG.DID -> Pos
+    -- -> Either (NotFoot n) DAG.DID
+    -> Either n DAG.DID
+    -- -> DAG.DID
+    -> Pos
     -> P.ListT m (Passive n t, DuoWeight)
 provideBegIni getAuto getChart x i = do
   compState <- lift MS.get
   let Chart{..} = getChart compState
       auto = getAuto compState
-      n = nonTerm x auto
+      n = 
+        case x of
+          Left nt -> nt
+          Right did -> nonTerm did auto
+      checkNonTerm qDID =
+        case x of
+          Left nt -> nonTerm qDID auto == nt
+          Right did -> qDID == did
   each $
     maybeToList ((M.lookup i >=> M.lookup n) donePassiveIni) >>=
     M.elems >>=
@@ -584,7 +604,58 @@ provideBegIni getAuto getChart x i = do
           p <-
             [ (q, duoWeight e)
             | (q, e) <- M.toList m
-            , q ^. dagID == x ]
+            -- , q ^. dagID == x ]
+            , checkNonTerm $ q ^. dagID ]
+          return p )
+
+
+-- | Return all initial passive items which:
+-- * provide a given label,
+-- * begin on the given position.
+--
+-- TODO: Should be better optimized.
+provideBegIni'
+    :: (Ord n, Ord t, MS.MonadState s m)
+    => (s -> Auto n t)
+    -> (s -> Chart n t)
+    -> Either (NotFoot n) DAG.DID
+    -> Pos
+    -> P.ListT m (Passive n t, DuoWeight)
+provideBegIni' getAuto getChart x i = do
+  compState <- lift MS.get
+  let Chart{..} = getChart compState
+      auto = getAuto compState
+      dag = gramDAG auto
+      label did =
+        case DAG.label did dag >>= labNonTerm of
+          Just x -> x
+          Nothing -> error "AStar.Chart.provideBegIni': unknown DID"
+      labNonTerm (O.NonTerm y) = Just $ NotFoot
+        { notFootLabel = y
+        , isSister = False }
+      labNonTerm (O.Sister y) = Just $ NotFoot
+        { notFootLabel = y
+        , isSister = True }
+      labNonTerm _ = Nothing
+      n =
+        case x of
+          Left nt -> notFootLabel nt
+          Right did -> nonTerm did auto
+      checkNonTerm qDID =
+        case x of
+          -- Left nt -> nonTerm qDID auto == nt
+          Left nt -> label qDID == nt
+          Right did -> qDID == did
+  each $
+    maybeToList ((M.lookup i >=> M.lookup n) donePassiveIni) >>=
+    M.elems >>=
+    -- maybeToList . M.lookup x >>=
+      ( \m -> do
+          p <-
+            [ (q, duoWeight e)
+            | (q, e) <- M.toList m
+            -- , q ^. dagID == x ]
+            , checkNonTerm $ q ^. dagID ]
           return p )
 
 
@@ -603,13 +674,15 @@ provideBegAux getAuto getChart x i = do
   compState <- lift MS.get
   let Chart{..} = getChart compState
       auto = getAuto compState
-      n = nonTerm (Right x) auto
+      -- n = nonTerm (Right x) auto
+      n = nonTerm x auto
   each $ case M.lookup i donePassiveAuxNoTop >>= M.lookup n of
     Nothing -> []
     Just m ->
       [ (q, duoWeight e)
       | (q, e) <- (M.elems >=> M.toList) m
-      , q ^. dagID == Right x ]
+      -- , q ^. dagID == Right x ]
+      , q ^. dagID == x ]
 
 
 -- | Return all fully parsed items:

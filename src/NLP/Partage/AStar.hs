@@ -136,7 +136,7 @@ import           NLP.Partage.AStar.Auto (Auto(..), mkAuto)
 -- import qualified NLP.Partage.AStar.Heuristic.Dummy as H
 import qualified NLP.Partage.AStar.Heuristic as H
 
-import           NLP.Partage.AStar.Base hiding (nonTerm)
+import           NLP.Partage.AStar.Base -- hiding (nonTerm)
 import qualified NLP.Partage.AStar.Base as Base
 import           NLP.Partage.AStar.Item hiding (printPassive)
 import qualified NLP.Partage.AStar.Item as Item
@@ -626,9 +626,10 @@ estimateDistP :: (Ord t) => Passive n t -> Earley n t Weight
 estimateDistP p = do
   tbag <- bagOfTerms (p ^. spanP)
   H.Esti{..} <- RWS.gets (estiCost . automat)
-  return $ case p ^. dagID of
-    Left _  -> termEsti tbag
-    Right i -> dagEsti i tbag
+--   return $ case p ^. dagID of
+--     Left _  -> termEsti tbag
+--     Right i -> dagEsti i tbag
+  return $ dagEsti (p ^. dagID) tbag
 
 
 -- | Estimate the remaining distance for an active item.
@@ -656,9 +657,10 @@ amortizedWeight :: Passive n t -> Earley n t Weight
 #ifdef NewHeuristic
 amortizedWeight p = do
   dagAmort <- RWS.gets (H.dagAmort . estiCost . automat)
-  return $ case p ^. dagID of
-    Left _  -> zeroWeight
-    Right i -> dagAmort i
+--   return $ case p ^. dagID of
+--     Left _  -> zeroWeight
+--     Right i -> dagAmort i
+  return $ dagAmort (p ^. dagID)
 #else
 amortizedWeight = const $ return zeroWeight
 #endif
@@ -721,16 +723,14 @@ provideBegIni
     :: (Ord n, Ord t) => Either n DID -> Pos
     -> P.ListT (Earley n t) (Passive n t, DuoWeight)
 provideBegIni =
-  Chart.provideBegIni automat chart . Arr.left mkNotFoot
-  where
-    mkNotFoot x = NotFoot {notFootLabel=x, isSister=False}
+  Chart.provideBegIni automat chart
 
 
 -- | See `Chart.provideBegIni`.
 provideBegIni'
     :: (Ord n, Ord t) => Either (NotFoot n) DID -> Pos
     -> P.ListT (Earley n t) (Passive n t, DuoWeight)
-provideBegIni' = Chart.provideBegIni automat chart
+provideBegIni' = Chart.provideBegIni' automat chart
 
 
 -- | See `Chart.provideBegAux`.
@@ -817,21 +817,46 @@ trySubst p pw = void $ P.runListT $ do
         pSpan = getL spanP p
     -- make sure that `p' represents regular rules
     guard . regular $ pSpan
+    -- some underlying maps
+    auto <- RWS.gets automat
+    let dag = gramDAG auto
+        leafMap = leafDID auto
+        anchorMap = anchorPos auto
+        headMap = headPos auto
     -- make sure that `p` does not represent sister tree
-    guard $ case pDID of
-        Left root -> not (isSister root)
-        Right _ -> True
-    -- the underlying leaf map
-    leafMap <- RWS.gets (leafDID  . automat)
-    -- now, we need to choose the DAG node to search for depending on
-    -- whether the DAG node provided by `p' is a root or not
-    theDID <- case pDID of
-        -- real substitution
-        Left root ->
-          each . S.toList . maybe S.empty id $
-            M.lookup (notFootLabel root) leafMap
-        -- pseudo-substitution
-        Right did -> return did
+    guard $ not (isSister' pDID dag)
+    -- now, we need to choose the DAG node to search for depending on whether
+    -- the DAG node provided by `p' is a root or not
+--     # OLD VERSION FOLLOWS
+--     theDID <- case pDID of
+--         -- real substitution
+--         Left root ->
+--           each . S.toList . maybe S.empty id $
+--             M.lookup (notFootLabel root) leafMap
+--         -- pseudo-substitution
+--         Right did -> return did
+--     # NEW VERSION FOLLOWS
+    theDID <-
+      if DAG.isRoot pDID dag
+         -- real substitution
+         then do
+           -- determine the position of the dependent tree
+           let depPos = M.lookup pDID anchorMap
+           -- take the `DID` of a leaf with the appropriate non-terminal
+           did <- each . S.toList . maybe S.empty id $
+             M.lookup (nonTerm pDID auto) leafMap
+           -- determine the position of the head  tree
+           let hedPos = M.lookup did anchorMap
+           -- verify that the substitution is OK w.r.t. the dependency info
+           -- guard $ (flip M.lookup headMap =<< depPos) == hedPos
+           guard $ case flip M.lookup headMap =<< depPos of
+                     Nothing -> True
+                     Just pos -> Just pos == hedPos
+           return did
+         -- pseudo-substitution
+         else do
+           return pDID
+--     # NEW VERSION ENDS
     -- find active items which end where `p' begins and which
     -- expect the non-terminal provided by `p' (ID included)
     (q, qw) <- expectEnd theDID (getL beg pSpan)
@@ -866,6 +891,12 @@ trySubst p pw = void $ P.runListT $ do
 #endif
 
 
+--------------------------------------------------
+-- TODO: starting from this point, the hedMap
+-- is not yet accounted for!
+--------------------------------------------------
+
+
 -- | Reversed `trySubst` version.  Try to completent the item with
 -- another fully parsed item.
 trySubst'
@@ -881,7 +912,7 @@ trySubst' q qw = void $ P.runListT $ do
     dag <- RWS.gets (gramDAG . automat)
     -- Learn what non-terminals `q` actually expects.
     -- WARNING: in the automaton-based parser, this seems not
-    -- particularly efficient in some edge cases...
+    -- particularly efficient in some corner cases...
     -- For instance, when `q` refers to the root node of an
     -- automaton.  Can we bypass this issue?
     -- (r@NonT{}, _) <- some $ expects' (q ^. state)
@@ -892,9 +923,14 @@ trySubst' q qw = void $ P.runListT $ do
                    O.NonTerm x <- DAG.label qDID dag
                    return (Left x)
               else return (Right qDID)
+--     -- Make sure `qDID` actually corresponds to a non-terminal
+--     guard . isJust $ do
+--       O.NonTerm _ <- DAG.label qDID dag
+--       return ()
     -- Find processed items which begin where `q` ends and which
     -- provide the non-terminal expected by `q`.
     (p, pw) <- provideBegIni qNT (q ^. spanA ^. end)
+--     (p, pw) <- provideBegIni qDID (q ^. spanA ^. end)
     let pSpan = p ^. spanP
     -- construct the resultant state
     let q' = setL state j
@@ -952,7 +988,8 @@ tryAdjoinInit p pw = void $ P.runListT $ do
     let footMap = footDID  . automat $ hype
     -- make sure that the corresponding rule is either regular or
     -- intermediate auxiliary ((<=) used as implication here)
-    guard $ auxiliary pSpan <= not (isRoot pDID)
+--     guard $ auxiliary pSpan <= not (isRoot pDID)
+    guard $ auxiliary pSpan <= not (DAG.isRoot pDID dag)
     -- find all active items which expect a foot with the given
     -- symbol and which end where `p` begins
     footNT <- some (nonTerm' pDID dag)
@@ -979,7 +1016,7 @@ tryAdjoinInit p pw = void $ P.runListT $ do
         newGap = duoBeta pw + duoGap pw + amortWeight
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
     lift $ pushInduced q' newDuo
-             (Foot q (nonTerm (p ^. dagID) hype) tranCost)
+             (Foot q (nonTermH (p ^. dagID) hype) tranCost)
 --     -- push the resulting state into the waiting queue
 --     lift $ pushInduced q' $ Foot q p -- -- $ nonTerm foot
 #ifdef CheckMonotonic
@@ -1029,7 +1066,7 @@ tryAdjoinInit' q qw = void $ P.runListT $ do
     let pDID = p ^. dagID
         pSpan = p ^. spanP
     -- The retrieved items must not be auxiliary top-level.
-    guard $ auxiliary pSpan <= not (isRoot pDID)
+    guard $ auxiliary pSpan <= not (DAG.isRoot pDID dag)
     let q' = setL state j
            . setL (spanA >>> end) (pSpan ^. end)
            . setL (spanA >>> gap) (Just
@@ -1045,7 +1082,7 @@ tryAdjoinInit' q qw = void $ P.runListT $ do
         newGap = duoBeta pw + duoGap pw + amortWeight
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
     lift $ pushInduced q' newDuo
-             (Foot q (nonTerm (p ^. dagID) hype) tranCost)
+             (Foot q (nonTermH (p ^. dagID) hype) tranCost)
 #ifdef CheckMonotonic
     lift $ testMono "ADJOIN-INIT'" (p, pw) (q, qw) (q', newDuo)
 #endif
@@ -1079,22 +1116,21 @@ tryAdjoinCont p pw = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- liftIO $ Time.getCurrentTime
 #endif
-    let pDID = p ^. dagID
+    hype <- RWS.get
+    let dag = gramDAG . automat $ hype
+        pDID = p ^. dagID
         pSpan = p ^. spanP
     -- make sure that `p' is indeed an auxiliary item
     guard . auxiliary $ pSpan
     -- make sure the label is not a top-level (internal spine
     -- non-terminal)
-    -- guard . not $ isRoot pDID
-    theDID <- some $ case pDID of
-        Left _  -> Nothing
-        Right i -> Just i
+    guard . not $ DAG.isRoot pDID dag
     -- find all items which expect a spine non-terminal provided
     -- by `p' and which end where `p' begins
-    -- (q, cost') <- expectEnd theDID (pSpan ^. beg)
-    (q, qw) <- expectEnd theDID (pSpan ^. beg)
+    -- (q, cost') <- expectEnd pDID (pSpan ^. beg)
+    (q, qw) <- expectEnd pDID (pSpan ^. beg)
     -- follow the spine non-terminal
-    (tranCost, j) <- follow (q ^. state) theDID
+    (tranCost, j) <- follow (q ^. state) pDID
     -- construct the resulting state; the span of the gap of the
     -- inner state `p' is copied to the outer state based on `q'
     let q' = setL state j
@@ -1211,7 +1247,7 @@ tryAdjoinTerm q qw = void $ P.runListT $ do
     dag <- RWS.gets (gramDAG . automat)
     -- make sure the label is top-level, i.e. that
     -- `qDID` represents a fully parsed (auxiliary) tree
-    guard $ isRoot qDID
+    guard $ DAG.isRoot qDID dag
     -- make sure that it is an auxiliary item (by definition only
     -- auxiliary states have gaps)
     (gapBeg, gapEnd) <- each $ maybeToList $ qSpan ^. gap
@@ -1273,7 +1309,7 @@ tryAdjoinTerm' p pw = void $ P.runListT $ do
     -- the underlying dag grammar
     dag <- RWS.gets (gramDAG . automat)
     -- Ensure that `p` is auxiliary but not top-level
-    guard $ auxiliary pSpan <= not (isRoot pDID)
+    guard $ auxiliary pSpan <= not (DAG.isRoot pDID dag)
     -- Retrieve the non-terminal in the p's root
     pNT <- some $ nonTerm' pDID dag
     -- Retrieve all completed, top-level items representing auxiliary
@@ -1335,17 +1371,11 @@ tryDeactivate q qw = void $ P.runListT $ do
 #endif
   dag <- RWS.gets (gramDAG . automat)
   (headCost, did) <- heads (getL state q)
-  let p = if not (DAG.isRoot did dag)
-          then Passive
-               { _dagID = Right did
-               , _spanP = getL spanA q
-               , _isAdjoinedTo = False }
-          else check $ do
-            x <- mkRoot <$> DAG.label did dag
-            return $ Passive
-              { _dagID = Left x
-              , _spanP = getL spanA q
-              , _isAdjoinedTo = False }
+  return undefined
+  let p = Passive
+          { _dagID = did
+          , _spanP = getL spanA q
+          , _isAdjoinedTo = False }
   -- estDist <- lift (estimateDistP p)
   -- let ext  = new priWeight
   -- let ext' = ext
@@ -1399,16 +1429,19 @@ trySisterAdjoin p pw = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- liftIO $ Time.getCurrentTime
 #endif
-    let pDID = getL dagID p
+    hype <- RWS.get
+    let dag = (gramDAG . automat) hype
+        pDID = getL dagID p
         pSpan = getL spanP p
     -- make sure that `p' is not gapped
     guard . regular $ pSpan
     -- make sure that `p` represents a sister tree
-    Left root <- return pDID
-    guard $ isSister root
+--     Left root <- return pDID
+    guard $ DAG.isRoot pDID dag && isSister' pDID dag
     -- find active items which end where `p' begins and which have the
     -- corresponding LHS non-terminal
-    (q, qw) <- rootEnd (notFootLabel root) (getL beg pSpan)
+--     (q, qw) <- rootEnd (notFootLabel root) (getL beg pSpan)
+    (q, qw) <- rootEnd (nonTermH pDID hype) (getL beg pSpan)
     -- construct the resultant item with the same state and extended span
     let q' = setL (end . spanA) (getL end pSpan) $ q
         newBeta = addWeight (duoBeta pw) (duoBeta qw)
@@ -1529,7 +1562,7 @@ fromPassive passive hype = concat
         , ini <- fromPassive qm hype ]
     fromPassiveTrav p (Deactivate q _) =
         [ T.Branch
-            (nonTerm (p ^. dagID) hype)
+            (nonTermH (p ^. dagID) hype)
             (reverse ts)
         | ts <- fromActive q hype
         ]
@@ -1584,11 +1617,13 @@ recognizeFrom
     -> [ ( O.Tree n t
          , Weight ) ]          -- ^ Weighted grammar
     -> n                    -- ^ The start symbol
+    -> M.Map t Int          -- ^ Position map
+    -> M.Map Int Int        -- ^ Head map
     -> Input t              -- ^ Input sentence
     -> IO Bool
 -- recognizeFrom memoTerm gram dag termWei start input = do
-recognizeFrom memoTerm gram start input = do
-    let auto = mkAuto memoTerm (DAG.mkGram gram)
+recognizeFrom memoTerm gram start posMap hedMap input = do
+    let auto = mkAuto memoTerm (DAG.mkGram gram) posMap hedMap
 --     mapM_ print $ M.toList (DAG.nodeMap $ gramDAG auto)
 --     putStrLn "========="
 --     mapM_ print $ A.allEdges (A.fromWei $ gramAuto auto)
@@ -1812,7 +1847,7 @@ finalFrom
     -> Int          -- ^ The length of the input sentence
     -> Hype n t     -- ^ Result of the earley computation
     -> [Passive n t]
-finalFrom start n hype = Chart.finalFrom start n (chart hype)
+finalFrom start n hype = Chart.finalFrom start n (automat hype) (chart hype)
 
 
 -- -- -- | Return the list of final passive chart items.
@@ -1895,9 +1930,14 @@ over :: Pos -> Pos -> [a] -> [a]
 over i j = take (j - i) . drop i
 
 
+-- -- | Take the non-terminal of the underlying DAG node.
+-- nonTerm :: Either (NotFoot n) DID -> Hype n t -> n
+-- nonTerm i = Base.nonTerm i . automat
+
+
 -- | Take the non-terminal of the underlying DAG node.
-nonTerm :: Either (NotFoot n) DID -> Hype n t -> n
-nonTerm i = Base.nonTerm i . automat
+nonTermH :: DID -> Hype n t -> n
+nonTermH i = Base.nonTerm i . automat
 
 
 --------------------------------------------------

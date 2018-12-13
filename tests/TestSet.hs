@@ -219,8 +219,8 @@ mkGram1 = map (,1) $
 gram1Tests :: [Test]
 gram1Tests =
     -- group 1
---     [ Test "S" ["Tom", "sleeps"] Yes ]
-    [ Test "S" ["Tom", "sleeps"] . Trees . S.singleton $
+    [ Test "S" ["Tom", "sleeps"] Yes
+    , Test "S" ["Tom", "sleeps"] . Trees . S.singleton $
         Branch "S"
             [ Branch "NP"
                 [ Branch "N"

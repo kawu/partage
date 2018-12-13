@@ -41,9 +41,11 @@ import qualified Data.Tree                 as R
 import qualified Pipes                     as P
 -- import qualified Pipes.Prelude              as P
 
+import qualified NLP.Partage.DAG as DAG
 import           NLP.Partage.AStar         (Tok)
 import qualified NLP.Partage.AStar         as A
 import qualified NLP.Partage.AStar.Base    as Base
+import qualified NLP.Partage.AStar.Auto    as Auto
 -- import           NLP.Partage.DAG        (Weight)
 import qualified NLP.Partage.Tree.Other    as O
 
@@ -163,17 +165,25 @@ only x = DerivNode {node = x, modif =  []}
 
 -- | Several constructors which allow to build non-modified nodes.
 mkRoot :: A.Hype n t -> A.Passive n t -> DerivNode n (Tok t)
--- mkRoot hype p = only . O.NonTerm $ A.nonTerm (getL A.dagID p) hype
+-- mkRoot hype p = only $
+--   case dagID of
+--     Left notFoot ->
+--       if Base.isSister notFoot
+--       then O.Sister labNT
+--       else O.NonTerm labNT
+--     Right did -> O.NonTerm labNT
+--   where
+--     dagID = getL A.dagID p
+--     labNT = A.nonTerm dagID hype
 mkRoot hype p = only $
-  case dagID of
-    Left notFoot ->
-      if Base.isSister notFoot
-      then O.Sister labNT
-      else O.NonTerm labNT
-    Right did -> O.NonTerm labNT
+  if Base.isSister' dagID dag
+     then O.Sister labNT
+     else O.NonTerm labNT
   where
     dagID = getL A.dagID p
-    labNT = A.nonTerm dagID hype
+    auto  = A.automat hype
+    dag   = Auto.gramDAG auto
+    labNT = Base.nonTerm dagID auto
 
 
 mkFoot :: n -> DerivNode n t
@@ -198,23 +208,35 @@ derivRoot R.Node{..} = case node rootLabel of
   O.Term _ -> error "passiveDerivs.getRoot: got terminal"
 
 -- | Construct substitution node stemming from the given derivation.
-substNode :: A.Passive n t -> Deriv n (Tok t) -> Deriv n (Tok t)
-substNode p t
-  | A.isRoot (p ^. A.dagID) = flip R.Node [] $ DerivNode
+substNode :: A.Hype n t -> A.Passive n t -> Deriv n (Tok t) -> Deriv n (Tok t)
+substNode hype p t
+--   | A.isRoot (p ^. A.dagID) = flip R.Node [] $ DerivNode
+--     { node = O.NonTerm (derivRoot t)
+--     , modif   = [t] }
+  | DAG.isRoot (p ^. A.dagID) dag = flip R.Node [] $ DerivNode
     { node = O.NonTerm (derivRoot t)
     , modif   = [t] }
   | otherwise = t
+  where
+    dag = Auto.gramDAG $ A.automat hype
 
 -- | Inverse of `substNode`.
 -- substNode p t == t' => unSubstNode o t' == Just t
-unSubstNode :: (Eq n) => A.Passive n t -> Deriv n (Tok t) -> Maybe (Deriv n (Tok t))
-unSubstNode p t'
-  | A.isRoot (p ^. A.dagID) = do
+unSubstNode :: (Eq n) => A.Hype n t -> A.Passive n t -> Deriv n (Tok t) -> Maybe (Deriv n (Tok t))
+unSubstNode hype p t'
+--   | A.isRoot (p ^. A.dagID) = do
+--       R.Node DerivNode{..} [] <- return t'
+--       [t] <- return modif
+--       guard $ node == O.NonTerm (derivRoot t)
+--       return t
+  | DAG.isRoot (p ^. A.dagID) dag = do
       R.Node DerivNode{..} [] <- return t'
       [t] <- return modif
       guard $ node == O.NonTerm (derivRoot t)
       return t
   | otherwise = Just t'
+  where
+    dag = Auto.gramDAG $ A.automat hype
 
 -- | Add the auxiliary derivation to the list of modifications of the
 -- initial derivation.
@@ -345,7 +367,7 @@ fromActiveTrav _p trav hype = case trav of
     [ footNode x : ts
     | ts <- activeDerivs q ]
   A.Subst qp qa _ ->
-    [ substNode qp t : ts
+    [ substNode hype qp t : ts
     | ts <- activeDerivs qa
     , t  <- passiveDerivs qp ]
   A.SisterAdjoin qp qa ->
@@ -480,7 +502,7 @@ activeTravEncodes _p trav hype root = case trav of
 
   A.Subst qp qa _ -> isJust $ do
     deriv : ts <- return root
-    t <- unSubstNode qp deriv
+    t <- unSubstNode hype qp deriv
     guard $ passiveEncodes qp hype t
     guard $ activeEncodes qa hype ts
 
@@ -682,7 +704,7 @@ upFromPassiveTrav source revTrav sourceDerivs hype revHype =
       -- we now have a passive source, another active source, and an unknown target;
       -- based on that, we create a list of derivations of the source nodes.
       let combinedDerivs _ =
-            [ substNode source t : ts
+            [ substNode hype source t : ts
             | ts <- fromActive actArg hype
             , t  <- sourceDerivs () ]
       -- once we have the combined derivations of the source nodes, we proceed upwards
@@ -745,7 +767,7 @@ upFromActiveTrav _source revTrav sourceDerivs hype revHype =
       in  upFromActive outItemA combinedDerivs hype revHype
     SubstA{..} ->
       let combinedDerivs _ =
-            [ substNode passArg t : ts
+            [ substNode hype passArg t : ts
             | ts <- sourceDerivs () -- fromActive actArg hype
             , t  <- fromPassive passArg hype ]
       in  upFromActive outItemA combinedDerivs hype revHype
@@ -841,7 +863,7 @@ procModif A.HypeModif{..}
   | modifType == A.NewNode = fmap (maybe [] id) . runMaybeT $ do
       -- liftIO $ putStrLn "<<NewNode>>"
       A.ItemP p <- return modifItem
-      guard =<< lift (isFinal p)
+      guard =<< lift (isFinal modifHype p)
       -- liftIO $ putStrLn "<<NewNode->isFinal>>"
       lift $ goNode modifItem
       return $ fromPassive p modifHype
@@ -991,28 +1013,35 @@ turnAround item trav = case trav of
 -- | Check whether the given passive item is final or not.
 isFinal
   :: (Monad m, Eq n)
-  => A.Passive n t -- ^ The item to check
+  => A.Hype n t
+  -> A.Passive n t -- ^ The item to check
   -> DerivM n t m Bool
-isFinal p = do
+isFinal hype p = do
   DerivR{..} <- RWS.ask
-  return $ isFinal_ startSym sentLen p
+  return $ isFinal_ hype startSym sentLen p
 
 
 -- | Check whether the given passive item is final or not.
 -- TODO: Move to some core module?
 isFinal_
   :: (Eq n)
-  => n             -- ^ The start symbol
+  => A.Hype n t
+  -> n             -- ^ The start symbol
   -> Int           -- ^ The length of the input sentence
   -> A.Passive n t -- ^ The item to check
   -> Bool
-isFinal_ start n p =
+isFinal_ hype start n p =
   p ^. A.spanP ^. A.beg == 0 &&
   p ^. A.spanP ^. A.end == n &&
-  p ^. A.dagID == Left root &&
-  p ^. A.spanP ^. A.gap == Nothing
+  p ^. A.spanP ^. A.gap == Nothing &&
+  -- p ^. A.dagID == Left root &&
+  DAG.isRoot dagID dag &&
+  getLabel dagID == Just start
   where
-    root = Base.NotFoot {notFootLabel=start, isSister=False}
+    -- root = Base.NotFoot {notFootLabel=start, isSister=False}
+    dag = Auto.gramDAG $ A.automat hype
+    dagID = p ^. A.dagID
+    getLabel did = Base.labNonTerm =<< DAG.label did dag
 
 
 -- -- | ListT from a list.

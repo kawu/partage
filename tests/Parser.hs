@@ -61,12 +61,14 @@ testAStar =
       , T.encodes = Just encodesFrom
       , T.derivPipe  = Just derivPipe
       }
+    posMap = M.empty
+    hedMap = M.empty
     recFrom gram start
-      = A.recognizeFrom memoTerm gram start
+      = A.recognizeFrom memoTerm gram start posMap hedMap
       . A.fromList
     parseFrom gram start input = do
       let dag = DAG.mkGram gram
-          auto = A.mkAuto memoTerm dag
+          auto = A.mkAuto memoTerm dag posMap hedMap
       hype <- A.earleyAuto auto (A.fromList input)
       return
         . S.fromList
@@ -76,13 +78,13 @@ testAStar =
         $ A.parsedTrees hype start (length input)
     derivFrom gram start input = do
       let dag = DAG.mkGram gram
-          auto = A.mkAuto memoTerm dag
+          auto = A.mkAuto memoTerm dag posMap hedMap
       hype <- A.earleyAuto auto (A.fromList input)
       return $ D.derivTrees hype start (length input)
     encodesFrom hype start input = D.encodes hype start (length input)
     derivPipe gram start sent =
       let dag = DAG.mkGram gram
-          auto = A.mkAuto memoTerm dag
+          auto = A.mkAuto memoTerm dag M.empty M.empty
           input = A.fromList sent
           conf = D.DerivR
             { D.startSym = start

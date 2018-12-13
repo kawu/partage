@@ -62,12 +62,14 @@ $( makeLenses [''Active] )
 
 
 -- | Passive chart item : label + span.
-data Passive n t = Passive {
-      _dagID :: Either (NotFoot n) DID
-    , _spanP :: Span
-    , _isAdjoinedTo :: Bool
-      -- ^ Was the node represented by the item already adjoined to?
-    } deriving (Show, Eq, Ord)
+data Passive n t = Passive
+  { _dagID :: DID
+    -- ^ The `DID` of the elementary tree node
+  , _spanP :: Span
+    -- ^ Span of the chart item
+  , _isAdjoinedTo :: Bool
+    -- ^ Was the node represented by the item already adjoined to?
+  } deriving (Show, Eq, Ord)
 $( makeLenses [''Passive] )
 
 
@@ -118,12 +120,10 @@ printActive p = do
 printPassive :: (Show n, Show t) => Passive n t -> Auto n t -> IO ()
 printPassive p auto = do
     putStr "("
-    -- putStr . viewLab $ getL label p
-    putStr $ case getL dagID p of
-        Left rootNT -> show rootNT
-        Right did   ->
-          show (DAG.unDID did) ++ "[" ++
-          show (nonTerm (getL dagID p) auto) ++ "]"
+    putStr $
+      let did = getL dagID p
+       in show (DAG.unDID did) ++ "[" ++
+          show (nonTerm did auto) ++ "]"
     putStr ", "
     printSpan $ getL spanP p
     putStrLn ")"

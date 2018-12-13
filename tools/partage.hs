@@ -347,13 +347,20 @@ run cmd =
           input = zip [0 :: Int ..] (map Br.tokWord sent)
           inputVect = V.fromList (map Br.tokWord sent)
 
+          -- Calculate the position map (mapping from tokens to their
+          -- positions)
+          posMap = M.fromList [(x, fst x) | x <- input]
+
+          -- Create the corresponding position map
+          depMap = mkDepMap $ zip [0 :: Int ..] sent
+
           -- Create the compressed grammar representation
           gram
             = DAG.mkGram
             . anchorTags
             . zip [0 :: Int ..]
             $ sent
-          automat = A.mkAuto memoTerm gram
+          automat = A.mkAuto memoTerm gram posMap depMap
           memoTerm = Memo.wrap
             (\i -> (i, inputVect V.! i))
             (\(i, _w) -> i)
@@ -371,7 +378,7 @@ run cmd =
               A.HypeModif{..} <- P.await
               case (modifType, modifItem) of
                 (A.NewNode, A.ItemP p) ->
-                  if (D.isFinal_ startSym n p) then do
+                  if (D.isFinal_ modifHype startSym n p) then do
                     semiTime <- P.liftIO Time.getCurrentTime
                     P.liftIO . IORef.writeIORef hypeRef $ Just (modifHype, semiTime)
                     if fullHype
