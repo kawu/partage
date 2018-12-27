@@ -591,7 +591,7 @@ rootEnd = Chart.rootEnd chart
 
 
 -- | Follow the given terminal in the underlying automaton.
-followTerm :: (Ord t) => ID -> t -> P.ListT (Earley n t) ID
+followTerm :: (SOrd t) => ID -> t -> P.ListT (Earley n t) ID
 followTerm i c = do
     -- get the underlying automaton
     auto <- RWS.gets $ automat

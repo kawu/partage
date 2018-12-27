@@ -82,28 +82,41 @@ data Auto n t = Auto
     -- grammar DAG node.
     , estiCost :: H.Esti t
     -- ^ Heuristic estimations.
+
     , lhsNonTerm :: M.Map ID (NotFoot n)
     -- ^ A map which uniquely determines the LHS corresponding to the rule
     -- containing the given ID. WARNING: The LHS can be uniquely determined only
     -- if one has a separate FSA/Trie for each such non-terminal!
-    --
+
     -- <<< NEW 12.12.2018 >>>
-    --
+
     -- Note that the new data structures defined below do not intergrate with
     -- the rest of the code very well.  In particular, the remaining code is
     -- rather abstract and does not assume that it is possible to uniquely
     -- deterine the position corresponding to a `DID`. Indeed, this does not
     -- work with grammar compression in general.
-    --
+
     , anchorPos :: M.Map DID Int
     -- ^ A map which determines the position of the attachment of the tree with
     -- the given `DID`.
+
     , anchorPos' :: M.Map ID Int
     -- ^ A map which determines the position of the attachment of the tree with
     -- the given `ID`.
-    , headPos :: M.Map Int Int
-    -- ^ A map which tells what is the head of the given word.  Both `Int`s
-    -- refer to positions in the input sentence.
+
+--     , headPos :: M.Map Int Int
+--     -- ^ A map which tells what is the head of the given word.  Both `Int`s
+--     -- refer to positions in the input sentence.
+--     -- TODO: there is a `Pos` type defined, but in the `Base` module which
+--     -- relies on the `Auto` module...
+
+    -- <<< NEW 27.12.2018 >>>
+
+    , headPos :: M.Map Int (M.Map Int Weight)
+    -- ^ A map which tells what are the *potential* heads of the given word.
+    -- For each such potential head, the corresponding arc (non-negative)
+    -- weight is assigned.  Both `Int`s refer to positions in the input
+    -- sentence.
     -- TODO: there is a `Pos` type defined, but in the `Base` module which
     -- relies on the `Auto` module...
     }
@@ -116,7 +129,8 @@ mkAuto
   => Memo.Memo t        -- ^ Memoization strategy for terminals
   -> Gram n t
   -> M.Map t Int   -- ^ Position map
-  -> M.Map Int Int -- ^ Head map
+  -> M.Map Int (M.Map Int Weight)
+                  -- ^ Head map
   -> Auto n t
 mkAuto memoTerm gram posMap hedMap =
     let auto = WS.fromGram Trie.fromGram (DAG.factGram gram)

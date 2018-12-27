@@ -840,18 +840,20 @@ trySubst p pw = void $ P.runListT $ do
       if DAG.isRoot pDID dag
          -- real substitution
          then do
-           -- determine the position of the dependent tree
-           let depPos = M.lookup pDID anchorMap
            -- take the `DID` of a leaf with the appropriate non-terminal
            did <- each . S.toList . maybe S.empty id $
              M.lookup (nonTerm pDID auto) leafMap
-           -- determine the position of the head tree
-           let hedPos = M.lookup did anchorMap
            -- verify that the substitution is OK w.r.t. the dependency info
-           -- guard $ (flip M.lookup headMap =<< depPos) == hedPos
-           guard $ case flip M.lookup headMap =<< depPos of
-                     Nothing -> True
-                     Just pos -> Just pos == hedPos
+           guard . (/= Just False) $ do
+             -- determine the position of the head tree
+             hedPos <- M.lookup did anchorMap
+             -- determine the position of the dependent tree
+             depPos <- M.lookup pDID anchorMap
+             -- determine the accepted positions of the dependent tree
+             posMap <- M.lookup depPos headMap
+             -- check if they agree
+             -- NEW-TODO: account for the weight of the new arc 
+             return $ M.member hedPos posMap
            return did
          -- pseudo-substitution
          else do
@@ -936,21 +938,34 @@ trySubst' q qw = void $ P.runListT $ do
     -- provide the non-terminal expected by `q`.
     (p, pw) <- provideBegIni qNT (q ^. spanA ^. end)
 
-    -- Check if the dependencies match (but only in case of actual
-    -- substitution) (NEW: 13.12.2018)
-    guard $ 
-      if DAG.isLeaf qDID dag
-         then
-           -- determine the position of the head tree
-           let hedPos = M.lookup qDID anchorMap
-           -- determine the position of the dependent tree
-               depPos = M.lookup (p ^. dagID) anchorMap
-           -- verify that the substitution is OK w.r.t. the dependency info
-           -- guard $ (flip M.lookup headMap =<< depPos) == hedPos
-           in  case flip M.lookup headMap =<< depPos of
-                 Nothing -> True
-                 Just pos -> Just pos == hedPos
-         else True
+--     -- Check if the dependencies match (but only in case of actual
+--     -- substitution) (NEW: 13.12.2018)
+--     guard $ 
+--       if DAG.isLeaf qDID dag
+--          then
+--            -- determine the position of the head tree
+--            let hedPos = M.lookup qDID anchorMap
+--            -- determine the position of the dependent tree
+--                depPos = M.lookup (p ^. dagID) anchorMap
+--            -- verify that the substitution is OK w.r.t. the dependency info
+--            in  case flip M.lookup headMap =<< depPos of
+--                  Nothing -> True
+--                  Just pos -> Just pos == hedPos
+--          else True
+
+    -- NEW: 27.12.2018
+    guard . (/= Just False) $ do
+      -- only in case of actual substitution
+      guard $ DAG.isLeaf qDID dag
+      -- determine the position of the head tree
+      hedPos <- M.lookup qDID anchorMap
+      -- determine the position of the dependent tree
+      depPos <- M.lookup (p ^. dagID) anchorMap
+      -- determine the accepted positions of the dependent tree
+      posMap <- M.lookup depPos headMap
+      -- check if they agree
+      -- NEW-TODO: account for the weight of the new arc 
+      return $ M.member hedPos posMap
 
     let pSpan = p ^. spanP
     -- construct the resultant state
@@ -1284,11 +1299,21 @@ tryAdjoinTerm q qw = void $ P.runListT $ do
     -- check w.r.t. the dependency structure
     let anchorMap = anchorPos auto
         headMap = headPos auto
-        depPos = M.lookup (q ^. dagID) anchorMap
-        hedPos = M.lookup (p ^. dagID) anchorMap
-    guard $ case flip M.lookup headMap =<< depPos of
-              Nothing -> True
-              Just pos -> Just pos == hedPos
+--         depPos = M.lookup (q ^. dagID) anchorMap
+--         hedPos = M.lookup (p ^. dagID) anchorMap
+--     guard $ case flip M.lookup headMap =<< depPos of
+--               Nothing -> True
+--               Just pos -> Just pos == hedPos
+    guard . (/= Just False) $ do
+      -- determine the position of the head tree
+      hedPos <- M.lookup (p ^. dagID) anchorMap
+      -- determine the position of the dependent tree
+      depPos <- M.lookup (q ^. dagID) anchorMap
+      -- determine the accepted positions of the dependent tree
+      posMap <- M.lookup depPos headMap
+      -- check if they agree
+      -- NEW-TODO: account for the weight of the new arc 
+      return $ M.member hedPos posMap
     -- construct the resulting item
     let p' = setL (spanP >>> beg) (qSpan ^. beg)
            . setL (spanP >>> end) (qSpan ^. end)
@@ -1355,11 +1380,21 @@ tryAdjoinTerm' p pw = void $ P.runListT $ do
     -- check w.r.t. the dependency structure
     let anchorMap = anchorPos auto
         headMap = headPos auto
-        depPos = M.lookup (q ^. dagID) anchorMap
-        hedPos = M.lookup (p ^. dagID) anchorMap
-    guard $ case flip M.lookup headMap =<< depPos of
-              Nothing -> True
-              Just pos -> Just pos == hedPos
+--         depPos = M.lookup (q ^. dagID) anchorMap
+--         hedPos = M.lookup (p ^. dagID) anchorMap
+--     guard $ case flip M.lookup headMap =<< depPos of
+--               Nothing -> True
+--               Just pos -> Just pos == hedPos
+    guard . (/= Just False) $ do
+      -- determine the position of the head tree
+      hedPos <- M.lookup (p ^. dagID) anchorMap
+      -- determine the position of the dependent tree
+      depPos <- M.lookup (q ^. dagID) anchorMap
+      -- determine the accepted positions of the dependent tree
+      posMap <- M.lookup depPos headMap
+      -- check if they agree
+      -- NEW-TODO: account for the weight of the new arc 
+      return $ M.member hedPos posMap
     -- Construct the resulting state:
     let p' = setL (spanP >>> beg) (qSpan ^. beg)
            . setL (spanP >>> end) (qSpan ^. end)
@@ -1487,11 +1522,21 @@ trySisterAdjoin p pw = void $ P.runListT $ do
     let anchorMap = anchorPos auto
         anchorMap' = anchorPos' auto
         headMap = headPos auto
-        depPos = M.lookup (p ^. dagID) anchorMap
-        hedPos = M.lookup (q ^. state) anchorMap'
-    guard $ case flip M.lookup headMap =<< depPos of
-              Nothing -> True
-              Just pos -> Just pos == hedPos
+--         depPos = M.lookup (p ^. dagID) anchorMap
+--         hedPos = M.lookup (q ^. state) anchorMap'
+--     guard $ case flip M.lookup headMap =<< depPos of
+--               Nothing -> True
+--               Just pos -> Just pos == hedPos
+    guard . (/= Just False) $ do
+      -- determine the position of the head tree
+      hedPos <- M.lookup (q ^. state) anchorMap'
+      -- determine the position of the dependent tree
+      depPos <- M.lookup (p ^. dagID) anchorMap
+      -- determine the accepted positions of the dependent tree
+      posMap <- M.lookup depPos headMap
+      -- check if they agree
+      -- NEW-TODO: account for the weight of the new arc 
+      return $ M.member hedPos posMap
     -- construct the resultant item with the same state and extended span
     let q' = setL (end . spanA) (getL end pSpan) $ q
         newBeta = addWeight (duoBeta pw) (duoBeta qw)
@@ -1540,11 +1585,21 @@ trySisterAdjoin' q qw = void $ P.runListT $ do
   let anchorMap = anchorPos auto
       anchorMap' = anchorPos' auto
       headMap = headPos auto
-      depPos = M.lookup (p ^. dagID) anchorMap
-      hedPos = M.lookup (q ^. state) anchorMap'
-  guard $ case flip M.lookup headMap =<< depPos of
-            Nothing -> True
-            Just pos -> Just pos == hedPos
+--       depPos = M.lookup (p ^. dagID) anchorMap
+--       hedPos = M.lookup (q ^. state) anchorMap'
+--   guard $ case flip M.lookup headMap =<< depPos of
+--             Nothing -> True
+--             Just pos -> Just pos == hedPos
+  guard . (/= Just False) $ do
+    -- determine the position of the head tree
+    hedPos <- M.lookup (q ^. state) anchorMap'
+    -- determine the position of the dependent tree
+    depPos <- M.lookup (p ^. dagID) anchorMap
+    -- determine the accepted positions of the dependent tree
+    posMap <- M.lookup depPos headMap
+    -- check if they agree
+    -- NEW-TODO: account for the weight of the new arc 
+    return $ M.member hedPos posMap
   -- construct the resulting item with the same state and extended span
   let pSpan = getL spanP p
       q' = setL (end . spanA) (getL end pSpan) $ q
@@ -1678,7 +1733,8 @@ recognizeFrom
          , Weight ) ]          -- ^ Weighted grammar
     -> n                    -- ^ The start symbol
     -> M.Map t Int          -- ^ Position map
-    -> M.Map Int Int        -- ^ Head map
+    -> M.Map Int (M.Map Int Weight)
+                            -- ^ Head map
     -> Input t              -- ^ Input sentence
     -> IO Bool
 -- recognizeFrom memoTerm gram dag termWei start input = do

@@ -352,7 +352,7 @@ run cmd =
           posMap = M.fromList [(x, fst x) | x <- input]
 
           -- Create the corresponding position map
-          depMap = mkDepMap $ zip [0 :: Int ..] sent
+          depMap = mkDepMap' $ zip [0 :: Int ..] sent
 
           -- Create the compressed grammar representation
           gram
@@ -514,6 +514,14 @@ anchorTag x = fmap . O.mapTerm $ \case
 mkDepMap :: [(Int, Br.SuperTok)] -> M.Map Int Int
 mkDepMap toks = M.fromList
   [ (pos, tokDeph - 1)
+  | (pos, Br.SuperTok{..}) <- toks ]
+
+
+-- | A variant of `mkDepMap` which creates a map of possible head positions
+-- together with the corresponding heads.  A stub so far, really.
+mkDepMap' :: [(Int, Br.SuperTok)] -> M.Map Int (M.Map Int DAG.Weight)
+mkDepMap' toks = M.fromList
+  [ (pos, M.singleton (tokDeph - 1) 0.0) 
   | (pos, Br.SuperTok{..}) <- toks ]
 
 
