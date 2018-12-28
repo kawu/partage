@@ -105,29 +105,24 @@ mkEsti _memoElem D.Gram{..} autoGram posMap hedMap = Esti
       | (bag, w) <- M.toList (cost i) ]
     cost = supCost dagGram
 
+    -- miminal dependency cost for the individual positions
+    depCost dep = maybe 0 id
+      (M.lookup dep depCostMap)
+    depCostMap = M.fromList
+      [ (dep, minimumInf (M.elems heds))
+      | (dep, heds) <- M.toList hedMap ]
+--     depCost dep = maybe 0
+--       (minimumInf . M.elems)
+--       (M.lookup dep hedMap)
+
     -- partial dependency sums
     prefDepSum = M.fromList . sums $
-      -- (0, 0) :
       [ (dep, depCost (dep-1))
       | dep <- [0..sentLen] ]
     suffDepSum = M.fromList . sums $
       [ (dep, depCost dep)
       | dep <- reverse [0..sentLen] ]
-      -- ++ [(sentLen, 0)]
-    depCost dep = maybe 0
-      (minimumInf . M.elems)
-      (M.lookup dep hedMap)
     sentLen = length $ M.toList posMap
-
---     -- partial dependency sums
---     partDepSum = M.fromList . sums $
---       [ (dep, minimumInf (M.elems heds))
---       | (dep, heds) <- M.toAscList hedMap 
---       ]
---     estiDep p q = maybe 0 id $ do
---       x <- M.lookup p partDepSum
---       y <- M.lookup q partDepSum
---       return $ y - x
 
 
 -- | Calculate partial sums over the `snd` elements.

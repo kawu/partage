@@ -705,7 +705,7 @@ bagOfTerms span = do
 
 -- <<BELOW: NEW 28.12.2018>>
 
--- | The minimal possible cost of the given token being a dependent
+-- | The minimal possible cost of the given token as a dependent.
 minDepCost :: Tok t -> Earley n t Weight
 minDepCost tok = do
   let pos = position tok
