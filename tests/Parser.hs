@@ -16,6 +16,7 @@ import           Test.Tasty              (TestTree)
 import qualified Data.MemoCombinators    as Memo
 import qualified Data.Set                as S
 import qualified Data.Map                as M
+import           Data.Maybe              (maybeToList)
 
 import qualified Pipes                   as P
 
@@ -36,17 +37,21 @@ testEarley =
     parser = T.dummyParser
       { T.recognize = Just recFrom
       , T.parsedTrees = Just parseFrom }
-    recFrom gram start input = do
+    recFrom gram start input headMap = do
         let dag = mkGram gram
-        E.recognizeFrom dag start M.empty M.empty (E.fromList input)
-    parseFrom gram start input = do
+        E.recognizeFrom dag start (posMap input) headMap (E.fromList input)
+    parseFrom gram start input headMap = do
         let dag = mkGram gram
         fmap S.fromList
-            . E.parse dag start M.empty M.empty
+            . E.parse dag start (posMap input) headMap
             . E.fromList
             $ input
     mkGram = DAG.mkGram . map (Arr.first termToSet)
     termToSet = fmap (O.mapTerm S.singleton)
+    posMap input = M.fromList $ do
+      tok <- input
+      pos <- maybeToList (T.pos tok)
+      return (tok, pos)
 
 
 -- | All the tests of the parsing algorithm.
@@ -61,14 +66,13 @@ testAStar =
 --       , T.encodes = Just encodesFrom
 --       , T.derivPipe  = Just derivPipe
       }
-    posMap = M.empty
-    hedMap = M.empty
-    recFrom gram start
-      = A.recognizeFrom memoTerm gram start posMap hedMap
+    recFrom gram start input headMap
+      = A.recognizeFrom memoTerm gram start (posMap input) headMap
       . A.fromList
-    parseFrom gram start input = do
+      $ input
+    parseFrom gram start input headMap = do
       let dag = DAG.mkGram gram
-          auto = A.mkAuto memoTerm dag posMap hedMap
+          auto = A.mkAuto memoTerm dag (posMap input) headMap
       hype <- A.earleyAuto auto (A.fromList input)
       return
         . S.fromList
@@ -95,3 +99,7 @@ testAStar =
       ((,) <$> T.orth <*> T.pos)
       (Memo.pair memoString (Memo.maybe Memo.integral))
     memoString = Memo.list Memo.char
+    posMap input = M.fromList $ do
+      tok <- input
+      pos <- maybeToList (T.pos tok)
+      return (tok, pos)

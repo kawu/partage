@@ -268,7 +268,7 @@ run cmd =
             $ sent
 
           -- Create the corresponding position map
-          depMap = mkDepMap $ zip [0 :: Int ..] sent
+          depMap = mkDepMap' $ zip [0 :: Int ..] sent
 
         -- Check against the gold file or perform simple recognition
         putStr "# "

@@ -629,15 +629,34 @@ estimateDistP p = do
 --   return $ case p ^. dagID of
 --     Left _  -> termEsti tbag
 --     Right i -> dagEsti i tbag
-  return $ dagEsti (p ^. dagID) tbag
+  let sup = dagEsti (p ^. dagID) tbag
+      dep = depPrefEsti (p ^. spanP ^. beg)
+          + depSuffEsti (p ^. spanP ^. end)
+  return $ sup + dep
+
+
+-- | Estimate the remaining distance for a passive item.
+estimateDistP' :: (Ord t) => Passive n t -> Earley n t (Double, Double, Double)
+estimateDistP' p = do
+  tbag <- bagOfTerms (p ^. spanP)
+  H.Esti{..} <- RWS.gets (estiCost . automat)
+  return $
+    ( dagEsti (p ^. dagID) tbag
+    , depPrefEsti (p ^. spanP ^. beg)
+    , depSuffEsti (p ^. spanP ^. end)
+    )
 
 
 -- | Estimate the remaining distance for an active item.
 estimateDistA :: (Ord n, SOrd t) => Active -> Earley n t Weight
 estimateDistA q = do
     tbag <- bagOfTerms (q ^. spanA)
-    esti <- RWS.gets (H.trieEsti . estiCost . automat)
-    return $ esti (q ^. state) tbag
+    -- esti <- RWS.gets (H.trieEsti . estiCost . automat)
+    H.Esti{..} <- RWS.gets (estiCost . automat)
+    let sup = trieEsti (q ^. state) tbag
+        dep = depPrefEsti (q ^. spanA ^. beg)
+            + depSuffEsti (q ^. spanA ^. end)
+    return $ sup + dep
 -- #ifdef DebugOn
 --     Auto{..} <- RWS.gets automat
 --     lift $ do
@@ -683,6 +702,15 @@ bagOfTerms span = do
   where
     sentLen = length <$> RWS.asks inputSent
     estOn i j = H.bagFromList . map terminal . over i j <$> RWS.asks inputSent
+
+-- <<BELOW: NEW 28.12.2018>>
+
+-- | The minimal possible cost of the given token being a dependent
+minDepCost :: Tok t -> Earley n t Weight
+minDepCost tok = do
+  let pos = position tok
+  H.Esti{..} <- RWS.gets (estiCost . automat)
+  return $ minDepEsti pos
 
 
 ---------------------------------
@@ -761,6 +789,8 @@ tryScan p duo = void $ P.runListT $ do
   -- read the word immediately following the ending position of
   -- the state
   tok <- readInput $ getL (spanA >>> end) p
+  -- determine the minimal cost of `tok` being a dependent
+  depCost <- lift $ minDepCost tok
   -- follow appropriate terminal transition outgoing from the
   -- given automaton state
   (termCost, j) <- followTerm (getL state p) (terminal tok)
@@ -772,7 +802,7 @@ tryScan p duo = void $ P.runListT $ do
   -- estDist <- lift . estimateDistA $ q
   -- push the resulting state into the waiting queue
   let newBeta = addWeight (duoBeta duo) termCost
-      newGap = duoGap duo
+      newGap = duoGap duo + depCost
       newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
   lift $ pushInduced q newDuo
            (Scan p tok termCost)
@@ -836,7 +866,7 @@ trySubst p pw = void $ P.runListT $ do
 --         -- pseudo-substitution
 --         Right did -> return did
 --     # NEW VERSION FOLLOWS
-    theDID <-
+    (theDID, depCost) <-
       if DAG.isRoot pDID dag
          -- real substitution
          then do
@@ -844,20 +874,20 @@ trySubst p pw = void $ P.runListT $ do
            did <- each . S.toList . maybe S.empty id $
              M.lookup (nonTerm pDID auto) leafMap
            -- verify that the substitution is OK w.r.t. the dependency info
-           guard . (/= Just False) $ do
-             -- determine the position of the head tree
-             hedPos <- M.lookup did anchorMap
-             -- determine the position of the dependent tree
-             depPos <- M.lookup pDID anchorMap
-             -- determine the accepted positions of the dependent tree
-             posMap <- M.lookup depPos headMap
-             -- check if they agree
-             -- NEW-TODO: account for the weight of the new arc 
-             return $ M.member hedPos posMap
-           return did
+           let cost = do
+                 -- determine the position of the head tree
+                 hedPos <- M.lookup did anchorMap
+                 -- determine the position of the dependent tree
+                 depPos <- M.lookup pDID anchorMap
+                 -- determine the accepted positions of the dependent tree
+                 posMap <- M.lookup depPos headMap
+                 -- return the corresponding weight
+                 return $ M.lookup hedPos posMap
+           guard $ cost /= Just Nothing
+           return (did, maybe 0 fromJust cost)
          -- pseudo-substitution
          else do
-           return pDID
+           return (pDID, 0)
 --     # NEW VERSION ENDS
     -- find active items which end where `p' begins and which
     -- expect the non-terminal provided by `p' (ID included)
@@ -872,10 +902,12 @@ trySubst p pw = void $ P.runListT $ do
     -- compute the estimated distance for the resulting state
     -- estDist <- lift . estimateDistA $ q'
     -- push the resulting state into the waiting queue
-    let newBeta = sumWeight [duoBeta pw, duoBeta qw, tranCost]
-        newGap = duoGap qw
+    let newBeta = sumWeight [duoBeta pw, duoBeta qw, tranCost, depCost]
+        -- NEW 28.12.2018
+        -- newGap = duoGap qw
+        newGap = duoGap pw + duoGap qw
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
-    lift $ pushInduced q' newDuo (Subst p q tranCost)
+    lift $ pushInduced q' newDuo (Subst p q $ tranCost + depCost)
 #ifdef CheckMonotonic
     lift $ testMono "SUBST" (p, pw) (q, qw) (q', newDuo)
 #endif
@@ -891,12 +923,6 @@ trySubst p pw = void $ P.runListT $ do
         putStr " #W  " >> print newBeta
         -- putStr " #E  " >> print estDist
 #endif
-
-
---------------------------------------------------
--- TODO: starting from this point, the hedMap
--- is not yet accounted for!
---------------------------------------------------
 
 
 -- | Reversed `trySubst` version.  Try to completent the item with
@@ -954,18 +980,24 @@ trySubst' q qw = void $ P.runListT $ do
 --          else True
 
     -- NEW: 27.12.2018
-    guard . (/= Just False) $ do
-      -- only in case of actual substitution
-      guard $ DAG.isLeaf qDID dag
-      -- determine the position of the head tree
-      hedPos <- M.lookup qDID anchorMap
-      -- determine the position of the dependent tree
-      depPos <- M.lookup (p ^. dagID) anchorMap
-      -- determine the accepted positions of the dependent tree
-      posMap <- M.lookup depPos headMap
-      -- check if they agree
-      -- NEW-TODO: account for the weight of the new arc 
-      return $ M.member hedPos posMap
+    let cost = do
+          -- only in case of actual substitution
+          guard $ DAG.isLeaf qDID dag
+          -- determine the position of the head tree
+          hedPos <- M.lookup qDID anchorMap
+          -- determine the position of the dependent tree
+          depPos <- M.lookup (p ^. dagID) anchorMap
+          -- determine the accepted positions of the dependent tree
+          posMap <- M.lookup depPos headMap
+          -- check if they agree
+          return $ M.lookup hedPos posMap
+    guard $ cost /= Just Nothing
+    let depCost = maybe 0 fromJust cost
+--     liftIO $ do
+--       putStr "is actual substitution: "
+--       putStrLn $ show $ DAG.isLeaf qDID dag
+--       putStr "depCost: "
+--       putStrLn $ show depCost
 
     let pSpan = p ^. spanP
     -- construct the resultant state
@@ -975,10 +1007,12 @@ trySubst' q qw = void $ P.runListT $ do
     -- compute the estimated distance for the resulting state
     -- estDist <- lift . estimateDistA $ q'
     -- push the resulting state into the waiting queue
-    let newBeta = sumWeight [duoBeta pw, duoBeta qw, tranCost]
-        newGap = duoGap qw
+    let newBeta = sumWeight [duoBeta pw, duoBeta qw, tranCost, depCost]
+        -- NEW 28.12.2018
+        -- newGap = duoGap qw
+        newGap = duoGap pw + duoGap qw
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
-    lift $ pushInduced q' newDuo (Subst p q tranCost)
+    lift $ pushInduced q' newDuo (Subst p q $ tranCost + depCost)
 #ifdef CheckMonotonic
     lift $ testMono "SUBST'" (p, pw) (q, qw) (q', newDuo)
 #endif
@@ -1049,7 +1083,9 @@ tryAdjoinInit p pw = void $ P.runListT $ do
     amortWeight <- lift $ amortizedWeight p
     -- push the resulting state into the waiting queue
     let newBeta = addWeight (duoBeta qw) tranCost
-        newGap = duoBeta pw + duoGap pw + amortWeight
+        -- newGap = duoBeta pw + duoGap pw + amortWeight
+        -- NEW 28.12.2018:
+        newGap = duoGap qw + duoBeta pw + duoGap pw + amortWeight
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
     lift $ pushInduced q' newDuo
              (Foot q (nonTermH (p ^. dagID) hype) tranCost)
@@ -1115,7 +1151,9 @@ tryAdjoinInit' q qw = void $ P.runListT $ do
     amortWeight <- lift $ amortizedWeight p
     -- push the resulting state into the waiting queue
     let newBeta = addWeight (duoBeta qw) tranCost
-        newGap = duoBeta pw + duoGap pw + amortWeight
+        -- newGap = duoBeta pw + duoGap pw + amortWeight
+        -- NEW 28.12.2018:
+        newGap = duoGap qw + duoBeta pw + duoGap pw + amortWeight
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
     lift $ pushInduced q' newDuo
              (Foot q (nonTermH (p ^. dagID) hype) tranCost)
@@ -1177,7 +1215,9 @@ tryAdjoinCont p pw = void $ P.runListT $ do
     -- estDist <- lift . estimateDistA $ q'
     -- push the resulting state into the waiting queue
     let newBeta = sumWeight [duoBeta pw, duoBeta qw, tranCost]
-        newGap = duoGap pw
+        -- NEW 28.12.2018
+        -- newGap = duoGap pw
+        newGap = duoGap pw + duoGap qw
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
     lift $ pushInduced q' newDuo (Subst p q tranCost)
 --     -- push the resulting state into the waiting queue
@@ -1231,7 +1271,9 @@ tryAdjoinCont' q qw = void $ P.runListT $ do
     -- estDist <- lift . estimateDistA $ q'
     -- push the resulting state into the waiting queue
     let newBeta = sumWeight [duoBeta pw, duoBeta qw, tranCost]
-        newGap = duoGap pw
+        -- NEW 28.12.2018
+        -- newGap = duoGap pw
+        newGap = duoGap pw + duoGap qw
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
     lift $ pushInduced q' newDuo (Subst p q tranCost)
 #ifdef CheckMonotonic
@@ -1304,16 +1346,19 @@ tryAdjoinTerm q qw = void $ P.runListT $ do
 --     guard $ case flip M.lookup headMap =<< depPos of
 --               Nothing -> True
 --               Just pos -> Just pos == hedPos
-    guard . (/= Just False) $ do
-      -- determine the position of the head tree
-      hedPos <- M.lookup (p ^. dagID) anchorMap
-      -- determine the position of the dependent tree
-      depPos <- M.lookup (q ^. dagID) anchorMap
-      -- determine the accepted positions of the dependent tree
-      posMap <- M.lookup depPos headMap
-      -- check if they agree
-      -- NEW-TODO: account for the weight of the new arc 
-      return $ M.member hedPos posMap
+    let cost = do
+    -- guard . (/= Just False) $ do
+          -- determine the position of the head tree
+          hedPos <- M.lookup (p ^. dagID) anchorMap
+          -- determine the position of the dependent tree
+          depPos <- M.lookup (q ^. dagID) anchorMap
+          -- determine the accepted positions of the dependent tree
+          posMap <- M.lookup depPos headMap
+          -- check if they agree
+          return $ M.lookup hedPos posMap
+    guard $ cost /= Just Nothing
+    let depCost = maybe 0 fromJust cost
+
     -- construct the resulting item
     let p' = setL (spanP >>> beg) (qSpan ^. beg)
            . setL (spanP >>> end) (qSpan ^. end)
@@ -1323,7 +1368,7 @@ tryAdjoinTerm q qw = void $ P.runListT $ do
     -- compute the estimated distance for the resulting state
     -- estDist <- lift . estimateDistP $ p'
     -- push the resulting state into the waiting queue
-    let newBeta = addWeight (duoBeta pw) (duoBeta qw)
+    let newBeta = sumWeight [duoBeta pw, duoBeta qw, depCost]
         newGap = duoGap pw
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
     lift $ pushPassive p' newDuo (Adjoin q p)
@@ -1385,16 +1430,19 @@ tryAdjoinTerm' p pw = void $ P.runListT $ do
 --     guard $ case flip M.lookup headMap =<< depPos of
 --               Nothing -> True
 --               Just pos -> Just pos == hedPos
-    guard . (/= Just False) $ do
-      -- determine the position of the head tree
-      hedPos <- M.lookup (p ^. dagID) anchorMap
-      -- determine the position of the dependent tree
-      depPos <- M.lookup (q ^. dagID) anchorMap
-      -- determine the accepted positions of the dependent tree
-      posMap <- M.lookup depPos headMap
-      -- check if they agree
-      -- NEW-TODO: account for the weight of the new arc 
-      return $ M.member hedPos posMap
+    let cost = do
+    -- guard . (/= Just False) $ do
+          -- determine the position of the head tree
+          hedPos <- M.lookup (p ^. dagID) anchorMap
+          -- determine the position of the dependent tree
+          depPos <- M.lookup (q ^. dagID) anchorMap
+          -- determine the accepted positions of the dependent tree
+          posMap <- M.lookup depPos headMap
+          -- check if they agree
+          return $ M.lookup hedPos posMap
+    guard $ cost /= Just Nothing
+    let depCost = maybe 0 fromJust cost
+
     -- Construct the resulting state:
     let p' = setL (spanP >>> beg) (qSpan ^. beg)
            . setL (spanP >>> end) (qSpan ^. end)
@@ -1402,7 +1450,7 @@ tryAdjoinTerm' p pw = void $ P.runListT $ do
     -- compute the estimated distance for the resulting state
     -- estDist <- lift . estimateDistP $ p'
     -- push the resulting state into the waiting queue
-    let newBeta = addWeight (duoBeta pw) (duoBeta qw)
+    let newBeta = sumWeight [duoBeta pw, duoBeta qw, depCost]
         newGap = duoGap pw
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
     lift $ pushPassive p' newDuo (Adjoin q p)
@@ -1446,7 +1494,6 @@ tryDeactivate q qw = void $ P.runListT $ do
 #endif
   dag <- RWS.gets (gramDAG . automat)
   (headCost, did) <- heads (getL state q)
-  return undefined
   let p = Passive
           { _dagID = did
           , _spanP = getL spanA q
@@ -1527,19 +1574,22 @@ trySisterAdjoin p pw = void $ P.runListT $ do
 --     guard $ case flip M.lookup headMap =<< depPos of
 --               Nothing -> True
 --               Just pos -> Just pos == hedPos
-    guard . (/= Just False) $ do
-      -- determine the position of the head tree
-      hedPos <- M.lookup (q ^. state) anchorMap'
-      -- determine the position of the dependent tree
-      depPos <- M.lookup (p ^. dagID) anchorMap
-      -- determine the accepted positions of the dependent tree
-      posMap <- M.lookup depPos headMap
-      -- check if they agree
-      -- NEW-TODO: account for the weight of the new arc 
-      return $ M.member hedPos posMap
+    let cost = do
+    -- guard . (/= Just False) $ do
+          -- determine the position of the head tree
+          hedPos <- M.lookup (q ^. state) anchorMap'
+          -- determine the position of the dependent tree
+          depPos <- M.lookup (p ^. dagID) anchorMap
+          -- determine the accepted positions of the dependent tree
+          posMap <- M.lookup depPos headMap
+          -- check if they agree
+          return $ M.lookup hedPos posMap
+    guard $ cost /= Just Nothing
+    let depCost = maybe 0 fromJust cost
+
     -- construct the resultant item with the same state and extended span
     let q' = setL (end . spanA) (getL end pSpan) $ q
-        newBeta = addWeight (duoBeta pw) (duoBeta qw)
+        newBeta = sumWeight [duoBeta pw, duoBeta qw, depCost]
         newGap = duoGap qw
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
     -- push the resulting state into the waiting queue
@@ -1590,20 +1640,23 @@ trySisterAdjoin' q qw = void $ P.runListT $ do
 --   guard $ case flip M.lookup headMap =<< depPos of
 --             Nothing -> True
 --             Just pos -> Just pos == hedPos
-  guard . (/= Just False) $ do
-    -- determine the position of the head tree
-    hedPos <- M.lookup (q ^. state) anchorMap'
-    -- determine the position of the dependent tree
-    depPos <- M.lookup (p ^. dagID) anchorMap
-    -- determine the accepted positions of the dependent tree
-    posMap <- M.lookup depPos headMap
-    -- check if they agree
-    -- NEW-TODO: account for the weight of the new arc 
-    return $ M.member hedPos posMap
+  let cost = do
+  -- guard . (/= Just False) $ do
+        -- determine the position of the head tree
+        hedPos <- M.lookup (q ^. state) anchorMap'
+        -- determine the position of the dependent tree
+        depPos <- M.lookup (p ^. dagID) anchorMap
+        -- determine the accepted positions of the dependent tree
+        posMap <- M.lookup depPos headMap
+        -- check if they agree
+        return $ M.lookup hedPos posMap
+  guard $ cost /= Just Nothing
+  let depCost = maybe 0 fromJust cost
+
   -- construct the resulting item with the same state and extended span
   let pSpan = getL spanP p
       q' = setL (end . spanA) (getL end pSpan) $ q
-      newBeta = addWeight (duoBeta pw) (duoBeta qw)
+      newBeta = sumWeight [duoBeta pw, duoBeta qw, depCost]
       newGap = duoGap qw
       newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
   -- push the resulting state into the waiting queue
@@ -2080,12 +2133,36 @@ testMono
     -> (Active, DuoWeight)
     -> Earley n t ()
 testMono opStr (p, pw) (q, qw) (q', newDuo) = do
-    totalP <- est2total pw <$> estimateDistP p
-    totalQ <- est2total qw <$> estimateDistA q
-    totalQ' <- est2total newDuo <$> estimateDistA q'
+    distP <- estimateDistP p
+    distP' <- estimateDistP' p
+    distQ <- estimateDistA q
+    distQ' <- estimateDistA q'
+    let totalP = est2total pw distP
+        totalQ = est2total qw distQ
+        totalQ' = est2total newDuo distQ'
     let tails = [totalP, totalQ]
     when (any (totalQ' + epsilon <) tails) $ do
-      P.liftIO . putStrLn $ "[" ++ opStr ++ ": MONOTONICITY TEST FAILED]" ++
-        " TAILS: " ++ show tails ++
-        ", HEAD: " ++ show totalQ'
+      hype <- RWS.get
+      amortWeight <- amortizedWeight p
+      P.liftIO $ do
+        putStrLn $ "[" ++ opStr ++ ": MONOTONICITY TEST FAILED]" ++
+          " TAILS: " ++ show tails ++
+          ", HEAD: " ++ show totalQ'
+
+        putStrLn "TAILS:"
+
+        printPassive p hype
+        putStr " => "
+        putStrLn $ show (pw, distP')
+        putStr " => node's amortized weight: "
+        putStrLn $ show amortWeight
+
+        printActive q
+        putStr " => "
+        putStrLn $ show (qw, distQ)
+
+        putStrLn "HEAD:"
+        printActive q'
+        putStr " => "
+        putStrLn $ show (newDuo, distQ')
 #endif

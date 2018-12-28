@@ -94,6 +94,9 @@ data Test = Test {
       startSym :: String
     -- | The sentence to parse (list of terminals)
     , testSent :: [Term]
+    -- | Dependency weights/restrictions (to each position, the set of
+    -- potential head together with the corresponding weights is given)
+    , headMap :: M.Map Int (M.Map Int Weight)
     -- | The expected recognition result
     , testRes  :: TestRes
     } deriving (Show, Eq, Ord)
@@ -261,7 +264,7 @@ gram1Tests =
     -- , Test "S" ["Tom", "quickly", "quickly", "caught", "quickly", "quickly", "Tom"] Yes ]
     ]
       where
-        test start sent res = Test start (map tok sent) res
+        test start sent res = Test start (map tok sent) M.empty res
         tok t = Term t Nothing
         mkLeaf = Leaf . tok
 
@@ -274,31 +277,35 @@ gram1Tests =
 -- | A variant of the first grammar.
 mkGram1_1 :: [(O.Tree String Term, Weight)]
 mkGram1_1 = map (,1) $
-  [tom, almost, caught, a, mouse]
+  [root, tom, almost, caught, a, mouse]
     where
       term' t k = term $ Term t (Just k)
+      root = node "ROOT"
+        [ term' "root" 0
+        , leaf "S"
+        ]
       tom =
         node "NP"
         [ node "N"
-          [ term' "Tom" 0 ]
+          [ term' "Tom" 1 ]
         ]
       almost = 
         node "V"
-        [ node "Ad" [term' "almost" 1]
+        [ node "Ad" [term' "almost" 2]
         , foot "V"
         ]
       caught = 
         node "S"
         [ leaf "NP"
         , node "VP"
-          [ node "V" [term' "caught" 2]
+          [ node "V" [term' "caught" 3]
           , leaf "NP" ]
         ]
-      a = node "D" [term' "a" 3]
+      a = node "D" [term' "a" 4]
       mouse = node "NP"
         [ leaf "D"
         , node "N"
-            [term' "mouse" 4]
+            [term' "mouse" 5]
         ]
 
 
@@ -309,31 +316,45 @@ mkGram1_1 = map (,1) $
 
 gram1_1Tests :: [Test]
 gram1_1Tests =
-    [ test "S" ["Tom", "almost", "caught", "a", "mouse"] Yes
---     , test "S" ["Tom", "almost", "caught", "a", "mouse"] . Trees . S.singleton $
---         Branch "S"
---             [ Branch "NP"
---                 [ Branch "N"
---                     [ Leaf $ tok "Tom" 0 ] ]
---             , Branch "VP"
---                 [ Branch "V"
---                     [ Branch "Ad"
---                         [Leaf $ tok "almost" 1]
---                     , Branch "V"
---                         [Leaf $ tok "caught" 2]
---                     ]
---                 , Branch "NP"
---                     [ Branch "D"
---                         [Leaf $ tok "a" 3]
---                     , Branch "N"
---                         [Leaf $ tok "mouse" 4]
---                     ]
---                 ]
---             ]
+    [ test "ROOT" ["root", "Tom", "almost", "caught", "a", "mouse"] Yes
+    , test "ROOT" ["root", "Tom", "almost", "caught", "a", "mouse"] . Trees . S.singleton $
+        Branch "ROOT"
+          [ Leaf $ tok "root" 0
+          , Branch "S"
+            [ Branch "NP"
+                [ Branch "N"
+                    [ Leaf $ tok "Tom" 1 ] ]
+            , Branch "VP"
+                [ Branch "V"
+                    [ Branch "Ad"
+                        [Leaf $ tok "almost" 2]
+                    , Branch "V"
+                        [Leaf $ tok "caught" 3]
+                    ]
+                , Branch "NP"
+                    [ Branch "D"
+                        [Leaf $ tok "a" 4]
+                    , Branch "N"
+                        [Leaf $ tok "mouse" 5]
+                    ]
+                ]
+            ]
+          ]
+    , testDep "ROOT" ["root", "Tom", "almost", "caught", "a", "mouse"] Yes $ M.fromList
+        [ (1, M.fromList [(3, 1)])
+        , (2, M.fromList [(3, 1)])
+        , (3, M.fromList [(0, 1)])
+        , (4, M.fromList [(5, 1)])
+        , (5, M.fromList [(3, 1)])
+        ]
     ]
       where
-        test start sent res =
-          Test start [tok x k | (x, k) <- zip sent [0..]] res
+        test start sent res = testDep start sent res M.empty
+        testDep start sent res hedMap = Test
+          start
+          [tok x k | (x, k) <- zip sent [0..]] 
+          hedMap
+          res
         tok t k = Term t (Just k)
 
 
@@ -592,11 +613,37 @@ mkGrams =
 ---------------------------------------------------------------------
 
 
+-- | Recognition
+type RecoP 
+  = [(O.Tree String Term, Weight)]
+    -- ^ Weighted grammar
+  -> String
+    -- ^ Start symbol
+  -> [Term]
+    -- ^ Sentence to parse
+  -> M.Map Int (M.Map Int Weight)
+    -- ^ Head map
+  -> IO Bool
+
+
+-- | Parsed trees
+type ParsedP 
+  = [(O.Tree String Term, Weight)]
+    -- ^ Weighted grammar
+  -> String
+    -- ^ Start symbol
+  -> [Term]
+    -- ^ Sentence to parse
+  -> M.Map Int (M.Map Int Weight)
+    -- ^ Head map
+  -> IO (S.Set Tr)
+
+
 -- | An abstract TAG parser.
 data TagParser = TagParser
-  { recognize   :: Maybe ([(O.Tree String Term, Weight)] -> String -> [Term] -> IO Bool)
+  { recognize   :: Maybe RecoP
     -- ^ Recognition function
-  , parsedTrees :: Maybe ([(O.Tree String Term, Weight)] -> String -> [Term] -> IO (S.Set Tr))
+  , parsedTrees :: Maybe ParsedP
     -- ^ Function which retrieves derived trees
 --   -- , derivTrees :: Maybe ([(Other, Weight)] -> String -> [String] -> IO [Deriv])
 --   , derivTrees :: Maybe ([(O.Tree String Term, Weight)] -> String -> [Term] -> IO [Deriv])
@@ -654,12 +701,12 @@ testTree modName TagParser{..} = do
 
     -- Check if the recognition result is as expected
     testRecognition gram Test{..} = case recognize of
-      Just reco -> reco gram startSym testSent @@?= simplify testRes
+      Just reco -> reco gram startSym testSent headMap @@?= simplify testRes
       _ -> return ()
 
     -- Check if the set of parsed trees is as expected
     testParsing gram Test{..} = case (parsedTrees, testRes) of
-        (Just pa, Trees ts) -> pa gram startSym testSent @@?= ts
+        (Just pa, Trees ts) -> pa gram startSym testSent headMap @@?= ts
         _ -> return ()
 
 --     -- Here we only check if the list of derivations is actually a set

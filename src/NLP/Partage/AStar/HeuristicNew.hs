@@ -61,6 +61,15 @@ data Esti t = Esti
   -- for the individual super-trees surrounding the given DAG node.
   , dagAmort :: D.DID -> D.Weight
   -- ^ Amortized weight of the dag node.
+
+  -- <<NEW 27.12.2018>>
+
+  , depPrefEsti :: Int -> D.Weight
+  -- ^ Dependency related cost estimation (prefix)
+  , depSuffEsti :: Int -> D.Weight
+  -- ^ Dependency related cost estimation (suffix)
+  , minDepEsti  :: Int -> D.Weight
+  -- ^ Minimal dependency cost of a token on a given position
   }
 
 
@@ -70,12 +79,19 @@ mkEsti
   => Memo.Memo t        -- ^ Memoization strategy for terminals
   -> D.Gram n t         -- ^ The underlying grammar
   -> A.WeiGramAuto n t  -- ^ The underlying automaton
+  -> M.Map t Int        -- ^ Position map
+  -> M.Map Int (M.Map Int D.Weight)
+                        -- ^ Head map
   -> Esti t
-mkEsti _memoElem D.Gram{..} autoGram = Esti
+mkEsti _memoElem D.Gram{..} autoGram posMap hedMap = Esti
   { termEsti = estiTerm
   , trieEsti = estiCost2 autoGram dagGram estiTerm
   , dagEsti  = estiNode
-  , dagAmort = amortDag }
+  , dagAmort = amortDag 
+  , depPrefEsti = \p -> maybe 0 id (M.lookup p prefDepSum)
+  , depSuffEsti = \q -> maybe 0 id (M.lookup q suffDepSum)
+  , minDepEsti = depCost
+  }
   where
     -- estiTerm = estiCost1 memoElem termWei
     estiTerm = estiCost1 termWei
@@ -88,6 +104,41 @@ mkEsti _memoElem D.Gram{..} autoGram = Esti
       [ w - estiTerm bag
       | (bag, w) <- M.toList (cost i) ]
     cost = supCost dagGram
+
+    -- partial dependency sums
+    prefDepSum = M.fromList . sums $
+      -- (0, 0) :
+      [ (dep, depCost (dep-1))
+      | dep <- [0..sentLen] ]
+    suffDepSum = M.fromList . sums $
+      [ (dep, depCost dep)
+      | dep <- reverse [0..sentLen] ]
+      -- ++ [(sentLen, 0)]
+    depCost dep = maybe 0
+      (minimumInf . M.elems)
+      (M.lookup dep hedMap)
+    sentLen = length $ M.toList posMap
+
+--     -- partial dependency sums
+--     partDepSum = M.fromList . sums $
+--       [ (dep, minimumInf (M.elems heds))
+--       | (dep, heds) <- M.toAscList hedMap 
+--       ]
+--     estiDep p q = maybe 0 id $ do
+--       x <- M.lookup p partDepSum
+--       y <- M.lookup q partDepSum
+--       return $ y - x
+
+
+-- | Calculate partial sums over the `snd` elements.
+sums :: [(a, Double)] -> [(a, Double)]
+sums =
+  go 0
+    where
+      go acc ((k, x) : xs) =
+        let acc' = acc + x
+        in  (k, acc') : go acc' xs
+      go _ [] = []
 
 
 -- -- | Heuristic: lower bound estimate on the cost (weight) remaining
@@ -273,7 +324,7 @@ trieCost dag wei@A.WeiAuto{..} =
               , bag_e <- M.toList (edge e) ]
     -- find the index of the edge preceding the given state ID;
     -- works under the assumption that the automaton is a trie and
-    -- that each final node has precisely one ingoing head edge.
+    -- that each final node has precisely one incoming head edge.
     -- NOTE: it's also the reason for which we need to store
     -- identifiers in all edges: in particular, in edges
     -- which represent roots of elementary trees.
@@ -288,13 +339,13 @@ trieCost dag wei@A.WeiAuto{..} =
         in M.singleton k v
     sub = subCost dag
     sup = supCost dag
-    ing = ingoing wei
+    ing = incoming wei
 
 
 -- | Build a map which, for a given automaton ID, returns
--- the set of ingoing edges.
-ingoing :: A.WeiGramAuto n t -> ID -> S.Set (A.Edge D.DID)
-ingoing wei =
+-- the set of incoming edges.
+incoming :: A.WeiGramAuto n t -> ID -> S.Set (A.Edge D.DID)
+incoming wei =
   go
   where
     go i = maybe S.empty id (M.lookup i m)

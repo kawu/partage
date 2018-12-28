@@ -730,11 +730,21 @@ trySubst p = void $ P.runListT $ do
              M.lookup (nonTerm pDID auto) leafMap
            -- determine the position of the head  tree
            let hedPos = M.lookup did anchorMap
+--            -- verify that the substitution is OK w.r.t. the dependency info
+--            -- guard $ (flip M.lookup headMap =<< depPos) == hedPos
+--            guard $ case flip M.lookup headMap =<< depPos of
+--                      Nothing -> True
+--                      Just pos -> Just pos == hedPos
            -- verify that the substitution is OK w.r.t. the dependency info
-           -- guard $ (flip M.lookup headMap =<< depPos) == hedPos
-           guard $ case flip M.lookup headMap =<< depPos of
-                     Nothing -> True
-                     Just pos -> Just pos == hedPos
+           guard . (/= Just False) $ do
+             -- determine the position of the head tree
+             hedPos <- M.lookup did anchorMap
+             -- determine the position of the dependent tree
+             depPos <- M.lookup pDID anchorMap
+             -- determine the accepted positions of the dependent tree
+             posMap <- M.lookup depPos headMap
+             -- check if they agree
+             return $ M.member hedPos posMap
            return did
          -- pseudo-substitution
          else do
@@ -892,12 +902,21 @@ tryAdjoinTerm q = void $ P.runListT $ do
     -- check w.r.t. the dependency structure
     let anchorMap = anchorPos auto
         headMap = headPos auto
-        depPos = M.lookup qDID anchorMap
-        hedPos = M.lookup (p ^. dagID) anchorMap
-    -- guard $ (flip M.lookup headMap =<< depPos) == hedPos
-    guard $ case flip M.lookup headMap =<< depPos of
-              Nothing -> True
-              Just pos -> Just pos == hedPos
+--         depPos = M.lookup qDID anchorMap
+--         hedPos = M.lookup (p ^. dagID) anchorMap
+--     -- guard $ (flip M.lookup headMap =<< depPos) == hedPos
+--     guard $ case flip M.lookup headMap =<< depPos of
+--               Nothing -> True
+--               Just pos -> Just pos == hedPos
+    guard . (/= Just False) $ do
+      -- determine the position of the head tree
+      hedPos <- M.lookup (p ^. dagID) anchorMap
+      -- determine the position of the dependent tree
+      depPos <- M.lookup (q ^. dagID) anchorMap
+      -- determine the accepted positions of the dependent tree
+      posMap <- M.lookup depPos headMap
+      -- check if they agree
+      return $ M.member hedPos posMap
     -- construct the resulting item
     let p' = setL (spanP >>> beg) (qSpan ^. beg)
            . setL (spanP >>> end) (qSpan ^. end)
@@ -943,12 +962,21 @@ trySisterAdjoin p = void $ P.runListT $ do
     let anchorMap = anchorPos auto
         anchorMap' = anchorPos' auto
         headMap = headPos auto
-        depPos = M.lookup pDID anchorMap
-        hedPos = M.lookup (q ^. state) anchorMap'
-    -- guard $ (flip M.lookup headMap =<< depPos) == hedPos
-    guard $ case flip M.lookup headMap =<< depPos of
-              Nothing -> True
-              Just pos -> Just pos == hedPos
+--         depPos = M.lookup pDID anchorMap
+--         hedPos = M.lookup (q ^. state) anchorMap'
+--     -- guard $ (flip M.lookup headMap =<< depPos) == hedPos
+--     guard $ case flip M.lookup headMap =<< depPos of
+--               Nothing -> True
+--               Just pos -> Just pos == hedPos
+    guard . (/= Just False) $ do
+      -- determine the position of the head tree
+      hedPos <- M.lookup (q ^. state) anchorMap'
+      -- determine the position of the dependent tree
+      depPos <- M.lookup (p ^. dagID) anchorMap
+      -- determine the accepted positions of the dependent tree
+      posMap <- M.lookup depPos headMap
+      -- check if they agree
+      return $ M.member hedPos posMap
     -- construct the resultant item with the same state and extended span
     let q' = setL (end . spanA) (getL end pSpan) $ q
     -- push the resulting state into the waiting queue
@@ -1138,7 +1166,8 @@ recognize
     :: (SOrd t, SOrd n)
     => DAGram n t         -- ^ The grammar (set of rules)
     -> M.Map t Int        -- ^ Position map
-    -> M.Map Int Int      -- ^ Head map
+    -> M.Map Int (M.Map Int DAG.Weight)
+                          -- ^ Head map
     -> Input t            -- ^ Input sentence
     -> IO Bool
 recognize DAG.Gram{..} posMap hedMap input = do
@@ -1156,7 +1185,8 @@ recognizeFrom
     => DAGram n t           -- ^ The grammar
     -> n                    -- ^ The start symbol
     -> M.Map t Int          -- ^ Position map
-    -> M.Map Int Int        -- ^ Head map
+    -> M.Map Int (M.Map Int DAG.Weight)
+                            -- ^ Head map
     -> Input t              -- ^ Input sentence
     -> IO Bool
 recognizeFrom DAG.Gram{..} start posMap hedMap input = do
@@ -1171,7 +1201,8 @@ parse
     => DAGram n t           -- ^ The grammar (set of rules)
     -> n                    -- ^ The start symbol
     -> M.Map t Int          -- ^ Position map
-    -> M.Map Int Int        -- ^ Head map
+    -> M.Map Int (M.Map Int DAG.Weight)
+                            -- ^ Head map
     -> Input t              -- ^ Input sentence
     -> IO [T.Tree n t]
 parse DAG.Gram{..} start posMap hedMap input = do
@@ -1186,7 +1217,8 @@ earley
     :: (SOrd t, SOrd n)
     => DAGram n t           -- ^ The grammar (set of rules)
     -> M.Map t Int          -- ^ Position map
-    -> M.Map Int Int        -- ^ Head map
+    -> M.Map Int (M.Map Int DAG.Weight)
+                            -- ^ Head map
     -> Input t              -- ^ Input sentence
     -> IO (Hype n t)
 earley DAG.Gram{..} posMap hedMap input = do

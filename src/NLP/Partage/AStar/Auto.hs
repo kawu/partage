@@ -119,6 +119,9 @@ data Auto n t = Auto
     -- sentence.
     -- TODO: there is a `Pos` type defined, but in the `Base` module which
     -- relies on the `Auto` module...
+
+--     , depEsti :: H.DepEsti
+--     -- ^ Dependency-related heuristic estimations
     }
 
 
@@ -130,7 +133,7 @@ mkAuto
   -> Gram n t
   -> M.Map t Int   -- ^ Position map
   -> M.Map Int (M.Map Int Weight)
-                  -- ^ Head map
+                   -- ^ Head map
   -> Auto n t
 mkAuto memoTerm gram posMap hedMap =
     let auto = WS.fromGram Trie.fromGram (DAG.factGram gram)
@@ -146,7 +149,7 @@ mkAuto memoTerm gram posMap hedMap =
         , termDID  = mkTermDID dag
         , footDID  = mkFootDID dag
         , leafDID  = mkLeafDID dag
-        , estiCost = H.mkEsti memoTerm gram auto
+        , estiCost = H.mkEsti memoTerm gram auto posMap hedMap
         , lhsNonTerm = lhsMap
         -- NEW 12.12.2018
         , anchorPos = ancPos

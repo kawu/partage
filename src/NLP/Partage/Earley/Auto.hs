@@ -104,9 +104,20 @@ data Auto n t = Auto
     , anchorPos' :: M.Map ID Int
     -- ^ A map which determines the position of the attachment of the tree with
     -- the given `ID`.
-    , headPos :: M.Map Int Int
-    -- ^ A map which tells what is the head of the given word.  Both `Int`s
-    -- refer to positions in the input sentence.
+
+--     , headPos :: M.Map Int Int
+--     -- ^ A map which tells what is the head of the given word.  Both `Int`s
+--     -- refer to positions in the input sentence.
+--     -- TODO: there is a `Pos` type defined, but in the `Base` module which
+--     -- relies on the `Auto` module...
+
+    -- <<< NEW 27.12.2018 >>>
+
+    , headPos :: M.Map Int (M.Map Int DAG.Weight)
+    -- ^ A map which tells what are the *potential* heads of the given word.
+    -- For each such potential head, the corresponding arc (non-negative)
+    -- weight is assigned.  Both `Int`s refer to positions in the input
+    -- sentence.
     -- TODO: there is a `Pos` type defined, but in the `Base` module which
     -- relies on the `Auto` module...
     }
@@ -119,7 +130,7 @@ mkAuto
     => DAG n t w
     -> A.GramAuto
     -> M.Map t Int   -- ^ Position map
-    -> M.Map Int Int -- ^ Head map
+    -> M.Map Int (M.Map Int DAG.Weight) -- ^ Head map
     -> Auto n t
     -- -> IO Auto
 mkAuto dag auto posMap hedMap = M.size lhsMap `seq`
