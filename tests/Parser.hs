@@ -62,9 +62,9 @@ testAStar =
     parser = T.dummyParser
       { T.recognize = Just recFrom
       , T.parsedTrees = Just parseFrom
---       , T.derivTrees = Just derivFrom
---       , T.encodes = Just encodesFrom
---       , T.derivPipe  = Just derivPipe
+      , T.derivTrees = Just derivFrom
+      , T.encodes = Just encodesFrom
+      , T.derivPipe  = Just derivPipe
       }
     recFrom gram start input headMap
       = A.recognizeFrom memoTerm gram start (posMap input) headMap
@@ -80,20 +80,20 @@ testAStar =
         -- do the corresponding encoding/decoding
         . map (O.mkTree . fmap (O.mapTerm A.terminal) . O.unTree)
         $ A.parsedTrees hype start (length input)
---     derivFrom gram start input = do
---       let dag = DAG.mkGram gram
---           auto = A.mkAuto memoTerm dag posMap hedMap
---       hype <- A.earleyAuto auto (A.fromList input)
---       return $ D.derivTrees hype start (length input)
---     encodesFrom hype start input = D.encodes hype start (length input)
---     derivPipe gram start sent =
---       let dag = DAG.mkGram gram
---           auto = A.mkAuto memoTerm dag posMap hedMap
---           input = A.fromList sent
---           conf = D.DerivR
---             { D.startSym = start
---             , D.sentLen = length sent }
---       in  A.earleyAutoP auto input P.>-> D.derivsPipe conf
+    derivFrom gram start input headMap = do
+      let dag = DAG.mkGram gram
+          auto = A.mkAuto memoTerm dag (posMap input) headMap
+      hype <- A.earleyAuto auto (A.fromList input)
+      return $ D.derivTrees hype start (length input)
+    encodesFrom hype start input = D.encodes hype start (length input)
+    derivPipe gram start sent headMap =
+      let dag = DAG.mkGram gram
+          auto = A.mkAuto memoTerm dag (posMap sent) headMap
+          input = A.fromList sent
+          conf = D.DerivR
+            { D.startSym = start
+            , D.sentLen = length sent }
+      in  A.earleyAutoP auto input P.>-> D.derivsPipe conf
     memoTerm = Memo.wrap
       (uncurry T.Term)
       ((,) <$> T.orth <*> T.pos)
