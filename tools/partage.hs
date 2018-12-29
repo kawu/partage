@@ -6,9 +6,10 @@
 
 
 -- import           Prelude hiding (words)
-import           Control.Monad (forM_, when)
+import           Control.Monad (forM_, when, guard)
 import qualified Control.Arrow as Arr
 import           Data.Monoid ((<>))
+import           Data.Maybe (catMaybes)
 import           Options.Applicative
 import qualified Data.IORef as IORef
 -- import qualified Data.List as List
@@ -511,18 +512,33 @@ anchorTag x = fmap . O.mapTerm $ \case
 -- | Create the dependency map corresponding to the given list of tokens.  Note
 -- that the `Br.deph` values have to be handled carefully -- in the
 -- corresponding format, tokens are numbered from 1 and not from 0.
-mkDepMap :: [(Int, Br.SuperTok)] -> M.Map Int Int
-mkDepMap toks = M.fromList
-  [ (pos, tokDeph - 1)
-  | (pos, Br.SuperTok{..}) <- toks ]
+--
+-- TODO: we may want to take the dummy ROOT word into account!
+--
+-- mkDepMap :: [(Int, Br.SuperTok)] -> M.Map Int Int
+-- mkDepMap toks = M.fromList
+--   [ (dep, hed - 1)
+--   | (dep, Br.SuperTok{..}) <- toks
+--   , (hed, _weight) <- tokDeph ]
 
 
 -- | A variant of `mkDepMap` which creates a map of possible head positions
 -- together with the corresponding heads.  A stub so far, really.
 mkDepMap' :: [(Int, Br.SuperTok)] -> M.Map Int (M.Map Int DAG.Weight)
-mkDepMap' toks = M.fromList
-  [ (pos, M.singleton (tokDeph - 1) 0.0) 
-  | (pos, Br.SuperTok{..}) <- toks ]
+mkDepMap' toks = M.fromList $ catMaybes
+  [ (dep,) <$> do
+      guard . not $ M.null tokDeph
+      return $ mapKeys (\k->k-1) tokDeph
+    | (dep, Br.SuperTok{..}) <- toks 
+  ]
+
+
+-- | Map a function over the keys of the given map.
+mapKeys :: (Ord k') => (k -> k') -> M.Map k v -> M.Map k' v
+mapKeys f m = M.fromList
+  [ (f key, val)
+    | (key, val) <- M.toList m
+  ]
 
 
 --------------------------------------------------

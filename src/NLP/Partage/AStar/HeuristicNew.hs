@@ -38,12 +38,15 @@ import qualified Data.Set                        as S
 
 import           Data.DAWG.Ord                   (ID)
 
+import           NLP.Partage.SOrd                (SOrd)
 -- import qualified NLP.Partage.AStar.Auto          as I
 import           NLP.Partage.AStar.Heuristic.Bag
 import qualified NLP.Partage.Auto                as A
 import qualified NLP.Partage.DAG                 as D
 import qualified NLP.Partage.Tree.Other          as O
 -- import qualified NLP.Partage.Earley.AutoAP     as E
+
+-- import Debug.Trace (trace)
 
 
 --------------------------------
@@ -75,7 +78,7 @@ data Esti t = Esti
 
 -- | Create `Esti` based on several basic pieces of information.
 mkEsti
-  :: (Ord t, Ord n)
+  :: (SOrd t, Ord n)
   => Memo.Memo t        -- ^ Memoization strategy for terminals
   -> D.Gram n t         -- ^ The underlying grammar
   -> A.WeiGramAuto n t  -- ^ The underlying automaton
@@ -208,7 +211,7 @@ estiCost1 termWei bag =
 -- NOTE: This function works on any weithed automaton representations,
 -- but in reality it works correctly only on prefix trees!
 estiCost2
-    :: (Ord n, Ord t)
+    :: (Ord n, SOrd t)
     => A.WeiGramAuto n t            -- ^ The weighted automaton
     -> D.DAG (O.Node n t) D.Weight  -- ^ The corresponding grammar DAG
     -> (Bag t -> D.Weight)          -- ^ `estiCost1`
@@ -223,6 +226,9 @@ estiCost2 weiAuto@A.WeiAuto{..} weiDag estiTerm =
 --       | (bag', w) <- M.toList (cost i)
 --       , bag' `bagSubset` bag ]
     esti i bag = amortDag i + estiTerm bag
+--     esti i bag = trace 
+--       (show (i, bag, amortDag i, cost i, estiTerm bag))
+--       (amortDag i + estiTerm bag)
     amortDag i = minimumInf
       [ w - estiTerm bag
       | (bag, w) <- M.toList (cost i) ]

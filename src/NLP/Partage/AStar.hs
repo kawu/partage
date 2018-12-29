@@ -1525,6 +1525,8 @@ tryDeactivate q qw = void $ P.runListT $ do
       putStr "  :  " >> printPassive p hype
       putStr " #W  " >> print (duoBeta finalWeight)
       putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
+      putStr " ?R  " >> putStr (show $ DAG.isRoot (p ^. dagID) dag)
+                     >> putStrLn " (is the new item a root?)"
       -- putStr " #E  " >> print estDis
 #endif
   where

@@ -23,6 +23,7 @@ import qualified Data.Set                    as S
 
 import qualified NLP.Partage.Auto            as A
 
+import           NLP.Partage.SOrd            (SOrd)
 import qualified NLP.Partage.AStar.Heuristic as H
 -- import qualified NLP.Partage.AStar.Heuristic.Base as H
 import qualified NLP.Partage.Auto.WeiTrie    as Trie
@@ -128,7 +129,7 @@ data Auto n t = Auto
 -- | Construct `Auto` based on the weighted grammar.
 mkAuto
   -- :: (Hashable t, Ord t, Hashable n, Ord n)
-  :: (Ord t, Ord n)
+  :: (SOrd t, Ord n)
   => Memo.Memo t        -- ^ Memoization strategy for terminals
   -> Gram n t
   -> M.Map t Int   -- ^ Position map

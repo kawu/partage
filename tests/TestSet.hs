@@ -688,6 +688,39 @@ gram5Tests =
 -- * allow sister adjunction to the root of an auxiliary tree?
 --     <- DECISION: hard to say, we will see in practice
 
+
+---------------------------------------------------------------------
+-- Grammar 6
+---------------------------------------------------------------------
+
+
+mkGram6 :: [(O.Tree String Term, Weight)]
+mkGram6 = map (,1) $
+  [en, excuser]
+    where
+      term' t = term $ Term t Nothing
+      en = 
+        node "DUMMY"
+          [ node "CL"
+            [term' "en"]
+          ]
+      excuser = 
+        node "S"
+          [ leaf "CL"
+          , term' "excuser"
+          ]
+
+
+-- | Make sure that substitution doesn't work with a tree that is not fully
+-- recognized.
+gram6Tests :: [Test]
+gram6Tests =
+  [ test "S" ("en excuser") No ]
+    where
+      test start sent res = Test start (toks sent) M.empty res
+      toks = map tok . words
+      tok t = Term t Nothing
+
 ---------------------------------------------------------------------
 -- Resources
 ---------------------------------------------------------------------
@@ -701,6 +734,7 @@ data Res = Res
   , gram3 :: [(O.Tree String Term, Weight)]
   , gram4 :: [(O.Tree String Term, Weight)]
   , gram5 :: [(O.Tree String Term, Weight)]
+  , gram6 :: [(O.Tree String Term, Weight)]
   }
 
 
@@ -709,7 +743,7 @@ data Res = Res
 -- mkGrams :: IO Res
 mkGrams :: Res
 mkGrams =
-    Res mkGram1 mkGram1_1 mkGram2 mkGram3 mkGram4 mkGram5
+    Res mkGram1 mkGram1_1 mkGram2 mkGram3 mkGram4 mkGram5 mkGram6
 
 
 ---------------------------------------------------------------------
@@ -809,7 +843,8 @@ testTree modName TagParser{..} = do
         map (testIt resIO gram2) gram2Tests ++
         map (testIt resIO gram3) gram3Tests ++
         map (testIt resIO gram4) gram4Tests ++
-        map (testIt resIO gram5) gram5Tests
+        map (testIt resIO gram5) gram5Tests ++
+        map (testIt resIO gram6) gram6Tests
   where
     testIt resIO getGram test = testCase (show test) $ do
         gram <- getGram <$> resIO

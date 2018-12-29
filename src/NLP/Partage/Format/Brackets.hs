@@ -40,6 +40,7 @@ import qualified Data.Text.Lazy as L
 import qualified Data.Text.Lazy.Builder as B
 import qualified Data.Attoparsec.Text as Atto
 import qualified Data.Tree as R
+import qualified Data.Map.Strict as M
 
 import qualified NLP.Partage.Tree.Other as O
 
@@ -75,12 +76,12 @@ type LexTree = O.Tree NonTerm T.Text
 --   * word -- word on the given position in the sentence
 --   * tags -- list of possible supertags interpretation of the word +
 --             the corresponding probabilities
---   * deph -- the position of the dependency head
+--   * deph -- the position/weight of the dependency head(s)
 --
 data SuperTok = SuperTok
   { tokWord :: T.Text
   , tokTags :: [(Tree, Double)]
-  , tokDeph :: Int
+  , tokDeph :: M.Map Int Double
   } deriving (Show, Eq)
 
 
@@ -194,7 +195,7 @@ parseSuperTok xs =
     word : deph : tags -> SuperTok
       { tokWord = word
       , tokTags = map ((,0) . parseTree') tags
-      , tokDeph = read (T.unpack deph)
+      , tokDeph = M.singleton (read (T.unpack deph)) 0.0
       }
 
 
@@ -219,8 +220,7 @@ parseSuper
 
 
 -- | Parse the tree in the bracketed format with a probability put on the right
--- after the colon. The probability itself is not returned by the function,
--- though.
+-- after the colon.
 parseTreeProb :: T.Text -> (Tree, Double)
 parseTreeProb txt =
   case T.breakOn ":" (T.reverse txt) of
@@ -239,7 +239,7 @@ parseSuperTokProb xs =
     tags -> SuperTok
       { tokWord = "#"
       , tokTags = map parseTreeProb tags
-      , tokDeph = error "not implemented"
+      , tokDeph = M.empty
       }
 
 
