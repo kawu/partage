@@ -690,7 +690,7 @@ gram5Tests =
 
 
 ---------------------------------------------------------------------
--- Grammar 6
+-- Test 6
 ---------------------------------------------------------------------
 
 
@@ -721,6 +721,55 @@ gram6Tests =
       toks = map tok . words
       tok t = Term t Nothing
 
+
+---------------------------------------------------------------------
+-- Test 7
+---------------------------------------------------------------------
+
+
+mkGram7 :: [(O.Tree String Term, Weight)]
+mkGram7 =
+  [(cine, 1.0), (et, 1.0), (lect, 1.0)]
+    where
+      term' t k = term $ Term t (Just k)
+      cine =
+        node "NP"
+          [ node "N"
+            [term' "cine" 0]
+          ]
+      et =
+        sister "NP"
+          [ node "COORD"
+            [ node "C" [term' "et" 1]
+            , leaf "NP"
+            ]
+          ]
+      lect =
+        node "NP"
+          [ node "N"
+            [term' "lect" 2]
+          ]
+
+
+-- | Make sure that substitution doesn't work with a tree that is not fully
+-- recognized.
+gram7Tests :: [Test]
+gram7Tests =
+  [ testDep "NP" ["cine", "et", "lect"] Yes $
+      M.fromList
+        [ (1, M.fromList [(0, 1)])
+        , (2, M.fromList [(1, 1)])
+        ]
+  ]
+    where
+      testDep start sent res hedMap = Test
+        start
+        [tok x k | (x, k) <- zip sent [0..]] 
+        hedMap
+        res
+      tok t k = Term t (Just k)
+
+
 ---------------------------------------------------------------------
 -- Resources
 ---------------------------------------------------------------------
@@ -735,6 +784,7 @@ data Res = Res
   , gram4 :: [(O.Tree String Term, Weight)]
   , gram5 :: [(O.Tree String Term, Weight)]
   , gram6 :: [(O.Tree String Term, Weight)]
+  , gram7 :: [(O.Tree String Term, Weight)]
   }
 
 
@@ -743,7 +793,7 @@ data Res = Res
 -- mkGrams :: IO Res
 mkGrams :: Res
 mkGrams =
-    Res mkGram1 mkGram1_1 mkGram2 mkGram3 mkGram4 mkGram5 mkGram6
+    Res mkGram1 mkGram1_1 mkGram2 mkGram3 mkGram4 mkGram5 mkGram6 mkGram7
 
 
 ---------------------------------------------------------------------
@@ -844,7 +894,8 @@ testTree modName TagParser{..} = do
         map (testIt resIO gram3) gram3Tests ++
         map (testIt resIO gram4) gram4Tests ++
         map (testIt resIO gram5) gram5Tests ++
-        map (testIt resIO gram6) gram6Tests
+        map (testIt resIO gram6) gram6Tests ++
+        map (testIt resIO gram7) gram7Tests
   where
     testIt resIO getGram test = testCase (show test) $ do
         gram <- getGram <$> resIO

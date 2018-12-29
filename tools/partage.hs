@@ -528,15 +528,20 @@ mkDepMap' :: [(Int, Br.SuperTok)] -> M.Map Int (M.Map Int DAG.Weight)
 mkDepMap' toks = M.fromList $ catMaybes
   [ (dep,) <$> do
       guard . not $ M.null tokDeph
-      return $ mapKeys (\k->k-1) tokDeph
-    | (dep, Br.SuperTok{..}) <- toks 
+      return $ mapMap (\k -> k-1) (\p -> -log(p)) tokDeph
+    | (dep, Br.SuperTok{..}) <- toks
   ]
 
 
--- | Map a function over the keys of the given map.
-mapKeys :: (Ord k') => (k -> k') -> M.Map k v -> M.Map k' v
-mapKeys f m = M.fromList
-  [ (f key, val)
+-- | Map a function over keys and values of the given map.
+mapMap
+  :: (Ord k')
+  => (k -> k')
+  -> (v -> v')
+  -> M.Map k v
+  -> M.Map k' v'
+mapMap f g m = M.fromList
+  [ (f key, g val)
     | (key, val) <- M.toList m
   ]
 

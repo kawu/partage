@@ -77,7 +77,7 @@ type LexTree = O.Tree NonTerm T.Text
 --   * word -- word on the given position in the sentence
 --   * tags -- list of possible supertags interpretation of the word +
 --             the corresponding probabilities
---   * deph -- the position/weight of the dependency head(s)
+--   * deph -- the position/probability of the dependency head(s)
 --
 data SuperTok = SuperTok
   { tokWord :: T.Text

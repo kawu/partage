@@ -903,9 +903,12 @@ trySubst p pw = void $ P.runListT $ do
     -- estDist <- lift . estimateDistA $ q'
     -- push the resulting state into the waiting queue
     let newBeta = sumWeight [duoBeta pw, duoBeta qw, tranCost, depCost]
-        -- NEW 28.12.2018
+        -- BELOW NEW 28.12.2018
         -- newGap = duoGap qw
-        newGap = duoGap pw + duoGap qw
+        newGap =
+          if DAG.isRoot pDID dag
+            then duoGap qw -- real substitution
+            else duoGap pw + duoGap qw -- pseudo substitution
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
     lift $ pushInduced q' newDuo (Subst p q $ tranCost + depCost)
 #ifdef CheckMonotonic
@@ -1008,9 +1011,12 @@ trySubst' q qw = void $ P.runListT $ do
     -- estDist <- lift . estimateDistA $ q'
     -- push the resulting state into the waiting queue
     let newBeta = sumWeight [duoBeta pw, duoBeta qw, tranCost, depCost]
-        -- NEW 28.12.2018
+        -- BELOW NEW 28.12.2018
         -- newGap = duoGap qw
-        newGap = duoGap pw + duoGap qw
+        newGap =
+          if DAG.isLeaf qDID dag
+            then duoGap qw -- real substitution
+            else duoGap pw + duoGap qw -- pseudo substitution
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
     lift $ pushInduced q' newDuo (Subst p q $ tranCost + depCost)
 #ifdef CheckMonotonic
