@@ -37,6 +37,9 @@ import           Data.IORef
 import qualified Data.Map.Strict           as M
 import qualified Data.Set                  as S
 import qualified Data.Tree                 as R
+import           Data.List                 (intercalate)
+import qualified Data.Text                 as T
+import qualified Data.Text.Lazy            as L
 
 import           Test.HUnit                (Assertion, (@?=))
 import           Test.Tasty                (TestTree, testGroup, withResource)
@@ -50,6 +53,8 @@ import qualified NLP.Partage.AStar.Deriv   as Deriv
 import           NLP.Partage.DAG           (Weight)
 import           NLP.Partage.Tree          (AuxTree (..), Tree (..))
 import qualified NLP.Partage.Tree.Other    as O
+
+import qualified NLP.Partage.Format.Brackets as Br
 
 
 ---------------------------------------------------------------------
@@ -72,7 +77,13 @@ data Term = Term
     -- ^ The orthographic form
   , pos :: Maybe Int
     -- ^ The position (can be left underspecified)
-  } deriving (Show, Eq, Ord)
+  } deriving (Eq, Ord)
+
+instance Show Term where
+  show t = orth t ++
+    case pos t of
+      Nothing -> ""
+      Just k -> ":" ++ show k
 
 
 -- | Some smart constructors.
@@ -99,7 +110,29 @@ data Test = Test {
     , headMap :: M.Map Int (M.Map Int Weight)
     -- | The expected recognition result
     , testRes  :: TestRes
-    } deriving (Show, Eq, Ord)
+    } deriving (Eq, Ord)
+
+
+instance Show Test where
+  show Test{..}
+    = "("
+    ++ startSym
+    ++ ", "
+    ++ show testSent
+    ++ showHeads
+    ++ ", "
+    ++ show testRes
+    ++ ")"
+      where
+        showHeads =
+          if M.null headMap
+             then ""
+             else ", " ++
+               intercalate ";"
+                [ show dep ++ ":" ++ show hed ++ "$" ++ show w
+                | (dep, hedMap) <- M.toList headMap 
+                , (hed, w) <- M.toList hedMap
+                ]
 
 
 -- | The expected test result.  The set of parsed trees can be optionally
@@ -111,8 +144,22 @@ data TestRes
       -- ^ Parse
     | Trees (S.Set Tr)
       -- ^ Parsing results
-    deriving (Show, Eq, Ord)
+    deriving (Eq, Ord)
 
+
+instance Show TestRes where
+  show No = "No"
+  show Yes = "Yes"
+  show (Trees ts) =
+    "{" ++ L.unpack lazyText ++ "}"
+      where
+        showOne = Br.showTree . fmap process . O.unTree
+        lazyText = L.intercalate " " (map showOne $ S.toList ts)
+        process (O.Term t) = O.Term . T.pack $ show t
+        process (O.NonTerm x) = O.NonTerm $ T.pack x
+        process (O.Sister x) = O.Sister $ T.pack x
+        process (O.Foot x) = O.Foot $ T.pack x
+    
 
 ---------------------------------------------------------------------
 -- Grammar1
