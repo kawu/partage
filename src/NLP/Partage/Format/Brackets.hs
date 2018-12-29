@@ -31,6 +31,7 @@ where
 
 
 import           Control.Applicative ((<|>))
+import           Control.Arrow (second)
 -- import           Data.List (intersperse)
 import           Data.Monoid (mconcat, mappend)
 import qualified Data.Char as C
@@ -236,10 +237,12 @@ parseSuperTokProb :: T.Text -> SuperTok
 parseSuperTokProb xs =
   case T.splitOn "\t" xs of
     [] -> error "Brackets.parseSuperTok: empty line"
-    tags -> SuperTok
-      { tokWord = "#"
+    [_] -> error "Brackets.parseSuperTok: no supertags"
+    [_, _] -> error "Brackets.parseSuperTok: no dependency head"
+    _id : word : deph : tags -> SuperTok
+      { tokWord = word
       , tokTags = map parseTreeProb tags
-      , tokDeph = M.empty
+      , tokDeph = parseDeph $ T.strip deph
       }
 
 
@@ -256,6 +259,22 @@ parseSuperProb
   . L.splitOn "\n\n"
   where
     realSent = not . L.null
+
+
+parseDeph :: T.Text -> M.Map Int Double
+parseDeph str
+  | T.null str = M.empty
+  | otherwise = M.fromList
+      [ ( read $ T.unpack depStr
+        , case TR.double depProb of
+            Right (prob, "") -> prob
+            _ -> error $ "Brackets.parseDeph: failed to parse probability " 
+              ++ T.unpack depProb
+        )
+      | one <- T.splitOn "|" str
+      , let (depStr, depProb) = 
+              second T.tail $ T.breakOn ":" one
+      ]
 
 
 -------------------------------------------------------------
