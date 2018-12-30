@@ -1229,8 +1229,8 @@ earley DAG.Gram{..} posMap hedMap input = do
 
 -- | Default grammar automaton creation method.
 fromGram :: S.Set DAG.Rule -> A.GramAuto
--- fromGram = AS.fromGram D.fromGram
-fromGram = AL.fromGram
+fromGram = AS.fromGram D.fromGram
+-- fromGram = AL.fromGram
 
 
 --------------------------------------------------

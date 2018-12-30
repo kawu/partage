@@ -64,7 +64,7 @@ testAStar =
       , T.parsedTrees = Just parseFrom
       , T.derivTrees = Just derivFrom
       , T.encodes = Just encodesFrom
-      , T.derivPipe  = Just derivPipe
+--       , T.derivPipe  = Just derivPipe
       }
     recFrom gram start input headMap
       = A.recognizeFrom memoTerm gram start (posMap input) headMap
@@ -86,14 +86,14 @@ testAStar =
       hype <- A.earleyAuto auto (A.fromList input)
       return $ D.derivTrees hype start (length input)
     encodesFrom hype start input = D.encodes hype start (length input)
-    derivPipe gram start sent headMap =
-      let dag = DAG.mkGram gram
-          auto = A.mkAuto memoTerm dag (posMap sent) headMap
-          input = A.fromList sent
-          conf = D.DerivR
-            { D.startSym = start
-            , D.sentLen = length sent }
-      in  A.earleyAutoP auto input P.>-> D.derivsPipe conf
+--     derivPipe gram start sent headMap =
+--       let dag = DAG.mkGram gram
+--           auto = A.mkAuto memoTerm dag (posMap sent) headMap
+--           input = A.fromList sent
+--           conf = D.DerivR
+--             { D.startSym = start
+--             , D.sentLen = length sent }
+--       in  A.earleyAutoP auto input P.>-> D.derivsPipe conf
     memoTerm = Memo.wrap
       (uncurry T.Term)
       ((,) <$> T.orth <*> T.pos)

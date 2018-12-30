@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveFunctor      #-}
 {-# LANGUAGE RecordWildCards    #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -82,6 +83,7 @@ import qualified Data.Map.Strict            as M
 import qualified Data.MemoCombinators       as Memo
 import qualified Data.Set                   as S
 import qualified Data.Tree                  as R
+import qualified Data.List                  as L
 
 -- import qualified NLP.Partage.Tree           as T
 import qualified NLP.Partage.Tree.Other     as O
@@ -215,6 +217,46 @@ deriving instance (Ord a) => (Ord (R.Tree a))
 
 
 ----------------------
+-- Concat
+----------------------
+
+
+-- | Concatenate two DAGs (without any subtree sharing).  
+concatDAG :: DAG a b -> DAG a b -> DAG a b
+concatDAG l r0 = DAG
+  { rootSet = S.union (rootSet l) (rootSet r)
+  , nodeMap = M.union (nodeMap l) (nodeMap r)
+  } where
+    m = M.size (nodeMap l)
+    -- n = M.size (nodeMap r)
+    r = mapDID (+m) r0
+
+
+-- | Concatenate several DAGs (without any subtree sharing).
+concatDAGs :: [DAG a b] -> DAG a b
+concatDAGs = L.foldl' concatDAG empty
+
+
+-- | Map a function over node IDs.
+mapDID :: (Int -> Int) -> DAG a b -> DAG a b
+mapDID f dag = DAG
+  { rootSet =
+      S.fromList . map g . S.toList $ rootSet dag
+  , nodeMap = M.fromList
+      [ (g nodeID, mapNodeID node)
+      | (nodeID, node) <- M.toList (nodeMap dag)
+      ]
+  } where
+    g (DID k) = DID (f k)
+    mapNodeID node = node
+      { nodeEdges =
+          [ (g did, v)
+          | (did, v) <- nodeEdges node
+          ] 
+      }
+
+
+----------------------
 -- Basic Convertion
 ----------------------
 
@@ -304,6 +346,16 @@ newID = E.gets $ \DagSt{..} -> DID $ M.size rootMap + M.size normMap
 ----------------------
 -- Weighted Convertion
 ----------------------
+
+
+-- | A version of `dagFromWeightedForest` which takes a list of forests,
+-- creates a separate DAG for each of them, and concatenates the resulting DAGs
+-- in the end.
+dagFromWeightedForests
+    :: (Ord a)
+    => [[(R.Tree a, Weight)]]
+    -> DAG a Weight
+dagFromWeightedForests = concatDAGs . map dagFromWeightedForest
 
 
 -- | Transform the given weighted grammar into a `DAG`.  Common subtrees are
@@ -508,17 +560,29 @@ data Gram n t = Gram
 
 
 -- | Construct `Gram` from the given weighted grammar.
+-- 
+-- The behaviour of this function depends on the compile-time flag
+-- "Compression".
+--
 mkGram
     :: (Ord n, Ord t)
     => [(O.Tree n t, Weight)]
     -> Gram n t
+#if Compression
+mkGram ts = Gram
+    { dagGram   = dagGram_
+    , factGram  = rulesMapFromDAG dagGram_
+    , termWei   = mkTermWei ts }
+  where
+    dagGram_ = dagFromWeightedForests $ M.elems byTerm
+    -- dagGram_ = dagFromWeightedForest ts
+    byTerm = M.fromListWith (++)
+      [ (termSet t, [(t, w)])
+      | (t, w) <- ts ]
+    termSet = S.fromList . O.project
+#else
 mkGram = mkDummy
--- mkGram ts = Gram
---     { dagGram   = dagGram_
---     , factGram  = rulesMapFromDAG dagGram_
---     , termWei   = mkTermWei ts }
---   where
---     dagGram_ = dagFromWeightedForest ts
+#endif
 
 
 -- | Construct a dummy `Gram` (no subtree sharing) from the given weighted

@@ -118,6 +118,10 @@ data Auto n t = Auto
     -- For each such potential head, the corresponding arc (non-negative)
     -- weight is assigned.  Both `Int`s refer to positions in the input
     -- sentence.
+    --
+    -- If there is no `M.Map Int Weight` specified for a given position, any
+    -- head will be allowed.
+    -- 
     -- TODO: there is a `Pos` type defined, but in the `Base` module which
     -- relies on the `Auto` module...
 
@@ -263,7 +267,7 @@ mkAnchorPos dag auto posMap =
       [ (i,) <$> pick (didOn i)
       | i <- S.toList $ DAG.nodeSet dag ]
 
-    idOn i = concat
+    idOn i = nub . concat $
       [ case edge of
           A.Head did -> didOn did
           A.Body did -> didOn did
@@ -271,7 +275,7 @@ mkAnchorPos dag auto posMap =
       ]
 
     didOn = Memo.wrap DAG.DID DAG.unDID Memo.integral didOn'
-    didOn' did =
+    didOn' did = nub $
       if DAG.isRoot did dag
          then down did 
          else concat
@@ -301,6 +305,6 @@ mkAnchorPos dag auto posMap =
 --------------------------------------------------
 
 
--- -- | Remove duplicates.
--- nub :: Ord a => [a] -> [a]
--- nub = S.toList . S.fromList
+-- | Remove duplicates.
+nub :: Ord a => [a] -> [a]
+nub = S.toList . S.fromList

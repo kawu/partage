@@ -101,6 +101,7 @@ library
     -- cpp-options: -DDebugOn
     cpp-options: -DNewHeuristic
     cpp-options: -DCheckMonotonic
+    cpp-options: -DCompression
 
 
 source-repository head
@@ -150,6 +151,7 @@ executable partage
     build-depends:
         partage
       , base                    >= 4        && < 5
+      , mtl                 >= 2.1      && < 2.3
       , optparse-applicative    >= 0.12     && < 0.14
       , text                    >= 1.2      && < 1.3
       , containers              >= 0.5      && < 0.6

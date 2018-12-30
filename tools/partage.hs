@@ -3,11 +3,14 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 
 -- import           Prelude hiding (words)
 import           Control.Monad (forM_, when, guard)
 import qualified Control.Arrow as Arr
+import qualified Control.Monad.RWS.Strict   as RWS
+
 import           Data.Monoid ((<>))
 import           Data.Maybe (catMaybes)
 import           Options.Applicative
@@ -377,6 +380,7 @@ run cmd =
         let n = length input
             consume = do
               A.HypeModif{..} <- P.await
+              modifHype <- RWS.get
               case (modifType, modifItem) of
                 (A.NewNode, A.ItemP p) ->
                   if (D.isFinal_ modifHype startSym n p) then do
@@ -387,9 +391,10 @@ run cmd =
                       else return modifHype
                   else consume
                 _ -> consume
-        finalHype <- P.runEffect $
-          A.earleyAutoP automat (A.fromList input)
-          P.>-> consume
+--         finalHype <- P.runEffect $
+--           A.earleyAutoP automat (A.fromList input)
+--           P.>-> consume
+        finalHype <- A.earleyAutoP automat (A.fromList input) consume
         endTime <- Time.getCurrentTime
         (semiHype, semiTime) <- maybe (finalHype, endTime) id
           <$> IORef.readIORef hypeRef

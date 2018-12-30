@@ -99,6 +99,7 @@ data Chart n t = Chart
           )
         )
     -- ^ Processed initial passive items.
+    -- UPDATE 30.12.2018: also sister-adjunction passive items!
 
 --     , donePassiveIniNoTop ::
 --         M.Map Pos         -- beginning position
@@ -573,9 +574,6 @@ provideBeg' getChart x i = do
 -- | Return all initial passive items which:
 -- * provide a given label,
 -- * begin on the given position.
--- * if the given label is a non-terminal rather than a DAG node,
---   make sure that the matched passive item corresponds to a
---   fully recognized elementary tree (NEW 29.12.2018)
 --
 -- TODO: Should be better optimized.
 provideBegIni
@@ -599,8 +597,6 @@ provideBegIni getAuto getChart x i = do
       checkNonTerm qDID =
         case x of
           Left nt -> nonTerm qDID auto == nt
-                     -- NEXT LINE NEW 29.12.2018
-                     && DAG.isRoot qDID dag
           Right did -> qDID == did
   each $
     maybeToList ((M.lookup i >=> M.lookup n) donePassiveIni) >>=

@@ -251,7 +251,7 @@ mkAnchorPos dag auto posMap =
       [ (i,) <$> pick (didOn i)
       | i <- S.toList $ DAG.nodeSet dag ]
 
-    idOn i = concat
+    idOn i = nub . concat $
       [ case edge of
           A.Head did -> didOn did
           A.Body did -> didOn did
@@ -259,7 +259,7 @@ mkAnchorPos dag auto posMap =
       ]
 
     didOn = Memo.wrap DAG.DID DAG.unDID Memo.integral didOn'
-    didOn' did =
+    didOn' did = nub $
       if DAG.isRoot did dag
          then down did 
          else concat

@@ -32,3 +32,15 @@ extra-package-dbs: []
 # Extra directories used by stack for building
 # extra-include-dirs: [/path/to/dir]
 # extra-lib-dirs: [/path/to/dir]
+
+# ghc-options:
+#     # "$locals": -Wall
+#     # "$targets": -Werror
+#     # "$everything": -O2
+#     pipes: -fno-prof-auto
+
+# # apply-ghc-options: locals # all local packages, the default
+# # apply-ghc-options: targets # all local packages that are targets
+# apply-ghc-options: everything # applied even to snapshot and extra-deps
+
+# rebuild-ghc-options: true

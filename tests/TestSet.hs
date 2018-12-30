@@ -68,7 +68,7 @@ type Tr    = Tree String Term
 -- type Other = O.SomeTree String String
 type Hype  = AStar.Hype String Term
 type Deriv = Deriv.Deriv String (Tok Term)
-type ModifDerivs = Deriv.ModifDerivs String Term
+-- type ModifDerivs = Deriv.ModifDerivs String Term
 
 
 -- | A terminal/token.
@@ -771,6 +771,61 @@ gram7Tests =
 
 
 ---------------------------------------------------------------------
+-- Test 8
+---------------------------------------------------------------------
+
+
+mkGram8 :: [(O.Tree String Term, Weight)]
+mkGram8 =
+  [(cine, 0.0), (cine', 1.0), (et, 0.0), (lect, 0.0)]
+    where
+      term' t k = term $ Term t (Just k)
+      cine =
+        node "DUMMY"
+          [ node "N"
+            [term' "cine" 0]
+          ]
+      cine' =
+        node "NP"
+          [ node "N"
+            [term' "cine" 0]
+          , leaf "NP"
+          ]
+      et =
+        sister "NP"
+          [ node "COORD"
+            [ node "C" [term' "et" 1]
+            , leaf "NP"
+            ]
+          ]
+      lect =
+        node "NP"
+          [ node "N"
+            [term' "lect" 2]
+          ]
+
+
+-- | Make sure that substitution doesn't work with a tree that is a
+-- sister-tree.
+gram8Tests :: [Test]
+gram8Tests =
+  [ testDep "NP" ["cine", "et", "lect"] No $
+      M.fromList
+        [ (1, M.fromList [(0, 0)])
+        , (2, M.fromList [(1, 0)])
+        ]
+  ]
+    where
+      testDep start sent res hedMap = Test
+        start
+        [tok x k | (x, k) <- zip sent [0..]] 
+        hedMap
+        res
+      tok t k = Term t (Just k)
+
+
+
+---------------------------------------------------------------------
 -- Resources
 ---------------------------------------------------------------------
 
@@ -785,6 +840,7 @@ data Res = Res
   , gram5 :: [(O.Tree String Term, Weight)]
   , gram6 :: [(O.Tree String Term, Weight)]
   , gram7 :: [(O.Tree String Term, Weight)]
+  , gram8 :: [(O.Tree String Term, Weight)]
   }
 
 
@@ -793,7 +849,7 @@ data Res = Res
 -- mkGrams :: IO Res
 mkGrams :: Res
 mkGrams =
-    Res mkGram1 mkGram1_1 mkGram2 mkGram3 mkGram4 mkGram5 mkGram6 mkGram7
+    Res mkGram1 mkGram1_1 mkGram2 mkGram3 mkGram4 mkGram5 mkGram6 mkGram7 mkGram8
 
 
 ---------------------------------------------------------------------
@@ -841,13 +897,13 @@ type DerivP
 -- type DerivP = [(Other, Weight)] -> String -> [String] -> IO [Deriv]
 
 
--- | Derivation pipe
-type DerivPipeP
-  = [(O.Tree String Term, Weight)]
-  -> String
-  -> [Term]
-  -> M.Map Int (M.Map Int Weight)
-  -> (P.Producer ModifDerivs IO Hype)
+-- -- | Derivation pipe
+-- type DerivPipeP
+--   = [(O.Tree String Term, Weight)]
+--   -> String
+--   -> [Term]
+--   -> M.Map Int (M.Map Int Weight)
+--   -> (P.Producer ModifDerivs IO Hype)
 
 
 -- | Encoding check
@@ -868,14 +924,14 @@ data TagParser = TagParser
   , encodes :: Maybe EncodeP
     -- ^ Function which checks whether the given derivation is encoded in
     -- the given hypergraph
-  , derivPipe :: Maybe DerivPipeP
-    -- ^ A pipe (producer) which generates derivations on-the-fly
+--   , derivPipe :: Maybe DerivPipeP
+--     -- ^ A pipe (producer) which generates derivations on-the-fly
   }
 
 
 -- | Dummy parser which doesn't provide anything.
 dummyParser :: TagParser
-dummyParser = TagParser Nothing Nothing Nothing Nothing Nothing
+dummyParser = TagParser Nothing Nothing Nothing Nothing -- Nothing
 
 
 -- | All the tests of the parsing algorithm.
@@ -895,17 +951,18 @@ testTree modName TagParser{..} = do
         map (testIt resIO gram4) gram4Tests ++
         map (testIt resIO gram5) gram5Tests ++
         map (testIt resIO gram6) gram6Tests ++
-        map (testIt resIO gram7) gram7Tests
+        map (testIt resIO gram7) gram7Tests ++
+        map (testIt resIO gram8) gram8Tests
   where
     testIt resIO getGram test = testCase (show test) $ do
         gram <- getGram <$> resIO
         testRecognition gram test
         testParsing gram test
         testDerivsIsSet gram test
-        testFlyingDerivsIsSet gram test
-        testDerivsEqual gram test
-        testWeightsAscend gram test
-        testEachDerivEncoded gram test
+--         testFlyingDerivsIsSet gram test
+--         testDerivsEqual gram test
+--         testWeightsAscend gram test
+--         testEachDerivEncoded gram test
 
     -- Check if the recognition result is as expected
     testRecognition gram Test{..} = case recognize of
@@ -926,69 +983,69 @@ testTree modName TagParser{..} = do
           length ds @?= length (nub ds)
         _ -> return ()
 
-    -- Like `testDerivsIsSet` but for on-the-fly generated derivations
-    testFlyingDerivsIsSet gram Test{..} = case derivPipe of
-        Just mkPipe -> do
-          derivsRef <- newIORef []
-          let pipe = mkPipe gram startSym testSent headMap
-          void $ P.runEffect . P.for pipe $ \(_modif, derivs) -> do
-            lift $ modifyIORef' derivsRef (++ derivs)
-          ds <- readIORef derivsRef
-          length ds @?= length (nub ds)
-        _ -> return ()
-
-    -- Test if `testDerivsIsSet` and `testFlyingDerivsIsSet`
-    -- give the same results
-    testDerivsEqual gram Test{..} = case (derivTrees, derivPipe) of
-      (Just derivs, Just mkPipe) -> do
-        derivsRef <- newIORef []
-        let pipe = mkPipe gram startSym testSent headMap
-        void $ P.runEffect . P.for pipe $ \(_modif, modifDerivs) -> do
-          lift $ modifyIORef' derivsRef (++ modifDerivs)
-        ds1 <- readIORef derivsRef
-        ds2 <- derivs gram startSym testSent headMap
-        S.fromList ds1 @?= S.fromList ds2
-      _ -> return ()
-
-    -- Test if every output derivation is encoded in the final hypergraph
-    testEachDerivEncoded gram Test{..} = case (derivPipe, encodes) of
-        (Just mkPipe, Just enc) -> do
-          derivsRef <- newIORef []
-          let pipe = mkPipe gram startSym testSent headMap
-          hype <- P.runEffect . P.for pipe $ \(_modif, derivs) -> do
-            lift $ modifyIORef' derivsRef (++ derivs)
-          ds <- readIORef derivsRef
-          forM_ ds $ \deriv ->
-            enc hype startSym testSent deriv @?= True
-        _ -> return ()
-
-    -- Check if the chart items are popped from the queue in the ascending
-    -- order of their weights; we assume here that weights are non-negative
-    testWeightsAscend gram Test{..} = case derivPipe of
-        Just mkPipe -> do
-          weightRef <- newIORef 0.0
-          let pipe = mkPipe gram startSym testSent headMap
-          void $ P.runEffect . P.for pipe $ \(hypeModif, _derivs) -> void . lift . runMaybeT $ do
-            guard $ AStar.modifType hypeModif == AStar.NewNode
-#ifdef NewHeuristic
-#else
-            guard $ case AStar.modifItem hypeModif of
-              AStar.ItemA q -> AStar._gap (AStar._spanA q) == Nothing
-              AStar.ItemP p -> AStar._gap (AStar._spanP p) == Nothing
-#endif
-            let trav = AStar.modifTrav hypeModif
-                newWeight = AStar.totalWeight trav
-            lift $ do
-              curWeight <- readIORef weightRef
---               if newWeight < curWeight then do
---                 putStr "NEW: " >> print newWeight
---                 putStr "NEW: " >> print (roundTo newWeight 10)
---                 putStr "CUR: " >> print curWeight
---                 putStr "CUR: " >> print (curWeight `roundTo` 10)
---               else return ()
-              newWeight `roundTo` 10 >= curWeight `roundTo` 10 @?= True
-              writeIORef weightRef newWeight
-        _ -> return ()
+--     -- Like `testDerivsIsSet` but for on-the-fly generated derivations
+--     testFlyingDerivsIsSet gram Test{..} = case derivPipe of
+--         Just mkPipe -> do
+--           derivsRef <- newIORef []
+--           let pipe = mkPipe gram startSym testSent headMap
+--           void $ P.runEffect . P.for pipe $ \(_modif, derivs) -> do
+--             lift $ modifyIORef' derivsRef (++ derivs)
+--           ds <- readIORef derivsRef
+--           length ds @?= length (nub ds)
+--         _ -> return ()
+-- 
+--     -- Test if `testDerivsIsSet` and `testFlyingDerivsIsSet`
+--     -- give the same results
+--     testDerivsEqual gram Test{..} = case (derivTrees, derivPipe) of
+--       (Just derivs, Just mkPipe) -> do
+--         derivsRef <- newIORef []
+--         let pipe = mkPipe gram startSym testSent headMap
+--         void $ P.runEffect . P.for pipe $ \(_modif, modifDerivs) -> do
+--           lift $ modifyIORef' derivsRef (++ modifDerivs)
+--         ds1 <- readIORef derivsRef
+--         ds2 <- derivs gram startSym testSent headMap
+--         S.fromList ds1 @?= S.fromList ds2
+--       _ -> return ()
+-- 
+--     -- Test if every output derivation is encoded in the final hypergraph
+--     testEachDerivEncoded gram Test{..} = case (derivPipe, encodes) of
+--         (Just mkPipe, Just enc) -> do
+--           derivsRef <- newIORef []
+--           let pipe = mkPipe gram startSym testSent headMap
+--           hype <- P.runEffect . P.for pipe $ \(_modif, derivs) -> do
+--             lift $ modifyIORef' derivsRef (++ derivs)
+--           ds <- readIORef derivsRef
+--           forM_ ds $ \deriv ->
+--             enc hype startSym testSent deriv @?= True
+--         _ -> return ()
+-- 
+--     -- Check if the chart items are popped from the queue in the ascending
+--     -- order of their weights; we assume here that weights are non-negative
+--     testWeightsAscend gram Test{..} = case derivPipe of
+--         Just mkPipe -> do
+--           weightRef <- newIORef 0.0
+--           let pipe = mkPipe gram startSym testSent headMap
+--           void $ P.runEffect . P.for pipe $ \(hypeModif, _derivs) -> void . lift . runMaybeT $ do
+--             guard $ AStar.modifType hypeModif == AStar.NewNode
+-- #ifdef NewHeuristic
+-- #else
+--             guard $ case AStar.modifItem hypeModif of
+--               AStar.ItemA q -> AStar._gap (AStar._spanA q) == Nothing
+--               AStar.ItemP p -> AStar._gap (AStar._spanP p) == Nothing
+-- #endif
+--             let trav = AStar.modifTrav hypeModif
+--                 newWeight = AStar.totalWeight trav
+--             lift $ do
+--               curWeight <- readIORef weightRef
+-- --               if newWeight < curWeight then do
+-- --                 putStr "NEW: " >> print newWeight
+-- --                 putStr "NEW: " >> print (roundTo newWeight 10)
+-- --                 putStr "CUR: " >> print curWeight
+-- --                 putStr "CUR: " >> print (curWeight `roundTo` 10)
+-- --               else return ()
+--               newWeight `roundTo` 10 >= curWeight `roundTo` 10 @?= True
+--               writeIORef weightRef newWeight
+--         _ -> return ()
 
     simplify No         = False
     simplify Yes        = True

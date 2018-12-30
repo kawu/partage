@@ -217,16 +217,39 @@ mkHype auto = Hype
     , waiting = Q.empty }
 
 
--- | Type of elements produced by the pipe underlying the `Earley` monad.
+-- -- | Type of elements produced by the pipe underlying the `Earley` monad.
+-- -- What is produced by the pipe represents all types of modifications which
+-- -- can apply to the underlying, processed (done) part of the hypergraph.
+-- -- TODO: No need to report `modifTrav` if `modifType == NewNode` (then
+-- -- `modifTrav` can be easily induced from `modifHype`).
+-- data HypeModif n t = HypeModif
+--   { modifHype :: Hype n t
+--     -- ^ Current version of the hypergraph, with the corresponding
+--     -- modification applied
+--   , modifType :: ModifType
+--     -- ^ Type of modification of the hypergraph
+--   , modifItem :: Item n t
+--     -- ^ Hypernode which is either added (if `modifType = NewNode`) or
+--     -- just the target (if `modifType = NewArcs`) of the newly added
+--     -- hyperarcs.
+--   , modifTrav :: ExtWeight n t
+--     -- ^ New arcs (if any) being added to the passive part of the hypergraph;
+--     -- IMPORTANT: this (extended) weight is guaranteed to be optimal only in
+--     -- case of the `NewNode` modifications. In case of the `NewArcs`
+--     -- modifications, `modifTrav` corresponds to the new traversal and thus
+--     -- the resulting `priWeight` value might be higher than beta (weight
+--     -- of the optimal inside derivation) which, by the way, is already
+--     -- computed and stored in the hypergraph.
+--   }
+
+
+-- | Type of elements produced by the `EarleyPipe`.
 -- What is produced by the pipe represents all types of modifications which
 -- can apply to the underlying, processed (done) part of the hypergraph.
 -- TODO: No need to report `modifTrav` if `modifType == NewNode` (then
 -- `modifTrav` can be easily induced from `modifHype`).
 data HypeModif n t = HypeModif
-  { modifHype :: Hype n t
-    -- ^ Current version of the hypergraph, with the corresponding
-    -- modification applied
-  , modifType :: ModifType
+  { modifType :: ModifType
     -- ^ Type of modification of the hypergraph
   , modifItem :: Item n t
     -- ^ Hypernode which is either added (if `modifType = NewNode`) or
@@ -254,28 +277,32 @@ data ModifType
   deriving (Show, Eq, Ord)
 
 
--- | Earley parser monad.  Contains the input sentence (reader)
--- and the state of the computation `Hype'.
+-- | Earley parser monad.  Contains the input sentence (reader) and the state
+-- of the computation `Hype'.
 --
--- Note that the producer is embedded in RWS. There are two reasons for that:
--- (i) this allows to easily treat RWS as a local state which can be easily
--- stripped down in subsequent pipe-based computations, and (ii) RWS component
--- is consulted much more often then the pipe component (it is not clear,
--- however, what are the performance gains stemming from this design choice).
-type Earley n t = RWS.RWST
-  (Input t) () (Hype n t)
-  -- (P.Producer (Binding (Item n t) (ExtWeight n t), Hype n t) IO)
-  (P.Producer (HypeModif n t) IO)
+-- WARNING: The description below is obsolete and, most likely, not correct.
+-- Now RWS is embedded in the producer.  Hopefully this will lead to
+-- performance gains.  It also seems more intuitive!
+--
+-- OBSOLETE: Note that the producer is embedded in RWS. There are two reasons
+-- for that: (i) this allows to easily treat RWS as a local state which can be
+-- easily stripped down in subsequent pipe-based computations, and (ii) RWS
+-- component is consulted much more often then the pipe component (it is not
+-- clear, however, what are the performance gains stemming from this design
+-- choice).
+--
+type EarleyPipe n t = P.Producer (HypeModif n t) (Earley n t)
+type Earley n t = RWS.RWST (Input t) () (Hype n t) IO
 
 
 -- | Yield `HypeModif` to the underlying pipe. The argument function will be
 -- supplied with the current hypergraph, for convenience.
 yieldModif
   :: (Hype n t -> HypeModif n t)
-  -> Earley n t ()
+  -> EarleyPipe n t ()
 yieldModif mkModif = do
-  hype <- RWS.get
-  lift . P.yield . mkModif $ hype
+  hype <- lift $ RWS.get
+  P.yield . mkModif $ hype
 
 
 -- | Read word from the given position of the input.
@@ -503,11 +530,11 @@ pushActive p newWeight newTrav = do
       b <- hasActiveTrav p (prioTrav new)
       when (not b) $ do
         saveActive p new
-        yieldModif $ \hype -> HypeModif
-          { modifHype = hype
-          , modifType = NewArcs
-          , modifItem = ItemA p
-          , modifTrav = new }
+--         yieldModif $ \hype -> HypeModif
+--           -- { modifHype = hype
+--           { modifType = NewArcs
+--           , modifItem = ItemA p
+--           , modifTrav = new }
     False -> modify' $ \s -> s {waiting = newWait new (waiting s)}
   where
     newWait = Q.insertWith joinExtWeight (ItemA p)
@@ -545,11 +572,11 @@ pushPassive p newWeight newTrav = do
       b <- hasPassiveTrav p (prioTrav new)
       when (not b) $ do
         savePassive p new
-        yieldModif $ \hype -> HypeModif
-          { modifHype = hype
-          , modifType = NewArcs
-          , modifItem = ItemP p
-          , modifTrav = new }
+--         yieldModif $ \hype -> HypeModif
+--           -- { modifHype = hype
+--           { modifType = NewArcs
+--           , modifItem = ItemP p
+--           , modifTrav = new }
     False -> modify' $ \s -> s {waiting = newWait new (waiting s)}
   where
     newWait = Q.insertWith joinExtWeight (ItemP p)
@@ -966,6 +993,13 @@ trySubst' q qw = void $ P.runListT $ do
     -- Find processed items which begin where `q` ends and which
     -- provide the non-terminal expected by `q`.
     (p, pw) <- provideBegIni qNT (q ^. spanA ^. end)
+    let pDID = p ^. dagID
+
+    -- make sure that if `qDID` is a leaf, only substitution can take place
+    guard $ DAG.isLeaf qDID dag <= DAG.isRoot pDID dag
+
+    -- make sure that `p` does not represent a sister tree
+    guard $ not (isSister' pDID dag)
 
 --     -- Check if the dependencies match (but only in case of actual
 --     -- substitution) (NEW: 13.12.2018)
@@ -1896,30 +1930,47 @@ earleyAuto
     => Auto n t         -- ^ Grammar automaton
     -> Input t          -- ^ Input sentence
     -> IO (Hype n t)
-earleyAuto auto input = P.runEffect $
-  earleyAutoP auto input >-> P.drain
+-- earleyAuto auto input = P.runEffect $
+--   earleyAutoP auto input >-> P.drain
+earleyAuto auto input = earleyAutoP auto input P.drain
+--   fst <$> RWS.evalRWST
+--     (P.runEffect (earleyAutoGen >-> P.drain))
+--     input (mkHype auto)
+
+
+earleyAutoP 
+  :: (SOrd n, SOrd t) 
+  => Auto n t
+  -> Input t
+  -- -> P.Proxy () (HypeModif n t) () P.X (Earley n t) (Hype n t)
+  -> P.Consumer (HypeModif n t) (Earley n t) (Hype n t)
+  -> IO (Hype n t)
+earleyAutoP auto input consumer =
+  fst <$> RWS.evalRWST
+    (P.runEffect (earleyAutoGen >-> consumer))
+    input (mkHype auto)
 
 
 -- | See `earley`.
-earleyAutoP
-    :: (SOrd t, SOrd n)
-    => Auto n t         -- ^ Grammar automaton
-    -> Input t          -- ^ Input sentence
-    -> P.Producer (HypeModif n t) IO (Hype n t)
-earleyAutoP auto input =
-  fst <$> RWS.evalRWST earleyAutoGen input (mkHype auto)
+-- earleyAutoP
+--     :: (SOrd t, SOrd n)
+--     => Auto n t         -- ^ Grammar automaton
+--     -> Input t          -- ^ Input sentence
+--     -> P.Producer (HypeModif n t) IO (Hype n t)
+-- earleyAutoP auto input =
+--   fst <$> RWS.evalRWST earleyAutoGen input (mkHype auto)
 
 
 -- | Produce the constructed items (and the corresponding hypergraphs) on the
 -- fly. See also `earley`.
 earleyAutoGen
     :: (SOrd t, SOrd n)
-    => Earley n t (Hype n t)
+    => EarleyPipe n t (Hype n t)
 earleyAutoGen =
   init >> loop
   where
     -- initialize hypergraph with initial active items
-    init = P.runListT $ do
+    init = lift . P.runListT $ do
       -- input length
       n <- lift $ length <$> RWS.asks inputSent
       auto <- lift $ RWS.gets automat
@@ -1934,7 +1985,7 @@ earleyAutoGen =
       lift $ pushActive q (DuoWeight zeroWeight zeroWeight) Nothing
     -- the computation is performed as long as the waiting queue
     -- is non-empty.
-    loop = popItem >>= \mp -> case mp of
+    loop = lift popItem >>= \mp -> case mp of
         Nothing -> RWS.get
         Just p  -> do
 #ifdef DebugOn
@@ -1957,17 +2008,17 @@ earleyAutoGen =
 step
     :: (SOrd t, SOrd n)
     => Binding (Item n t) (ExtWeight n t)
-    -> Earley n t ()
+    -> EarleyPipe n t ()
 step (ItemP p :-> e) = do
     -- TODO: consider moving before the inference applications
     -- UPDATE: DONE
-    savePassive p e
+    lift $ savePassive p e
     yieldModif $ \hype -> HypeModif
-      { modifHype = hype
-      , modifType = NewNode
+      -- { modifHype = hype
+      { modifType = NewNode
       , modifItem = ItemP p
       , modifTrav = e}
-    mapM_ (\f -> f p $ duoWeight e)
+    lift $ mapM_ (\f -> f p $ duoWeight e)
       [ trySubst
       , tryAdjoinInit
       , tryAdjoinCont
@@ -1978,13 +2029,13 @@ step (ItemP p :-> e) = do
 step (ItemA p :-> e) = do
     -- TODO: consider moving before the inference applications
     -- UPDATE: DONE
-    saveActive p e
+    lift $ saveActive p e
     yieldModif $ \hype -> HypeModif
-      { modifHype = hype
-      , modifType = NewNode
+      -- { modifHype = hype
+      { modifType = NewNode
       , modifItem = ItemA p
       , modifTrav = e }
-    mapM_ (\f -> f p $ duoWeight e)
+    lift $ mapM_ (\f -> f p $ duoWeight e)
       [ tryScan
       , tryDeactivate
       , trySubst'
