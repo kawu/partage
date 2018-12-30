@@ -88,6 +88,10 @@ module NLP.Partage.AStar
 , finalFrom
 , isRoot
 
+-- * Provisional
+, Earley
+, mkHype
+
 -- #ifdef DebugOn
 , printItem
 -- #endif
@@ -217,39 +221,16 @@ mkHype auto = Hype
     , waiting = Q.empty }
 
 
--- -- | Type of elements produced by the pipe underlying the `Earley` monad.
--- -- What is produced by the pipe represents all types of modifications which
--- -- can apply to the underlying, processed (done) part of the hypergraph.
--- -- TODO: No need to report `modifTrav` if `modifType == NewNode` (then
--- -- `modifTrav` can be easily induced from `modifHype`).
--- data HypeModif n t = HypeModif
---   { modifHype :: Hype n t
---     -- ^ Current version of the hypergraph, with the corresponding
---     -- modification applied
---   , modifType :: ModifType
---     -- ^ Type of modification of the hypergraph
---   , modifItem :: Item n t
---     -- ^ Hypernode which is either added (if `modifType = NewNode`) or
---     -- just the target (if `modifType = NewArcs`) of the newly added
---     -- hyperarcs.
---   , modifTrav :: ExtWeight n t
---     -- ^ New arcs (if any) being added to the passive part of the hypergraph;
---     -- IMPORTANT: this (extended) weight is guaranteed to be optimal only in
---     -- case of the `NewNode` modifications. In case of the `NewArcs`
---     -- modifications, `modifTrav` corresponds to the new traversal and thus
---     -- the resulting `priWeight` value might be higher than beta (weight
---     -- of the optimal inside derivation) which, by the way, is already
---     -- computed and stored in the hypergraph.
---   }
-
-
--- | Type of elements produced by the `EarleyPipe`.
+-- | Type of elements produced by the pipe underlying the `Earley` monad.
 -- What is produced by the pipe represents all types of modifications which
 -- can apply to the underlying, processed (done) part of the hypergraph.
 -- TODO: No need to report `modifTrav` if `modifType == NewNode` (then
 -- `modifTrav` can be easily induced from `modifHype`).
 data HypeModif n t = HypeModif
-  { modifType :: ModifType
+  { modifHype :: Hype n t
+    -- ^ Current version of the hypergraph, with the corresponding
+    -- modification applied
+  , modifType :: ModifType
     -- ^ Type of modification of the hypergraph
   , modifItem :: Item n t
     -- ^ Hypernode which is either added (if `modifType = NewNode`) or
@@ -264,6 +245,29 @@ data HypeModif n t = HypeModif
     -- of the optimal inside derivation) which, by the way, is already
     -- computed and stored in the hypergraph.
   }
+
+
+-- -- | Type of elements produced by the `EarleyPipe`.
+-- -- What is produced by the pipe represents all types of modifications which
+-- -- can apply to the underlying, processed (done) part of the hypergraph.
+-- -- TODO: No need to report `modifTrav` if `modifType == NewNode` (then
+-- -- `modifTrav` can be easily induced from `modifHype`).
+-- data HypeModif n t = HypeModif
+--   { modifType :: ModifType
+--     -- ^ Type of modification of the hypergraph
+--   , modifItem :: Item n t
+--     -- ^ Hypernode which is either added (if `modifType = NewNode`) or
+--     -- just the target (if `modifType = NewArcs`) of the newly added
+--     -- hyperarcs.
+--   , modifTrav :: ExtWeight n t
+--     -- ^ New arcs (if any) being added to the passive part of the hypergraph;
+--     -- IMPORTANT: this (extended) weight is guaranteed to be optimal only in
+--     -- case of the `NewNode` modifications. In case of the `NewArcs`
+--     -- modifications, `modifTrav` corresponds to the new traversal and thus
+--     -- the resulting `priWeight` value might be higher than beta (weight
+--     -- of the optimal inside derivation) which, by the way, is already
+--     -- computed and stored in the hypergraph.
+--   }
 
 
 -- | Type of a modification of a hypergraph.  The modification corresponds
@@ -306,7 +310,7 @@ yieldModif mkModif = do
 
 
 -- | Read word from the given position of the input.
-readInput :: Pos -> P.ListT (Earley n t) (Tok t)
+readInput :: Pos -> P.ListT (EarleyPipe n t) (Tok t)
 readInput i = do
     -- ask for the input
     sent <- RWS.asks inputSent
@@ -323,7 +327,7 @@ readInput i = do
 
 -- | Follow the given terminal in the underlying automaton.
 followTerm :: (Ord n, Ord t)
-           => ID -> t -> P.ListT (Earley n t) (Weight, ID)
+           => ID -> t -> P.ListT (EarleyPipe n t) (Weight, ID)
 followTerm i c = do
     -- get the underlying automaton
     auto <- RWS.gets $ automat
@@ -337,7 +341,7 @@ followTerm i c = do
 -- It represents the transition function of the automaton.
 --
 -- TODO: merge with `followTerm`.
-follow :: ID -> DID -> P.ListT (Earley n t) (Weight, ID)
+follow :: ID -> DID -> P.ListT (EarleyPipe n t) (Weight, ID)
 follow i x = do
     -- get the underlying automaton
     auto <- RWS.gets $ gramAuto . automat
@@ -346,7 +350,7 @@ follow i x = do
 
 
 -- | Rule heads outgoing from the given automaton state.
-heads :: ID -> P.ListT (Earley n t) (Weight, DID)
+heads :: ID -> P.ListT (EarleyPipe n t) (Weight, DID)
 heads i = do
     auto <- RWS.gets $ gramAuto . automat
     let mayHead (x, w, _) = case x of
@@ -356,7 +360,7 @@ heads i = do
 
 
 -- | Rule body elements outgoing from the given automaton state.
-elems :: ID -> P.ListT (Earley n t) (DID, Weight, ID)
+elems :: ID -> P.ListT (EarleyPipe n t) (DID, Weight, ID)
 elems i = do
     auto <- RWS.gets $ gramAuto . automat
     let mayBody (x, w, j) = case x of
@@ -509,32 +513,27 @@ pushActive :: (SOrd t, SOrd n)
            -- -> ExtWeight n t
            -> DuoWeight        -- ^ Weight of reaching the new item
            -> Maybe (Trav n t) -- ^ Traversal leading to the new item (if any)
-           -> Earley n t ()
+           -> EarleyPipe n t ()
 pushActive p newWeight newTrav = do
-  estDist <- estimateDistA p
+  estDist <- lift $ estimateDistA p
   let new = case newTrav of
         Just trav -> extWeight  newWeight estDist trav
         Nothing   -> extWeight0 newWeight estDist
-  track estDist >> isProcessedA p >>= \case
+  lift (track estDist >> isProcessedA p) >>= \case
     True -> do
---       hasActiveTrav p (prioTrav new) >>= \case
---         False -> return ()
---         True -> case newTrav of
---           Just _ -> error "pushActive.NewArcs: arcs not new!"
---           Nothing -> error "pushActive.NewArcs: shouldn't ever get here..."
       -- Below we make sure that the `newTrav` is not actually already
       -- in the processed part of the hypergraph.  Normally it should not
       -- happen, but currently it can because we abstract over the exact
       -- form of the passive item matched against a foot.  For the foot
       -- adjoin inference rule it matters, but not in the hypergraph.
-      b <- hasActiveTrav p (prioTrav new)
+      b <- lift $ hasActiveTrav p (prioTrav new)
       when (not b) $ do
-        saveActive p new
---         yieldModif $ \hype -> HypeModif
---           -- { modifHype = hype
---           { modifType = NewArcs
---           , modifItem = ItemA p
---           , modifTrav = new }
+        lift $ saveActive p new
+        yieldModif $ \hype -> HypeModif
+          { modifHype = hype
+          , modifType = NewArcs
+          , modifItem = ItemA p
+          , modifTrav = new }
     False -> modify' $ \s -> s {waiting = newWait new (waiting s)}
   where
     newWait = Q.insertWith joinExtWeight (ItemA p)
@@ -553,13 +552,13 @@ pushPassive :: (SOrd t, SOrd n)
             => Passive n t
             -> DuoWeight     -- ^ Weight of reaching the new item
             -> Trav n t      -- ^ Traversal leading to the new item
-            -> Earley n t ()
+            -> EarleyPipe n t ()
 pushPassive p newWeight newTrav = do
   -- TODO: do we have to compute the esimated distance if the node is already
   -- processed (done)?
-  estDist <- estimateDistP p
+  estDist <- lift $ estimateDistP p
   let new = extWeight newWeight estDist newTrav
-  track estDist >> isProcessedP p >>= \case
+  lift (track estDist >> isProcessedP p) >>= \case
     True -> do
 --       hasPassiveTrav p (prioTrav new) >>= \case
 --         False -> return ()
@@ -569,14 +568,14 @@ pushPassive p newWeight newTrav = do
       -- but currently it can because we abstract over the exact form of the
       -- passive item matched against a foot. For the foot adjoin inference rule
       -- it matters, but not in the hypergraph.
-      b <- hasPassiveTrav p (prioTrav new)
+      b <- lift $ hasPassiveTrav p (prioTrav new)
       when (not b) $ do
-        savePassive p new
---         yieldModif $ \hype -> HypeModif
---           -- { modifHype = hype
---           { modifType = NewArcs
---           , modifItem = ItemP p
---           , modifTrav = new }
+        lift $ savePassive p new
+        yieldModif $ \hype -> HypeModif
+          { modifHype = hype
+          , modifType = NewArcs
+          , modifItem = ItemP p
+          , modifTrav = new }
     False -> modify' $ \s -> s {waiting = newWait new (waiting s)}
   where
     newWait = Q.insertWith joinExtWeight (ItemP p)
@@ -597,7 +596,7 @@ pushInduced
   => Active
   -> DuoWeight     -- ^ Weight of reaching the new item
   -> Trav n t      -- ^ Traversal leading to the new item
-  -> Earley n t ()
+  -> EarleyPipe n t ()
 pushInduced q newWeight newTrav = do
   pushActive q newWeight (Just newTrav)
 --     dag <- RWS.gets (gramDAG . automat)
@@ -748,7 +747,7 @@ minDepCost tok = do
 -- | See `Chart.expectEnd`.
 expectEnd
     :: (HOrd n, HOrd t) => DID -> Pos
-    -> P.ListT (Earley n t) (Active, DuoWeight)
+    -> P.ListT (EarleyPipe n t) (Active, DuoWeight)
 expectEnd = Chart.expectEnd automat chart
 
 
@@ -757,26 +756,27 @@ expectEnd = Chart.expectEnd automat chart
 -- * the given span
 rootSpan
     :: Ord n => n -> (Pos, Pos)
-    -> P.ListT (Earley n t) (Passive n t, DuoWeight)
+    -> P.ListT (EarleyPipe n t) (Passive n t, DuoWeight)
 rootSpan = Chart.rootSpan chart
 
 
 -- | See `Chart.rootEnd`.
-rootEnd :: (Ord n, Ord t) => n -> Pos -> P.ListT (Earley n t) (Active, DuoWeight)
+rootEnd :: (Ord n, Ord t)
+        => n -> Pos -> P.ListT (EarleyPipe n t) (Active, DuoWeight)
 rootEnd = Chart.rootEnd chart
 
 
 -- | See `Chart.provideBeg'`.
 provideBeg'
     :: (Ord n, Ord t) => n -> Pos
-    -> P.ListT (Earley n t) (Passive n t, DuoWeight)
+    -> P.ListT (EarleyPipe n t) (Passive n t, DuoWeight)
 provideBeg' = Chart.provideBeg' chart
 
 
 -- | See `Chart.provideBegIni`.
 provideBegIni
     :: (Ord n, Ord t) => Either n DID -> Pos
-    -> P.ListT (Earley n t) (Passive n t, DuoWeight)
+    -> P.ListT (EarleyPipe n t) (Passive n t, DuoWeight)
 provideBegIni =
   Chart.provideBegIni automat chart
 
@@ -784,21 +784,21 @@ provideBegIni =
 -- | See `Chart.provideBegIni`.
 provideBegIni'
     :: (Ord n, Ord t) => Either (NotFoot n) DID -> Pos
-    -> P.ListT (Earley n t) (Passive n t, DuoWeight)
+    -> P.ListT (EarleyPipe n t) (Passive n t, DuoWeight)
 provideBegIni' = Chart.provideBegIni' automat chart
 
 
 -- | See `Chart.provideBegAux`.
 provideBegAux
     :: (Ord n, Ord t) => DID -> Pos
-    -> P.ListT (Earley n t) (Passive n t, DuoWeight)
+    -> P.ListT (EarleyPipe n t) (Passive n t, DuoWeight)
 provideBegAux = Chart.provideBegAux automat chart
 
 
 -- | See `Chart.auxModifyGap`.
 auxModifyGap
     :: Ord n => n -> (Pos, Pos)
-    -> P.ListT (Earley n t) (Passive n t, DuoWeight)
+    -> P.ListT (EarleyPipe n t) (Passive n t, DuoWeight)
 auxModifyGap = Chart.auxModifyGap chart
 
 
@@ -808,7 +808,7 @@ auxModifyGap = Chart.auxModifyGap chart
 
 
 -- | Try to perform SCAN on the given active state.
-tryScan :: (SOrd t, SOrd n) => Active -> DuoWeight -> Earley n t ()
+tryScan :: (SOrd t, SOrd n) => Active -> DuoWeight -> EarleyPipe n t ()
 tryScan p duo = void $ P.runListT $ do
 #ifdef DebugOn
   begTime <- liftIO $ Time.getCurrentTime
@@ -817,7 +817,7 @@ tryScan p duo = void $ P.runListT $ do
   -- the state
   tok <- readInput $ getL (spanA >>> end) p
   -- determine the minimal cost of `tok` being a dependent
-  depCost <- lift $ minDepCost tok
+  depCost <- lift . lift $ minDepCost tok
   -- follow appropriate terminal transition outgoing from the
   -- given automaton state
   (termCost, j) <- followTerm (getL state p) (terminal tok)
@@ -835,8 +835,8 @@ tryScan p duo = void $ P.runListT $ do
            (Scan p tok termCost)
        -- . extWeight (addWeight cost termCost) estDist
 #ifdef CheckMonotonic
-  totalP <- lift $ est2total duo <$> estimateDistA p
-  totalQ <- lift $ est2total newDuo <$> estimateDistA q
+  totalP <- lift . lift $ est2total duo <$> estimateDistA p
+  totalQ <- lift . lift $ est2total newDuo <$> estimateDistA q
   when (totalQ + epsilon < totalP) $ do
     P.liftIO . putStrLn $
       "[SCAN: MONOTONICITY TEST FAILED] TAIL WEIGHT: " ++ show totalP ++
@@ -865,7 +865,7 @@ trySubst
     :: (SOrd t, SOrd n)
     => Passive n t
     -> DuoWeight
-    -> Earley n t ()
+    -> EarleyPipe n t ()
 trySubst p pw = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- liftIO $ Time.getCurrentTime
@@ -939,7 +939,7 @@ trySubst p pw = void $ P.runListT $ do
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
     lift $ pushInduced q' newDuo (Subst p q $ tranCost + depCost)
 #ifdef CheckMonotonic
-    lift $ testMono "SUBST" (p, pw) (q, qw) (q', newDuo)
+    lift . lift $ testMono "SUBST" (p, pw) (q, qw) (q', newDuo)
 #endif
 #ifdef DebugOn
     -- print logging information
@@ -961,7 +961,7 @@ trySubst'
     :: (SOrd t, SOrd n)
     => Active
     -> DuoWeight
-    -> Earley n t ()
+    -> EarleyPipe n t ()
 trySubst' q qw = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- liftIO $ Time.getCurrentTime
@@ -1054,7 +1054,7 @@ trySubst' q qw = void $ P.runListT $ do
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
     lift $ pushInduced q' newDuo (Subst p q $ tranCost + depCost)
 #ifdef CheckMonotonic
-    lift $ testMono "SUBST'" (p, pw) (q, qw) (q', newDuo)
+    lift . lift $ testMono "SUBST'" (p, pw) (q, qw) (q', newDuo)
 #endif
 #ifdef DebugOn
     -- print logging information
@@ -1083,7 +1083,7 @@ tryAdjoinInit
     :: (SOrd n, SOrd t)
     => Passive n t
     -> DuoWeight
-    -> Earley n t ()
+    -> EarleyPipe n t ()
 tryAdjoinInit p pw = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- liftIO $ Time.getCurrentTime
@@ -1120,7 +1120,7 @@ tryAdjoinInit p pw = void $ P.runListT $ do
     -- compute the estimated distance for the resulting state
     -- -- estDist <- lift . estimateDistA $ q'
     -- compute the amortized weight of item `p`
-    amortWeight <- lift $ amortizedWeight p
+    amortWeight <- lift . lift $ amortizedWeight p
     -- push the resulting state into the waiting queue
     let newBeta = addWeight (duoBeta qw) tranCost
         -- newGap = duoBeta pw + duoGap pw + amortWeight
@@ -1132,7 +1132,7 @@ tryAdjoinInit p pw = void $ P.runListT $ do
 --     -- push the resulting state into the waiting queue
 --     lift $ pushInduced q' $ Foot q p -- -- $ nonTerm foot
 #ifdef CheckMonotonic
-    lift $ testMono "ADJOIN-INIT" (p, pw) (q, qw) (q', newDuo)
+    lift . lift $ testMono "ADJOIN-INIT" (p, pw) (q, qw) (q', newDuo)
 #endif
 #ifdef DebugOn
     -- print logging information
@@ -1156,7 +1156,7 @@ tryAdjoinInit'
     :: (SOrd n, SOrd t)
     => Active
     -> DuoWeight
-    -> Earley n t ()
+    -> EarleyPipe n t ()
 tryAdjoinInit' q qw = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- liftIO $ Time.getCurrentTime
@@ -1188,7 +1188,7 @@ tryAdjoinInit' q qw = void $ P.runListT $ do
     -- compute the estimated distance for the resulting state
     -- -- estDist <- lift . estimateDistA $ q'
     -- compute the amortized weight of item `p`
-    amortWeight <- lift $ amortizedWeight p
+    amortWeight <- lift . lift $ amortizedWeight p
     -- push the resulting state into the waiting queue
     let newBeta = addWeight (duoBeta qw) tranCost
         -- newGap = duoBeta pw + duoGap pw + amortWeight
@@ -1198,7 +1198,7 @@ tryAdjoinInit' q qw = void $ P.runListT $ do
     lift $ pushInduced q' newDuo
              (Foot q (nonTermH (p ^. dagID) hype) tranCost)
 #ifdef CheckMonotonic
-    lift $ testMono "ADJOIN-INIT'" (p, pw) (q, qw) (q', newDuo)
+    lift . lift $ testMono "ADJOIN-INIT'" (p, pw) (q, qw) (q', newDuo)
 #endif
 #ifdef DebugOn
     -- print logging information
@@ -1225,7 +1225,7 @@ tryAdjoinCont
     :: (SOrd n, SOrd t)
     => Passive n t
     -> DuoWeight
-    -> Earley n t ()
+    -> EarleyPipe n t ()
 tryAdjoinCont p pw = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- liftIO $ Time.getCurrentTime
@@ -1263,7 +1263,7 @@ tryAdjoinCont p pw = void $ P.runListT $ do
 --     -- push the resulting state into the waiting queue
 --     lift $ pushInduced q' $ Subst p q
 #ifdef CheckMonotonic
-    lift $ testMono "ADJOIN-CONT" (p, pw) (q, qw) (q', newDuo)
+    lift . lift $ testMono "ADJOIN-CONT" (p, pw) (q, qw) (q', newDuo)
 #endif
 #ifdef DebugOn
     -- logging info
@@ -1284,7 +1284,7 @@ tryAdjoinCont'
     :: (SOrd n, SOrd t)
     => Active
     -> DuoWeight
-    -> Earley n t ()
+    -> EarleyPipe n t ()
 tryAdjoinCont' q qw = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- liftIO $ Time.getCurrentTime
@@ -1317,7 +1317,7 @@ tryAdjoinCont' q qw = void $ P.runListT $ do
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
     lift $ pushInduced q' newDuo (Subst p q tranCost)
 #ifdef CheckMonotonic
-    lift $ testMono "ADJOIN-CONT'" (p, pw) (q, qw) (q', newDuo)
+    lift . lift $ testMono "ADJOIN-CONT'" (p, pw) (q, qw) (q', newDuo)
 #endif
 -- #ifdef CheckMonotonic
 --     totalP <- lift $ est2total pw <$> estimateDistP p
@@ -1354,7 +1354,7 @@ tryAdjoinTerm
     :: (SOrd t, SOrd n)
     => Passive n t
     -> DuoWeight
-    -> Earley n t ()
+    -> EarleyPipe n t ()
 tryAdjoinTerm q qw = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- liftIO $ Time.getCurrentTime
@@ -1413,9 +1413,9 @@ tryAdjoinTerm q qw = void $ P.runListT $ do
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
     lift $ pushPassive p' newDuo (Adjoin q p)
 #ifdef CheckMonotonic
-    totalP <- lift $ est2total pw <$> estimateDistP p
-    totalQ <- lift $ est2total qw <$> estimateDistP q
-    totalQ' <- lift $ est2total newDuo <$> estimateDistP p'
+    totalP <- lift . lift $ est2total pw <$> estimateDistP p
+    totalQ <- lift . lift $ est2total qw <$> estimateDistP q
+    totalQ' <- lift . lift $ est2total newDuo <$> estimateDistP p'
     let tails =  [totalP, totalQ]
     when (any (totalQ' + epsilon <) tails) $ do
       P.liftIO . putStrLn $
@@ -1440,7 +1440,7 @@ tryAdjoinTerm'
     :: (SOrd t, SOrd n)
     => Passive n t
     -> DuoWeight
-    -> Earley n t ()
+    -> EarleyPipe n t ()
 tryAdjoinTerm' p pw = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- liftIO $ Time.getCurrentTime
@@ -1495,9 +1495,9 @@ tryAdjoinTerm' p pw = void $ P.runListT $ do
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
     lift $ pushPassive p' newDuo (Adjoin q p)
 #ifdef CheckMonotonic
-    totalP <- lift $ est2total pw <$> estimateDistP p
-    totalQ <- lift $ est2total qw <$> estimateDistP q
-    totalQ' <- lift $ est2total newDuo <$> estimateDistP p'
+    totalP <- lift . lift $ est2total pw <$> estimateDistP p
+    totalQ <- lift . lift $ est2total qw <$> estimateDistP q
+    totalQ' <- lift . lift $ est2total newDuo <$> estimateDistP p'
     let tails = [totalP, totalQ]
     when (any (totalQ' + epsilon <) tails) $ do
       P.liftIO . putStrLn $
@@ -1527,7 +1527,7 @@ tryDeactivate
   :: (SOrd t, SOrd n)
   => Active
   -> DuoWeight
-  -> Earley n t ()
+  -> EarleyPipe n t ()
 tryDeactivate q qw = void $ P.runListT $ do
 #ifdef DebugOn
   begTime <- liftIO $ Time.getCurrentTime
@@ -1549,8 +1549,8 @@ tryDeactivate q qw = void $ P.runListT $ do
         , duoGap = duoGap qw }
   lift $ pushPassive p finalWeight (Deactivate q headCost)
 #ifdef CheckMonotonic
-  totalQ <- lift $ est2total qw <$> estimateDistA q
-  totalP <- lift $ est2total finalWeight <$> estimateDistP p
+  totalQ <- lift . lift $ est2total qw <$> estimateDistA q
+  totalP <- lift . lift $ est2total finalWeight <$> estimateDistP p
   when (totalP + epsilon < totalQ) $ do
     P.liftIO . putStrLn $
       "[DEACTIVATE: MONOTONICITY TEST FAILED] TAIL WEIGHT: " ++ show totalP ++
@@ -1588,7 +1588,7 @@ trySisterAdjoin
   :: (SOrd t, SOrd n)
   => Passive n t
   -> DuoWeight
-  -> Earley n t ()
+  -> EarleyPipe n t ()
 trySisterAdjoin p pw = void $ P.runListT $ do
 #ifdef DebugOn
     begTime <- liftIO $ Time.getCurrentTime
@@ -1637,7 +1637,7 @@ trySisterAdjoin p pw = void $ P.runListT $ do
     -- push the resulting state into the waiting queue
     lift $ pushInduced q' newDuo (SisterAdjoin p q)
 #ifdef CheckMonotonic
-    lift $ testMono "SISTER-ADJOIN" (p, pw) (q, qw) (q', newDuo)
+    lift . lift $ testMono "SISTER-ADJOIN" (p, pw) (q, qw) (q', newDuo)
 #endif
 #ifdef DebugOn
     -- print logging information
@@ -1656,7 +1656,7 @@ trySisterAdjoin'
   :: (SOrd t, SOrd n)
   => Active
   -> DuoWeight
-  -> Earley n t ()
+  -> EarleyPipe n t ()
 trySisterAdjoin' q qw = void $ P.runListT $ do
 #ifdef DebugOn
   begTime <- liftIO $ Time.getCurrentTime
@@ -1704,7 +1704,7 @@ trySisterAdjoin' q qw = void $ P.runListT $ do
   -- push the resulting state into the waiting queue
   lift $ pushInduced q' newDuo (SisterAdjoin p q)
 #ifdef CheckMonotonic
-  lift $ testMono "SISTER-ADJOIN'" (p, pw) (q, qw) (q', newDuo)
+  lift . lift $ testMono "SISTER-ADJOIN'" (p, pw) (q, qw) (q', newDuo)
 #endif
 #ifdef DebugOn
   -- print logging information
@@ -1970,7 +1970,7 @@ earleyAutoGen =
   init >> loop
   where
     -- initialize hypergraph with initial active items
-    init = lift . P.runListT $ do
+    init = P.runListT $ do
       -- input length
       n <- lift $ length <$> RWS.asks inputSent
       auto <- lift $ RWS.gets automat
@@ -2014,11 +2014,11 @@ step (ItemP p :-> e) = do
     -- UPDATE: DONE
     lift $ savePassive p e
     yieldModif $ \hype -> HypeModif
-      -- { modifHype = hype
-      { modifType = NewNode
+      { modifHype = hype
+      , modifType = NewNode
       , modifItem = ItemP p
       , modifTrav = e}
-    lift $ mapM_ (\f -> f p $ duoWeight e)
+    mapM_ (\f -> f p $ duoWeight e)
       [ trySubst
       , tryAdjoinInit
       , tryAdjoinCont
@@ -2031,11 +2031,11 @@ step (ItemA p :-> e) = do
     -- UPDATE: DONE
     lift $ saveActive p e
     yieldModif $ \hype -> HypeModif
-      -- { modifHype = hype
-      { modifType = NewNode
+      { modifHype = hype
+      , modifType = NewNode
       , modifItem = ItemA p
       , modifTrav = e }
-    lift $ mapM_ (\f -> f p $ duoWeight e)
+    mapM_ (\f -> f p $ duoWeight e)
       [ tryScan
       , tryDeactivate
       , trySubst'

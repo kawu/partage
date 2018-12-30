@@ -380,7 +380,7 @@ run cmd =
         let n = length input
             consume = do
               A.HypeModif{..} <- P.await
-              modifHype <- RWS.get
+              -- modifHype <- RWS.get
               case (modifType, modifItem) of
                 (A.NewNode, A.ItemP p) ->
                   if (D.isFinal_ modifHype startSym n p) then do

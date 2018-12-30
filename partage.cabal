@@ -100,7 +100,7 @@ library
     ghc-options: -Wall
     -- cpp-options: -DDebugOn
     cpp-options: -DNewHeuristic
-    cpp-options: -DCheckMonotonic
+    -- cpp-options: -DCheckMonotonic
     cpp-options: -DCompression
 
 
