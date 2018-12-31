@@ -33,6 +33,7 @@ import qualified NLP.Partage.Tree.Other as O
 import qualified NLP.Partage.DAG as DAG
 import qualified NLP.Partage.AStar as A
 import qualified NLP.Partage.AStar.Deriv as D
+import qualified NLP.Partage.AStar.Deriv.Gorn as DG
 import qualified NLP.Partage.Earley as E
 import qualified NLP.Partage.Format.Brackets as Br
 
@@ -68,8 +69,8 @@ data Command
       , startSym :: T.Text
       , fullHype :: Bool
       , maxLen :: Maybe Int
---       , showParses :: Maybe Int
---       , brackets :: Bool
+      , showParses :: Maybe Int
+      , brackets :: Bool
 --       , checkRepetitions :: Bool
       }
     -- ^ Parse the input sentences using the Earley-style A* chart parser
@@ -178,6 +179,17 @@ astarOptions = AStar
   <*> (optional . option auto)
   ( long "max-len"
     <> help "Limit on sentence length"
+  )
+  <*> option (Just <$> auto)
+  ( long "print-parses"
+    <> short 'p'
+    <> value Nothing
+    <> help "Show the given number of parsed trees (at most)"
+  )
+  <*> switch
+  ( long "brackets"
+    <> short 'b'
+    <> help "Render trees in the bracketed format"
   )
 
 
@@ -407,6 +419,24 @@ run cmd =
         else do
           putStrLn ""
 
+        -- Show the parsed trees
+        case showParses of
+          Nothing -> return ()
+          Just k -> do
+            let derivs = D.derivTrees finalHype startSym (length input)
+            forM_ (take k derivs) $ \deriv -> do
+              putStrLn ""
+              putStrLn 
+                . R.drawTree . fmap show
+                . DG.deriv4show . DG.fromDeriv
+                $ deriv
+              putStrLn ""
+              -- putStrLn . R.drawTree . fmap show $ O.unTree tree
+              let tagMap = tagsFromDeriv $ DG.fromDeriv deriv
+              forM_ (M.toList tagMap) $ \(posSet, et) -> do
+                LIO.putStrLn . Br.showTree $ fmap rmTokID et
+            putStrLn ""
+
 
     RemoveCol{..} -> do
       file <- LIO.getContents
@@ -547,6 +577,29 @@ mapMap f g m = M.fromList
 
 
 --------------------------------------------------
+-- ETs from derivation
+--------------------------------------------------
+
+
+-- | Retrieve the list of selected ETs on the individual positions.
+tagsFromDeriv
+  :: DG.Deriv n (A.Tok t)
+  -> M.Map (S.Set A.Pos) (O.Tree n t)
+tagsFromDeriv =
+  go
+    where
+      go DG.Deriv{..} =
+        let pos = getPos rootET
+            chMap = M.unions . map go . concat $ M.elems modifs
+        in  M.insert pos (fmap (O.mapTerm A.terminal) rootET) chMap
+
+
+-- | Determine the position set in the given tree.
+getPos :: O.Tree n (A.Tok t) -> S.Set A.Pos
+getPos = S.fromList . map A.position . O.project
+
+
+--------------------------------------------------
 -- Utils
 --------------------------------------------------
 
@@ -560,6 +613,15 @@ remove k xs = take k xs ++ drop (k+1) xs
 rmTokID :: O.Node n (Int, t) -> O.Node n t
 rmTokID = \case
   O.Term (_, x) -> O.Term x
+  O.NonTerm x -> O.NonTerm x
+  O.Sister x -> O.Sister x
+  O.Foot x -> O.Foot x
+
+
+-- | Remove info about token IDs.
+rmTokID' :: O.Node n (A.Tok (Int, t)) -> O.Node n t
+rmTokID' = \case
+  O.Term tok -> O.Term . snd $ A.terminal tok
   O.NonTerm x -> O.NonTerm x
   O.Sister x -> O.Sister x
   O.Foot x -> O.Foot x

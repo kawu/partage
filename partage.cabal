@@ -75,7 +75,7 @@ library
 
       , NLP.Partage.AStar
       , NLP.Partage.AStar.Deriv
---       , NLP.Partage.AStar.Deriv.Gorn
+      , NLP.Partage.AStar.Deriv.Gorn
 --       , NLP.Partage.AStar.DepTree
 
       , NLP.Partage.AStar.Base
