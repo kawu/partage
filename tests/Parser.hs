@@ -36,22 +36,19 @@ testEarley =
   where
     parser = T.dummyParser
       { T.recognize = Just recFrom
-      , T.parsedTrees = Just parseFrom }
-    recFrom gram start input headMap = do
+      , T.parsedTrees = Just parseFrom
+      , T.dependencySupport = False }
+    recFrom gram start input _headMap = do
         let dag = mkGram gram
-        E.recognizeFrom dag start (posMap input) headMap (E.fromList input)
-    parseFrom gram start input headMap = do
+        E.recognizeFrom dag start (E.fromList input)
+    parseFrom gram start input _headMap = do
         let dag = mkGram gram
         fmap S.fromList
-            . E.parse dag start (posMap input) headMap
+            . E.parse dag start
             . E.fromList
             $ input
     mkGram = DAG.mkGram . map (Arr.first termToSet)
     termToSet = fmap (O.mapTerm S.singleton)
-    posMap input = M.fromList $ do
-      tok <- input
-      pos <- maybeToList (T.pos tok)
-      return (tok, pos)
 
 
 -- | All the tests of the parsing algorithm.
@@ -65,7 +62,7 @@ testAStar =
       , T.derivTrees = Just derivFrom
       , T.encodes = Just encodesFrom
       , T.derivPipe  = Just derivPipe
-      }
+      , T.dependencySupport = True }
     recFrom gram start input headMap
       = A.recognizeFrom memoTerm gram start (posMap input) headMap
       . A.fromList

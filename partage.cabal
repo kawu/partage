@@ -98,6 +98,8 @@ library
       , NLP.Partage.AStar.ExtWeight
 
     ghc-options: -Wall
+
+    -- Turn on debugging
     -- cpp-options: -DDebugOn
 
     -- Use the new heuristic (see the TAG-2017 paper:

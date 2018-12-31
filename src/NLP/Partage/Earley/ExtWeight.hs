@@ -44,7 +44,7 @@ data Trav n t
         -- ^ The scanned terminal
         }
     | Subst
-        { _passArg  :: Passive n
+        { _passArg  :: Passive n t
         -- ^ The passive argument of the action
         , _actArg   :: Active
         -- ^ The active argument of the action
@@ -54,19 +54,19 @@ data Trav n t
         { _actArg   :: Active
         -- ^ The passive argument of the action
         -- , theFoot  :: n
-        , _theFoot  :: Passive n
+        , _theFoot  :: Passive n t
         -- ^ The foot non-terminal
         }
     -- ^ Foot adjoin
     | Adjoin
-        { _passAdj  :: Passive n
+        { _passAdj  :: Passive n t
         -- ^ The adjoined item
-        , _passMod  :: Passive n
+        , _passMod  :: Passive n t
         -- ^ The modified item
         }
     -- ^ Adjoin terminate with two passive arguments
     | SisterAdjoin
-        { _passArg  :: Passive n
+        { _passArg  :: Passive n t
         -- ^ The passive argument of the action
         , _actArg   :: Active
         -- ^ The active argument of the action
@@ -124,7 +124,7 @@ prioA p =
 
 -- | Priority of a passive item.  Crucial for the algorithm --
 -- states have to be removed from the queue in a specific order.
-prioP :: Passive n -> Prio
+prioP :: Passive n t -> Prio
 prioP p =
     let i = getL (beg . spanP) p
         j = getL (end . spanP) p

@@ -16,7 +16,7 @@ module NLP.Partage.Earley.Item
 , isAdjoinedTo
 , regular
 , auxiliary
--- , isRoot
+, isRoot
 
 -- #ifdef DebugOn
 , printActive
@@ -31,7 +31,7 @@ import           Prelude                hiding (span)
 
 import           Data.DAWG.Ord          (ID)
 
-import           NLP.Partage.Earley.Base (Pos) -- , NotFoot(..))
+import           NLP.Partage.Earley.Base (Pos, NotFoot(..))
 import           NLP.Partage.DAG        (DID)
 import qualified NLP.Partage.DAG as DAG
 
@@ -67,12 +67,10 @@ $( makeLenses [''Active] )
 
 -- | Passive chart item : label + span.
 -- TODO: remove the redundant 't' parameter
-data Passive n = Passive
-  { _dagID :: DID
-    -- ^ The `DID` of the elementary tree node
---   { _dagID :: Either (NotFoot n) DID
---     -- ^ We store non-terminal 'n' for items representing
---     -- fully recognized elementary trees.
+data Passive n t = Passive
+  { _dagID :: Either (NotFoot n) DID
+    -- ^ We store non-terminal 'n' for items representing
+    -- fully recognized elementary trees.
   , _spanP :: Span
     -- ^ Span of the chart item
   , _isAdjoinedTo :: Bool
@@ -91,11 +89,11 @@ auxiliary :: Span -> Bool
 auxiliary = isJust . getL gap
 
 
--- -- | Does it represent a root?
--- isRoot :: Either n DID -> Bool
--- isRoot x = case x of
---     Left _  -> True
---     Right _ -> False
+-- | Does it represent a root?
+isRoot :: Either n DID -> Bool
+isRoot x = case x of
+    Left _  -> True
+    Right _ -> False
 
 
 -- #ifdef DebugOn
@@ -125,21 +123,17 @@ printActive p = do
 
 
 -- | Print a passive item.
-printPassive :: (Show n) => Passive n -> Auto n t -> IO ()
+printPassive :: (Show n) => Passive n t -> Auto n t -> IO ()
 printPassive p auto = do
     putStr "("
     -- putStr . viewLab $ getL label p
---     putStr $ case getL dagID p of
---         Left root ->
---           show (notFootLabel root) ++
---           if isSister root then "*" else ""
---         Right did   ->
---           show (DAG.unDID did) ++ "[" ++
---           show (nonTerm (Right did) auto) ++ "]"
-    putStr $
-      let did = getL dagID p
-       in show (DAG.unDID did) ++ "[" ++
-          show (nonTerm did auto) ++ "]"
+    putStr $ case getL dagID p of
+        Left root ->
+          show (notFootLabel root) ++
+          if isSister root then "*" else ""
+        Right did   ->
+          show (DAG.unDID did) ++ "[" ++
+          show (nonTerm (Right did) auto) ++ "]"
     putStr ", "
     printSpan $ getL spanP p
     putStrLn ")"

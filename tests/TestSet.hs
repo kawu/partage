@@ -927,12 +927,15 @@ data TagParser = TagParser
     -- the given hypergraph
   , derivPipe :: Maybe DerivPipeP
     -- ^ A pipe (producer) which generates derivations on-the-fly
+  , dependencySupport :: Bool
+    -- ^ Does the parser provide support for dependency constraints?
   }
 
 
 -- | Dummy parser which doesn't provide anything.
 dummyParser :: TagParser
 dummyParser = TagParser Nothing Nothing Nothing Nothing Nothing
+  True
 
 
 -- | All the tests of the parsing algorithm.
@@ -955,15 +958,19 @@ testTree modName TagParser{..} = do
         map (testIt resIO gram7) gram7Tests ++
         map (testIt resIO gram8) gram8Tests
   where
-    testIt resIO getGram test = testCase (show test) $ do
-        gram <- getGram <$> resIO
-        testRecognition gram test
-        testParsing gram test
-        testDerivsIsSet gram test
-        testFlyingDerivsIsSet gram test
-        testDerivsEqual gram test
-        testWeightsAscend gram test
-        testEachDerivEncoded gram test
+    testIt resIO getGram test =
+      -- make sure that headMap is empty if no dependency support
+      if (not dependencySupport <= M.null (headMap test))
+         then testCase (show test) $ do
+           gram <- getGram <$> resIO
+           testRecognition gram test
+           testParsing gram test
+           testDerivsIsSet gram test
+           testFlyingDerivsIsSet gram test
+           testDerivsEqual gram test
+           testWeightsAscend gram test
+           testEachDerivEncoded gram test
+         else testCase ("IGNORING: " ++ show test ) $ return ()
 
     -- Check if the recognition result is as expected
     testRecognition gram Test{..} = case recognize of

@@ -66,9 +66,9 @@ data Chart n t = Chart
     -- ^ Processed active items partitioned w.r.t ending positions and
     -- FSA state IDs.
 
-    -- , donePassive :: S.Set (Passive n)
+    -- , donePassive :: S.Set (Passive n t)
     , donePassive :: M.Map (Pos, n, Pos)
-        (M.Map (Passive n) (S.Set (Trav n t)))
+        (M.Map (Passive n t) (S.Set (Trav n t)))
     -- ^ Processed passive items partitioned w.r.t. (starting position,
     -- non-terminal in the root, ending position).
 
@@ -102,7 +102,7 @@ empty =
 
 -- | List all passive done items together with the corresponding
 -- traversals.
-listPassive :: Chart n t -> [(Passive n, S.Set (Trav n t))]
+listPassive :: Chart n t -> [(Passive n t, S.Set (Trav n t))]
 listPassive = (M.elems >=> M.toList) . donePassive
 
 
@@ -160,7 +160,6 @@ isProcessedA p =
 saveActive
     :: (Ord t, Ord n)
     => M.Map ID (NotFoot n) -- ^ See `lhsNonTerm` from `Auto`
-    -- => M.Map ID DID -- ^ See `lhsNonTerm` from `Auto`
     -> Active
     -> S.Set (Trav n t)
     -> Chart n t
@@ -212,7 +211,7 @@ hasActiveTrav p travSet chart =
 -- | Return the corresponding set of traversals for a passive item.
 passiveTrav
     :: (Ord n)
-    => Passive n
+    => Passive n t
     -> Auto n t
     -> Chart n t
     -> Maybe (S.Set (Trav n t))
@@ -225,7 +224,7 @@ passiveTrav p auto chart =
 
 
 -- | Check if the state is not already processed.
-isProcessedP :: (Ord n) => Passive n -> Auto n t -> Chart n t -> Bool
+isProcessedP :: (Ord n) => Passive n t -> Auto n t -> Chart n t -> Bool
 isProcessedP x auto =
     check . passiveTrav x auto
   where
@@ -236,7 +235,7 @@ isProcessedP x auto =
 -- | Mark the passive item as processed (`done').
 savePassive
     :: (Ord t, Ord n)
-    => Passive n
+    => Passive n t
     -> S.Set (Trav n t)
     -> Auto n t
     -> Chart n t
@@ -258,7 +257,7 @@ savePassive p ts auto chart =
 -- present in the hypergraph.
 hasPassiveTrav
   :: (Ord t, Ord n)
-  => Passive n
+  => Passive n t
   -> S.Set (Trav n t)
   -> Auto n t
   -> Chart n t
@@ -279,22 +278,17 @@ finalFrom
     :: (Ord n)
     => n            -- ^ The start symbol
     -> Int          -- ^ The length of the input sentence
-    -> Auto n t     -- ^ The underlying Earl yautomaton
     -> Chart n t    -- ^ Result of the earley computation
-    -> [Passive n]
-finalFrom start n auto Chart{..} =
+    -> [Passive n t]
+finalFrom start n Chart{..} =
   case M.lookup (0, start, n) donePassive of
     Nothing -> []
     Just m ->
       [ p
       | p <- M.keys m
-      -- , p ^. dagID == Left root ]
-      , DAG.isRoot (p ^. dagID) dag
-      , getLabel (p ^. dagID) == Just start ]
+      , p ^. dagID == Left root ]
   where
-    dag = gramDAG auto
-    -- root = NotFoot {notFootLabel = start, isSister = False}
-    getLabel did = labNonTerm =<< DAG.label did dag
+    root = NotFoot {notFootLabel = start, isSister = False}
 
 
 -- -- | Return all active processed items which:
@@ -385,23 +379,19 @@ expectEnd getAuto getChart did i = do
 rootSpan
     :: (Ord n, MS.MonadState s m)
     => (s -> Chart n t)
-    -> (s -> Auto n t)
     -> n -> (Pos, Pos)
-    -> P.ListT m (Passive n)
-rootSpan getChart getAuto x (i, j) = do
-  -- Hype{..} <- lift RWS.get
-  Chart{..} <- getChart <$> lift MS.get
-  Auto{..} <- getAuto <$> lift MS.get
-  -- listValues (i, x, j) donePassive
-  p <- each $ case M.lookup (i, x, j) donePassive of
-      Nothing -> []
-      Just m -> M.keys m
-  let pDID = p ^. dagID
-      pSpan = p ^. spanP
-  -- guard $ auxiliary pSpan <= not (isRoot pDID)
-  guard $ auxiliary pSpan <= not (DAG.isRoot pDID gramDAG)
-  return p
-
+    -> P.ListT m (Passive n t)
+rootSpan getChart x (i, j) = do
+    -- Hype{..} <- lift RWS.get
+    Chart{..} <- getChart <$> lift MS.get
+    -- listValues (i, x, j) donePassive
+    p <- each $ case M.lookup (i, x, j) donePassive of
+        Nothing -> []
+        Just m -> M.keys m
+    let pDID = p ^. dagID
+        pSpan = p ^. spanP
+    guard $ auxiliary pSpan <= not (isRoot pDID)
+    return p
 
 
 -- | Return all active processed items which:
