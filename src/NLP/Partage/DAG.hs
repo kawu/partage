@@ -561,8 +561,7 @@ data Gram n t = Gram
 
 -- | Construct `Gram` from the given weighted grammar.
 -- 
--- The behaviour of this function depends on the compile-time flag
--- "Compression".
+-- The behaviour of this function depends on compile-time flags.
 --
 mkGram
     :: (Ord n, Ord t)
@@ -574,12 +573,15 @@ mkGram ts = Gram
     , factGram  = rulesMapFromDAG dagGram_
     , termWei   = mkTermWei ts }
   where
+#if ExtraCompression
+    dagGram_ = dagFromWeightedForest ts
+#else
     dagGram_ = dagFromWeightedForests $ M.elems byTerm
-    -- dagGram_ = dagFromWeightedForest ts
     byTerm = M.fromListWith (++)
       [ (termSet t, [(t, w)])
       | (t, w) <- ts ]
     termSet = S.fromList . O.project
+#endif
 #else
 mkGram = mkDummy
 #endif

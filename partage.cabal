@@ -99,9 +99,19 @@ library
 
     ghc-options: -Wall
     -- cpp-options: -DDebugOn
+
+    -- Use the new heuristic (see the TAG-2017 paper:
+    -- MWE-aware A* TAG parsing revisited)
     cpp-options: -DNewHeuristic
+
+    -- Check realtime if the monotonicity property is preserved
     -- cpp-options: -DCheckMonotonic
+
+    -- Grammar compression
     cpp-options: -DCompression
+
+    -- WARNING: doesn't work with A*
+    -- cpp-options: -DExtraCompression
 
 
 source-repository head

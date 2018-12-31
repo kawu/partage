@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE TupleSections #-}
 
@@ -237,6 +238,9 @@ mkAnchorPos
   -> A.GramAuto
   -> M.Map t Int   -- ^ Position map
   -> (M.Map DID Int, M.Map ID Int)
+#if ExtraCompression
+mkAnchorPos _ _ _ = (M.empty, M.empty)
+#else
 mkAnchorPos dag auto posMap = 
 
   (didRes, idRes)
@@ -281,6 +285,7 @@ mkAnchorPos dag auto posMap =
         [] -> Nothing
         _ -> error $ "Auto.mkAnchorPos: multiple choices -- " ++ show xs
         -- _ -> Nothing
+#endif
 
 
 --------------------------------------------------
