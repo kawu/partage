@@ -364,7 +364,7 @@ run cmd =
             . anchorTags
             . zip [0 :: Int ..]
             $ sent
-          automat = A.mkAuto memoTerm gram posMap depMap
+          automat = A.mkAuto memoTerm gram (A.fromList input) posMap depMap
           memoTerm = Memo.wrap
             (\i -> (i, inputVect V.! i))
             (\(i, _w) -> i)

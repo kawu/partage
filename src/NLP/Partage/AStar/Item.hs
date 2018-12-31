@@ -22,6 +22,9 @@ module NLP.Partage.AStar.Item
   , printActive
   , printPassive
 -- #endif
+
+  -- * Provisional
+  , nonTerm
   )
 where
 
@@ -32,14 +35,12 @@ import           Prelude                hiding (span)
 
 import           Data.DAWG.Ord          (ID)
 
-import           NLP.Partage.AStar.Base (Pos, NotFoot(..))
+import           NLP.Partage.AStar.Base (Pos)
 import           NLP.Partage.DAG        (DID)
 import qualified NLP.Partage.DAG as DAG
 
--- #ifdef DebugOn
-import           NLP.Partage.AStar.Base (nonTerm)
-import           NLP.Partage.AStar.Auto (Auto (..))
--- #endif
+import           NLP.Partage.AStar.Base (nonTerm')
+import           NLP.Partage.AStar.Auto (Auto (..), NotFoot(..))
 
 
 data Span = Span {
@@ -128,3 +129,12 @@ printPassive p auto = do
     printSpan $ getL spanP p
     putStrLn ")"
 -- #endif
+
+
+-- | Take the non-terminal of the underlying DAG node.
+nonTerm :: DAG.DID -> Auto n t -> n
+nonTerm i =
+    check . nonTerm' i . gramDAG
+  where
+    check Nothing  = error "nonTerm: not a non-terminal ID"
+    check (Just x) = x

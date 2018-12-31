@@ -41,6 +41,7 @@ import           Data.DAWG.Ord                   (ID)
 import           NLP.Partage.SOrd                (SOrd)
 -- import qualified NLP.Partage.AStar.Auto          as I
 import           NLP.Partage.AStar.Heuristic.Bag
+import qualified NLP.Partage.AStar.Base          as B
 import qualified NLP.Partage.Auto                as A
 import qualified NLP.Partage.DAG                 as D
 import qualified NLP.Partage.Tree.Other          as O
@@ -63,14 +64,21 @@ data Esti t = Esti
   -- ^ Bags of terminals and the corresponding (minimal) weights
   -- for the individual super-trees surrounding the given DAG node.
   , dagAmort :: D.DID -> D.Weight
-  -- ^ Amortized weight of the dag node.
+  -- ^ Amortized weight of the dag node
 
-  -- <<NEW 27.12.2018>>
+  -- <<NEW 12.2018>>
+
+  , trieAmort :: ID -> D.Weight
+  -- ^ Amortized weight of the trie node
 
   , depPrefEsti :: Int -> D.Weight
   -- ^ Dependency related cost estimation (prefix)
   , depSuffEsti :: Int -> D.Weight
   -- ^ Dependency related cost estimation (suffix)
+  , prefEsti :: Int -> D.Weight
+  -- ^ Prefix cost estimation
+  , suffEsti :: Int -> D.Weight
+  -- ^ Suffix cost estimation
   , minDepEsti  :: Int -> D.Weight
   -- ^ Minimal dependency cost of a token on a given position
   }
@@ -82,21 +90,28 @@ mkEsti
   => Memo.Memo t        -- ^ Memoization strategy for terminals
   -> D.Gram n t         -- ^ The underlying grammar
   -> A.WeiGramAuto n t  -- ^ The underlying automaton
+  -> B.Input t          -- ^ Input sentence
   -> M.Map t Int        -- ^ Position map
   -> M.Map Int (M.Map Int D.Weight)
                         -- ^ Head map
   -> Esti t
-mkEsti _memoElem D.Gram{..} autoGram posMap hedMap = Esti
+mkEsti _memoElem D.Gram{..} autoGram input posMap hedMap = Esti
   { termEsti = estiTerm
   , trieEsti = estiCost2 autoGram dagGram estiTerm
   , dagEsti  = estiNode
   , dagAmort = amortDag 
+  , trieAmort = amortTrie 
   , depPrefEsti = \p -> maybe 0 id (M.lookup p prefDepSum)
   , depSuffEsti = \q -> maybe 0 id (M.lookup q suffDepSum)
+  , prefEsti = \p -> maybe 0 id (M.lookup p prefSum)
+  , suffEsti = \q -> maybe 0 id (M.lookup q suffSum)
   , minDepEsti = depCost
   }
   where
-    -- estiTerm = estiCost1 memoElem termWei
+    -- sentence length
+    sent = B.inputSent input
+    sentLen = length sent
+
     estiTerm = estiCost1 termWei
 --     estiNode i bag = minimumInf
 --       [ estiTerm (bag `bagDiff` bag') + w
@@ -105,8 +120,14 @@ mkEsti _memoElem D.Gram{..} autoGram posMap hedMap = Esti
     estiNode i bag = amortDag i + estiTerm bag
     amortDag i = minimumInf
       [ w - estiTerm bag
-      | (bag, w) <- M.toList (cost i) ]
-    cost = supCost dagGram
+      | (bag, w) <- M.toList (costDag i) ]
+    costDag = supCost dagGram
+
+    -- trie amortized cost
+    amortTrie i = minimumInf
+      [ w - estiTerm bag
+      | (bag, w) <- M.toList (costTrie i) ]
+    costTrie = trieCost dagGram autoGram
 
     -- miminal dependency cost for the individual positions
     depCost dep = maybe 0 id
@@ -114,9 +135,10 @@ mkEsti _memoElem D.Gram{..} autoGram posMap hedMap = Esti
     depCostMap = M.fromList
       [ (dep, minimumInf (M.elems heds))
       | (dep, heds) <- M.toList hedMap ]
---     depCost dep = maybe 0
---       (minimumInf . M.elems)
---       (M.lookup dep hedMap)
+
+    -- miminal supertagging cost for a given terminal
+    termCost t = maybe 0 id
+      (M.lookup t termWei)
 
     -- partial dependency sums
     prefDepSum = M.fromList . sums $
@@ -125,7 +147,16 @@ mkEsti _memoElem D.Gram{..} autoGram posMap hedMap = Esti
     suffDepSum = M.fromList . sums $
       [ (dep, depCost dep)
       | dep <- reverse [0..sentLen] ]
-    sentLen = length $ M.toList posMap
+
+    -- partial sums
+    prefSum = M.fromList . sums $
+      (0, 0) :
+      [ (dep, depCost (dep-1) + termCost (B.terminal tok))
+      | (dep, tok) <- zip [1..] sent ]
+    suffSum = M.fromList . sums $
+      (sentLen, 0) :
+      [ (dep, depCost dep + termCost (B.terminal tok))
+      | (dep, tok) <- reverse $ zip [0..] sent ]
 
 
 -- | Calculate partial sums over the `snd` elements.

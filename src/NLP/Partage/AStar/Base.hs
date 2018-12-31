@@ -1,12 +1,12 @@
 module NLP.Partage.AStar.Base
   ( Pos
-  , NotFoot (..)
+  -- , NotFoot (..)
   -- * Input
   , Input (..)
   , Tok (..)
   , fromList
   -- * Utils
-  , nonTerm
+  -- , nonTerm
   , nonTerm'
   , isSister'
   , labNonTerm
@@ -19,7 +19,7 @@ import           Data.Maybe (isJust)
 
 import qualified NLP.Partage.DAG             as DAG
 import qualified NLP.Partage.Tree.Other      as O
-import           NLP.Partage.AStar.Auto      (Auto (..), NotFoot(..))
+-- import           NLP.Partage.AStar.Auto      (Auto (..), NotFoot(..))
 
 
 -- | A position in the input sentence.
@@ -95,28 +95,12 @@ fromList = Input . map (uncurry Tok) . zip [0..]
 
 
 -- -- | Take the non-terminal of the underlying DAG node.
--- nonTerm :: Either (NotFoot n) DAG.DID -> Auto n t -> n
+-- nonTerm :: DAG.DID -> Auto n t -> n
 -- nonTerm i =
 --     check . nonTerm' i . gramDAG
 --   where
 --     check Nothing  = error "nonTerm: not a non-terminal ID"
 --     check (Just x) = x
--- 
--- 
--- -- | Take the non-terminal of the underlying DAG node.
--- nonTerm' :: Either (NotFoot n) DAG.DID -> DAG.DAG (O.Node n t) w -> Maybe n
--- nonTerm' i dag = case i of
---     Left rootNT -> Just (notFootLabel rootNT)
---     Right did   -> labNonTerm =<< DAG.label did dag
-
-
--- | Take the non-terminal of the underlying DAG node.
-nonTerm :: DAG.DID -> Auto n t -> n
-nonTerm i =
-    check . nonTerm' i . gramDAG
-  where
-    check Nothing  = error "nonTerm: not a non-terminal ID"
-    check (Just x) = x
 
 
 -- | Take the non-terminal of the underlying DAG node.

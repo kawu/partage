@@ -24,6 +24,7 @@ import qualified Data.Set                    as S
 import qualified NLP.Partage.Auto            as A
 
 import           NLP.Partage.SOrd            (SOrd)
+import qualified NLP.Partage.AStar.Base      as B
 import qualified NLP.Partage.AStar.Heuristic as H
 -- import qualified NLP.Partage.AStar.Heuristic.Base as H
 import qualified NLP.Partage.Auto.WeiTrie    as Trie
@@ -136,11 +137,12 @@ mkAuto
   :: (SOrd t, Ord n)
   => Memo.Memo t        -- ^ Memoization strategy for terminals
   -> Gram n t
+  -> B.Input t     -- ^ Input sentence
   -> M.Map t Int   -- ^ Position map
   -> M.Map Int (M.Map Int Weight)
                    -- ^ Head map
   -> Auto n t
-mkAuto memoTerm gram posMap hedMap =
+mkAuto memoTerm gram input posMap hedMap =
     let auto = WS.fromGram Trie.fromGram (DAG.factGram gram)
         dag = DAG.dagGram gram
         lhsMap = mkLhsNonTerm dag auto
@@ -154,7 +156,7 @@ mkAuto memoTerm gram posMap hedMap =
         , termDID  = mkTermDID dag
         , footDID  = mkFootDID dag
         , leafDID  = mkLeafDID dag
-        , estiCost = H.mkEsti memoTerm gram auto posMap hedMap
+        , estiCost = H.mkEsti memoTerm gram auto input posMap hedMap
         , lhsNonTerm = lhsMap
         -- NEW 12.12.2018
         , anchorPos = ancPos

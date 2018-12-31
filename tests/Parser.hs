@@ -70,26 +70,28 @@ testAStar =
       = A.recognizeFrom memoTerm gram start (posMap input) headMap
       . A.fromList
       $ input
-    parseFrom gram start input headMap = do
+    parseFrom gram start sent headMap = do
       let dag = DAG.mkGram gram
-          auto = A.mkAuto memoTerm dag (posMap input) headMap
-      hype <- A.earleyAuto auto (A.fromList input)
+          input = A.fromList sent
+          auto = A.mkAuto memoTerm dag input (posMap sent) headMap
+      hype <- A.earleyAuto auto input
       return
         . S.fromList
         -- below we just map (Tok t -> t) but we have to also
         -- do the corresponding encoding/decoding
         . map (O.mkTree . fmap (O.mapTerm A.terminal) . O.unTree)
-        $ A.parsedTrees hype start (length input)
-    derivFrom gram start input headMap = do
+        $ A.parsedTrees hype start (length sent)
+    derivFrom gram start sent headMap = do
       let dag = DAG.mkGram gram
-          auto = A.mkAuto memoTerm dag (posMap input) headMap
-      hype <- A.earleyAuto auto (A.fromList input)
-      return $ D.derivTrees hype start (length input)
+          input = A.fromList sent
+          auto = A.mkAuto memoTerm dag input (posMap sent) headMap
+      hype <- A.earleyAuto auto input
+      return $ D.derivTrees hype start (length sent)
     encodesFrom hype start input = D.encodes hype start (length input)
     derivPipe gram start sent headMap =
       let dag = DAG.mkGram gram
-          auto = A.mkAuto memoTerm dag (posMap sent) headMap
           input = A.fromList sent
+          auto = A.mkAuto memoTerm dag input (posMap sent) headMap
       in  D.consumeDerivs auto input start
 --           conf = D.DerivR
 --             { D.startSym = start

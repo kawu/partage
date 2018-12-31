@@ -62,7 +62,7 @@ import           NLP.Partage.DAG             (Weight)
 import qualified NLP.Partage.DAG             as DAG
 import qualified NLP.Partage.Tree.Other      as O
 
-import           NLP.Partage.AStar.Auto      (Auto (..))
+import           NLP.Partage.AStar.Auto      (Auto (..), NotFoot(..))
 import           NLP.Partage.AStar.Base
 import           NLP.Partage.AStar.ExtWeight
 import           NLP.Partage.AStar.Item

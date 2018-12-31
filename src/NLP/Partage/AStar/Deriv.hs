@@ -49,6 +49,7 @@ import qualified NLP.Partage.DAG as DAG
 import           NLP.Partage.AStar         (Tok)
 import qualified NLP.Partage.AStar         as A
 import qualified NLP.Partage.AStar.Base    as Base
+import qualified NLP.Partage.AStar.Item    as Item
 import qualified NLP.Partage.AStar.Auto    as Auto
 -- import           NLP.Partage.DAG        (Weight)
 import qualified NLP.Partage.Tree.Other    as O
@@ -187,7 +188,7 @@ mkRoot hype p = only $
     dagID = getL A.dagID p
     auto  = A.automat hype
     dag   = Auto.gramDAG auto
-    labNT = Base.nonTerm dagID auto
+    labNT = Item.nonTerm dagID auto
 
 
 mkFoot :: n -> DerivNode n t

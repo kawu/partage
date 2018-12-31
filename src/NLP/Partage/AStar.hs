@@ -135,7 +135,7 @@ import qualified NLP.Partage.Auto as A
 
 import           NLP.Partage.DAG (DID, DAG, Weight)
 import qualified NLP.Partage.DAG as DAG
-import           NLP.Partage.AStar.Auto (Auto(..), mkAuto)
+import           NLP.Partage.AStar.Auto (Auto(..), mkAuto, NotFoot(..))
 -- import qualified NLP.Partage.AStar.Heuristic.Base as H
 -- import qualified NLP.Partage.AStar.Heuristic.Dummy as H
 import qualified NLP.Partage.AStar.Heuristic as H
@@ -650,38 +650,40 @@ popItem = RWS.state $ \st -> case Q.minView (waiting st) of
 -- | Estimate the remaining distance for a passive item.
 estimateDistP :: (Ord t) => Passive n t -> Earley n t Weight
 estimateDistP p = do
-  tbag <- bagOfTerms (p ^. spanP)
+--   tbag <- bagOfTerms (p ^. spanP)
   H.Esti{..} <- RWS.gets (estiCost . automat)
---   return $ case p ^. dagID of
---     Left _  -> termEsti tbag
---     Right i -> dagEsti i tbag
-  let sup = dagEsti (p ^. dagID) tbag
-      dep = depPrefEsti (p ^. spanP ^. beg)
-          + depSuffEsti (p ^. spanP ^. end)
+--   let sup = dagAmort (p ^. dagID) + termEsti tbag
+--       dep = prefEsti (p ^. spanP ^. beg)
+--           + suffEsti (p ^. spanP ^. end)
+  let sup = dagAmort (p ^. dagID)
+      dep = prefEsti (p ^. spanP ^. beg)
+          + suffEsti (p ^. spanP ^. end)
   return $ sup + dep
 
 
 -- | Estimate the remaining distance for a passive item.
 estimateDistP' :: (Ord t) => Passive n t -> Earley n t (Double, Double, Double)
 estimateDistP' p = do
-  tbag <- bagOfTerms (p ^. spanP)
   H.Esti{..} <- RWS.gets (estiCost . automat)
   return $
-    ( dagEsti (p ^. dagID) tbag
-    , depPrefEsti (p ^. spanP ^. beg)
-    , depSuffEsti (p ^. spanP ^. end)
+    ( dagAmort (p ^. dagID)
+    , prefEsti (p ^. spanP ^. beg)
+    , suffEsti (p ^. spanP ^. end)
     )
 
 
 -- | Estimate the remaining distance for an active item.
 estimateDistA :: (Ord n, SOrd t) => Active -> Earley n t Weight
 estimateDistA q = do
-    tbag <- bagOfTerms (q ^. spanA)
+--     tbag <- bagOfTerms (q ^. spanA)
     -- esti <- RWS.gets (H.trieEsti . estiCost . automat)
     H.Esti{..} <- RWS.gets (estiCost . automat)
-    let sup = trieEsti (q ^. state) tbag
-        dep = depPrefEsti (q ^. spanA ^. beg)
-            + depSuffEsti (q ^. spanA ^. end)
+--     let sup = trieEsti (q ^. state) tbag
+--         dep = depPrefEsti (q ^. spanA ^. beg)
+--             + depSuffEsti (q ^. spanA ^. end)
+    let sup = trieAmort (q ^. state)  -- + termEsti tbag
+        dep = prefEsti (q ^. spanA ^. beg)
+            + suffEsti (q ^. spanA ^. end)
     return $ sup + dep
 -- #ifdef DebugOn
 --     Auto{..} <- RWS.gets automat
@@ -711,7 +713,26 @@ amortizedWeight = const $ return zeroWeight
 #endif
 
 
--- | Compute the bag of terminals for the given span.
+-- -- | Compute the bag of terminals for the given span.
+-- bagOfTerms :: (Ord t) => Span -> Earley n t (H.Bag t)
+-- bagOfTerms span = do
+--     n <- sentLen
+--     x <- estOn 0 (span ^. beg)
+--     y <- estOn (span ^. end) n
+-- #ifdef NewHeuristic
+--     let z = H.bagEmpty
+-- #else
+--     z <- case span ^. gap of
+--         Nothing -> return H.bagEmpty
+--         Just (i, j) -> estOn i j
+-- #endif
+--     return $ x `H.bagAdd` y `H.bagAdd` z
+--   where
+--     sentLen = length <$> RWS.asks inputSent
+--     estOn i j = H.bagFromList . map terminal . over i j <$> RWS.asks inputSent
+
+
+-- | TODO: Compute *the weight of* the bag of terminals for the given span.
 bagOfTerms :: (Ord t) => Span -> Earley n t (H.Bag t)
 bagOfTerms span = do
     n <- sentLen
@@ -729,7 +750,6 @@ bagOfTerms span = do
     sentLen = length <$> RWS.asks inputSent
     estOn i j = H.bagFromList . map terminal . over i j <$> RWS.asks inputSent
 
--- <<BELOW: NEW 28.12.2018>>
 
 -- | The minimal possible cost of the given token as a dependent.
 minDepCost :: Tok t -> Earley n t Weight
@@ -1834,7 +1854,7 @@ recognizeFrom
     -> IO Bool
 -- recognizeFrom memoTerm gram dag termWei start input = do
 recognizeFrom memoTerm gram start posMap hedMap input = do
-    let auto = mkAuto memoTerm (DAG.mkGram gram) posMap hedMap
+    let auto = mkAuto memoTerm (DAG.mkGram gram) input posMap hedMap
 --     mapM_ print $ M.toList (DAG.nodeMap $ gramDAG auto)
 --     putStrLn "========="
 --     mapM_ print $ A.allEdges (A.fromWei $ gramAuto auto)
@@ -2165,7 +2185,7 @@ over i j = take (j - i) . drop i
 
 -- | Take the non-terminal of the underlying DAG node.
 nonTermH :: DID -> Hype n t -> n
-nonTermH i = Base.nonTerm i . automat
+nonTermH i = Item.nonTerm i . automat
 
 
 --------------------------------------------------
