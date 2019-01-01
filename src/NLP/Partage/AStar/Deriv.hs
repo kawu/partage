@@ -9,6 +9,7 @@ module NLP.Partage.AStar.Deriv
 , ModifDerivs
 , DerivNode (..)
 , derivTrees
+, derivTreesW
 , fromPassive
 , normalize
 , deriv4show
@@ -26,6 +27,7 @@ module NLP.Partage.AStar.Deriv
 
 
 import           Control.Monad             (forM_, guard, guard, void, when)
+import           Control.Arrow             (second)
 -- import           Control.Monad.IO.Class    (MonadIO (..), liftIO)
 import qualified Control.Monad.RWS.Strict  as RWS
 -- import qualified Control.Monad.State.Strict as E
@@ -39,7 +41,9 @@ import           Data.Maybe                (maybeToList, isJust)
 import qualified Data.PSQueue              as Q
 import qualified Data.Set                  as S
 import qualified Data.Tree                 as R
+import qualified Data.List                 as L
 import           Data.Either               (lefts, rights)
+import           Data.Ord                  (comparing)
 -- import qualified Data.Traversable           as Trav
 
 import qualified Pipes                     as P
@@ -53,8 +57,10 @@ import qualified NLP.Partage.AStar         as A
 import qualified NLP.Partage.AStar.Base    as Base
 import qualified NLP.Partage.AStar.Item    as Item
 import qualified NLP.Partage.AStar.Auto    as Auto
--- import           NLP.Partage.DAG        (Weight)
+import           NLP.Partage.DAG           (Weight)
 import qualified NLP.Partage.Tree.Other    as O
+
+import Debug.Trace (trace)
 
 
 ---------------------------
@@ -325,6 +331,9 @@ unAdjoinTree cmb = do
 -- WARNING: the results are not normalized, sister-adjunction trees are not
 -- represented in the `modif` field.  Consider using `normalize`.
 --
+-- WARNING: the resulting derivations are not guaranteed to be given in an
+-- ascending weight order!
+--
 derivTrees
     :: (Ord n, Ord t)
     => A.Hype n t   -- ^ Final state of the earley parser
@@ -334,25 +343,6 @@ derivTrees
 derivTrees hype start n
   = concatMap (`fromPassive` hype)
   $ A.finalFrom start n hype
-
-
--- | Extract derivation trees represented by the given passive item.
-fromPassive
-  :: forall n t. (Ord n, Ord t)
-  => A.Passive n t
-  -> A.Hype n t
-  -> [Deriv n (Tok t)]
-fromPassive passive hype = case A.passiveTrav passive hype of
-  Nothing -> case Q.lookup (A.ItemP passive) (A.waiting hype) of
-    Just _ -> error "fromPassive: passive item in the waiting queue"
-    Nothing -> error "fromPassive: unknown passive item (not even in the queue)"
-  Just ext -> concat
-    [ fromPassiveTrav passive trav hype
-    | trav <- S.toList (A.prioTrav ext) ]
--- fromPassive passive hype = concat
---   [ fromPassiveTrav passive trav hype
---   | ext <- maybeToList $ A.passiveTrav passive hype
---   , trav <- S.toList (A.prioTrav ext) ]
 
 
 -- | Extract derivation trees represented by the given passive item
@@ -384,19 +374,14 @@ fromActive
   => A.Active
   -> A.Hype n t
   -> [[Deriv n (Tok t)]]
-fromActive active hype = case A.activeTrav active hype of
-  Nothing  -> case Q.lookup (A.ItemA active) (A.waiting hype) of
-    Just _ -> error $
-      "fromActive: active item in the waiting queue"
-      ++ "\n" ++ show active
-    Nothing -> error $
-      "fromActive: unknown active item (not even in the queue)"
-      ++ "\n" ++ show active
-  Just ext -> if S.null (A.prioTrav ext)
+fromActive active hype = 
+  if S.null (A.prioTrav ext)
     then [[]]
     else concatMap
          (\trav -> fromActiveTrav active trav hype)
          (S.toList (A.prioTrav ext))
+  where
+    ext = activeTrav active hype
 
 
 -- | Extract derivation trees represented by the given active item
@@ -427,6 +412,218 @@ fromActiveTrav _p trav hype = case trav of
   where
     activeDerivs = flip fromActive hype
     passiveDerivs = flip fromPassive hype
+
+
+-- | Extract derivation trees represented by the given passive item.
+fromPassive
+  :: forall n t. (Ord n, Ord t)
+  => A.Passive n t
+  -> A.Hype n t
+  -> [Deriv n (Tok t)]
+fromPassive passive hype = concat
+  [ fromPassiveTrav passive trav hype
+  | trav <- S.toList (A.prioTrav ext) ]
+  where
+    ext = passiveTrav passive hype
+
+
+-- | Extract the passive traversal set.
+passiveTrav :: (Ord n, Ord t) => A.Passive n t -> A.Hype n t -> A.ExtWeight n t
+passiveTrav passive hype = case A.passiveTrav passive hype of
+  Nothing -> case Q.lookup (A.ItemP passive) (A.waiting hype) of
+    Just _ -> error "fromPassive: passive item in the waiting queue"
+    Nothing -> error "fromPassive: unknown passive item (not even in the queue)"
+  Just ext -> ext
+
+
+-- | Extract the passive traversal set.
+activeTrav :: (Ord n, Ord t) => A.Active -> A.Hype n t -> A.ExtWeight n t
+activeTrav active hype = case A.activeTrav active hype of
+  Nothing  -> case Q.lookup (A.ItemA active) (A.waiting hype) of
+    Just _ -> error $
+      "fromActive: active item in the waiting queue"
+      ++ "\n" ++ show active
+    Nothing -> error $
+      "fromActive: unknown active item (not even in the queue)"
+      ++ "\n" ++ show active
+  Just ext -> ext
+
+
+-- | Inside weight of a given passive item.
+passiveWeight :: (Ord n, Ord t) => A.Passive n t -> A.Hype n t -> Weight
+passiveWeight pass = A.priWeight . passiveTrav pass
+
+
+-- | Inside weight of a given passive item.
+activeWeight :: (Ord n, Ord t) => A.Active -> A.Hype n t -> Weight
+activeWeight act = A.priWeight . activeTrav act
+
+
+-- | Inside weight of a given traversal.
+travWeight
+  :: (Ord n, Ord t)
+  => A.Trav n t
+  -> A.Hype n t
+  -> Weight
+travWeight trav h = 
+  arcWeight trav + case trav of
+    A.Scan q _t _ -> activeWeight q h
+    A.Subst qp qa _ -> passiveWeight qp h + activeWeight qa h
+    A.Foot q _x _ -> activeWeight q h
+    A.SisterAdjoin qp qa -> passiveWeight qp h + activeWeight qa h
+    A.Adjoin qa qm -> passiveWeight qa h + passiveWeight qm h
+    A.Deactivate q _ -> activeWeight q h
+    _ -> error "travWeight: cul-de-sac"
+
+
+-- | Weight of an arc alone.
+arcWeight :: A.Trav n t -> Weight
+arcWeight arc =
+  case arc of
+    A.Adjoin{} -> 0
+    A.SisterAdjoin{} -> 0
+    _ -> A._weight arc
+
+
+-----------------------------------------
+-- Extracting Weighted Derivation Trees
+-----------------------------------------
+
+
+-- | Extract the least-weight derivation tree obtained on the given input
+-- sentence. Should be run on the final result of the Earley parser.
+--
+-- WARNING: the resulting derivation is not normalized -- sister-adjunction
+-- trees are not represented in the `modif` field.  Consider using `normalize`.
+--
+derivTreesW
+    :: (Ord n, Ord t)
+    => A.Hype n t   -- ^ Final state of the earley parser
+    -> n            -- ^ The start symbol
+    -> Int          -- ^ Length of the input sentence
+    -> Maybe (Deriv n (Tok t), Weight)
+derivTreesW hype start n = do
+  pass <- minimumBy
+    (flip passiveWeight hype)
+    (A.finalFrom start n hype)
+  fromPassiveW pass hype
+
+
+-- | Extract derivation trees represented by the given passive item.
+fromPassiveW
+  :: forall n t. (Ord n, Ord t)
+  => A.Passive n t
+  -> A.Hype n t
+  -> Maybe (Deriv n (Tok t), Weight)
+fromPassiveW passive hype = do
+  let ext = passiveTrav passive hype
+  trav <- minimumBy
+    (flip travWeight hype)
+    (S.toList $ A.prioTrav ext)
+  fromPassiveTravW passive trav hype
+
+
+-- | Extract derivation trees represented by the given passive item
+-- and the corresponding input traversal.
+fromPassiveTravW
+  :: (Ord n, Ord t)
+  => A.Passive n t
+  -> A.Trav n t
+  -> A.Hype n t
+  -> Maybe (Deriv n (Tok t), Weight)
+fromPassiveTravW p trav hype =
+  second (+ arcWeight trav) <$> case trav of
+    A.Adjoin qa qm -> do
+      (aux, w) <- passiveDerivs qa
+      (ini, w') <- passiveDerivs qm
+      return (adjoinTree ini aux, w + w')
+    A.Deactivate q _ -> do
+      (ts, w) <- activeDerivs q
+      return (mkTree hype p ts, w)
+    _ ->
+      error "Deriv.fromPassiveTrav: impossible happened"
+  where
+    passiveDerivs = flip fromPassiveW hype
+    activeDerivs  = flip fromActiveW  hype
+
+
+-- | Extract derivations represented by the given active item.
+fromActiveW
+  :: (Ord n, Ord t)
+  => A.Active
+  -> A.Hype n t
+  -> Maybe ([Deriv n (Tok t)], Weight)
+fromActiveW active hype = do
+  let ext = activeTrav active hype
+  if S.null (A.prioTrav ext)
+     then return ([], 0)
+     else do
+       trav <- minimumBy
+         (flip travWeight hype)
+         (S.toList $ A.prioTrav ext)
+       fromActiveTravW active trav hype
+
+
+-- | Extract derivation trees represented by the given active item
+-- and the corresponding input traversal.
+fromActiveTravW
+  :: (Ord n, Ord t)
+  => A.Active
+  -> A.Trav n t
+  -> A.Hype n t
+  -> Maybe ([Deriv n (Tok t)], Weight)
+fromActiveTravW _p trav hype =
+  second (+ arcWeight trav) <$> case trav of
+    A.Scan q t _ -> do
+      (ts, w) <- activeDerivs q
+      return (termNode t : ts, w)
+    A.Foot q x _ -> do
+      (ts, w) <- activeDerivs q
+      return (footNode x : ts, w)
+    A.Subst qp qa _ -> do
+      (ts, w) <- activeDerivs qa
+      (t, w') <- passiveDerivs qp
+      return (substNode hype qp t : ts, w + w')
+    A.SisterAdjoin qp qa -> do
+      (ts, w) <- activeDerivs qa
+      (t, w') <- passiveDerivs qp
+      return (t : ts, w + w')
+    _ ->
+      error "Deriv.fromActiveTrav: impossible happened"
+  where
+    activeDerivs = flip fromActiveW hype
+    passiveDerivs = flip fromPassiveW hype
+
+
+-- -- | Merge a given list of lists, each assumed to be sorted (w.r.t. the given
+-- -- function), to a single sorted list.
+-- mergeManyBy :: (Ord w) => (a -> w) -> [[a]] -> [a]
+-- mergeManyBy f xss =
+--   case xss of
+--     [] -> []
+--     [xs] -> xs
+--     xs1 : rest -> mergeBy f xs1 (mergeManyBy f rest)
+-- 
+-- 
+-- -- | Merge the two given lists, each assumed to be sorted (w.r.t. the given
+-- -- function), to a single sorted list.
+-- mergeBy :: (Ord w) => (a -> w) -> [a] -> [a] -> [a]
+-- mergeBy f =
+--   go
+--   where
+--     go xs [] = xs
+--     go [] ys = ys
+--     go (x:xs) (y:ys)
+--       | f x <= f y = x : go xs (y:ys)
+--       | otherwise  = y : go (x:xs) ys
+
+
+-- | Find the minimal element according to the given comparison function.
+minimumBy :: (Ord w) => (a -> w) -> [a] -> Maybe a
+minimumBy f xs =
+  case xs of
+    [] -> Nothing
+    _  -> Just $ L.minimumBy (comparing f) xs
 
 
 --------------------------------------------------

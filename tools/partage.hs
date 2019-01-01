@@ -12,7 +12,7 @@ import qualified Control.Arrow as Arr
 import qualified Control.Monad.RWS.Strict   as RWS
 
 import           Data.Monoid ((<>))
-import           Data.Maybe (catMaybes)
+import           Data.Maybe (catMaybes, maybeToList)
 import           Options.Applicative
 import qualified Data.IORef as IORef
 -- import qualified Data.List as List
@@ -69,7 +69,7 @@ data Command
       , startSym :: T.Text
       , fullHype :: Bool
       , maxLen :: Maybe Int
-      , showParses :: Maybe Int
+      , showBestParse :: Bool
       , brackets :: Bool
 --       , checkRepetitions :: Bool
       }
@@ -180,11 +180,10 @@ astarOptions = AStar
   ( long "max-len"
     <> help "Limit on sentence length"
   )
-  <*> option (Just <$> auto)
-  ( long "print-parses"
+  <*> switch
+  ( long "print-parse"
     <> short 'p'
-    <> value Nothing
-    <> help "Show the given number of parsed trees (at most)"
+    <> help "Show the best parse"
   )
   <*> switch
   ( long "brackets"
@@ -420,23 +419,24 @@ run cmd =
           putStrLn ""
 
         -- Show the parsed trees
-        case showParses of
-          Nothing -> return ()
-          Just k -> do
-            let derivs = D.derivTrees finalHype startSym (length input)
-            forM_ (take k derivs) $ \deriv -> do
-              putStrLn ""
-              putStrLn 
-                . R.drawTree . fmap show
-                -- . DG.deriv4show . DG.fromDeriv
-                . D.deriv4show . D.normalize
-                $ deriv
-              putStrLn ""
-              -- putStrLn . R.drawTree . fmap show $ O.unTree tree
-              let tagMap = tagsFromDeriv $ DG.fromDeriv deriv
-              forM_ (M.toList tagMap) $ \(posSet, et) -> do
-                LIO.putStrLn . Br.showTree $ fmap rmTokID et
-            putStrLn ""
+        if not showBestParse
+           then return ()
+           else do
+             let derivs = D.derivTreesW finalHype startSym (length input)
+             forM_ (maybeToList derivs) $ \(deriv, w) -> do
+               putStrLn ""
+               putStrLn $ "# weight: " ++ show w
+               putStrLn 
+                 . R.drawTree . fmap show
+                 -- . DG.deriv4show . DG.fromDeriv
+                 . D.deriv4show . D.normalize
+                 $ deriv
+               putStrLn ""
+               -- putStrLn . R.drawTree . fmap show $ O.unTree tree
+               let tagMap = tagsFromDeriv $ DG.fromDeriv deriv
+               forM_ (M.toList tagMap) $ \(posSet, et) -> do
+                 LIO.putStrLn . Br.showTree $ fmap rmTokID et
+             putStrLn ""
 
 
     RemoveCol{..} -> do
