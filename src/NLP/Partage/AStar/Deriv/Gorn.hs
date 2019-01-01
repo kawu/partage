@@ -82,11 +82,14 @@ deriv4show =
 
 -- | Conversion from the base derivation data type.
 fromDeriv :: D.Deriv n t -> Deriv n t
-fromDeriv t = Deriv
-  { rootET = getRootET t
-  , modifs = M.fromList
-    [ (gorn, map fromDeriv ts)
-    | (gorn, ts) <- getModifs t ] }
+fromDeriv =
+  go . D.normalize
+  where
+    go t = Deriv
+      { rootET = getRootET t
+      , modifs = M.fromList
+        [ (gorn, map go ts)
+        | (gorn, ts) <- getModifs t ] }
 
 
 -- | Extract the root ET from the given derivation.

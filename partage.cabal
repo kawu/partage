@@ -112,7 +112,7 @@ library
     -- Grammar compression
     cpp-options: -DCompression
 
-    -- WARNING: doesn't work with A*
+    -- WARNING: doesn't work with A* (and makes soma A* tests fail)
     -- cpp-options: -DExtraCompression
 
 

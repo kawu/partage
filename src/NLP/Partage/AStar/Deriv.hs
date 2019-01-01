@@ -10,6 +10,7 @@ module NLP.Partage.AStar.Deriv
 , DerivNode (..)
 , derivTrees
 , fromPassive
+, normalize
 , deriv4show
 , encodes
 
@@ -38,6 +39,7 @@ import           Data.Maybe                (maybeToList, isJust)
 import qualified Data.PSQueue              as Q
 import qualified Data.Set                  as S
 import qualified Data.Tree                 as R
+import           Data.Either               (lefts, rights)
 -- import qualified Data.Traversable           as Trav
 
 import qualified Pipes                     as P
@@ -78,6 +80,27 @@ data DerivNode n t = DerivNode
   } deriving (Eq, Ord, Show)
 
 
+-- | Normalize the derivation tree so that sister adjunction is modeled
+-- properly using the `modif` field.
+normalize :: Deriv n t -> Deriv n t
+normalize =
+  onTree
+  where
+    onTree t =
+      let (children, sisters) = onChildren (R.subForest t)
+          rootNode = DerivNode
+            { node = node (R.rootLabel t)
+            , modif = (map onTree . modif) (R.rootLabel t) ++ sisters }
+       in R.Node
+         { R.rootLabel = rootNode
+         , R.subForest = children }
+    onChildren ts = (,) <$> lefts <*> rights $
+      [ case node (R.rootLabel t) of
+          O.Sister _ -> Right (onTree t)
+          _ -> Left (onTree t)
+      | t <- ts ]
+
+
 -- | PrintNode tells wheter the node in the pretiffied derivation tree
 -- is a modifier or note.
 data PrintNode a
@@ -91,21 +114,36 @@ instance Show a => Show (PrintNode a) where
   show Dependent = "<<Dependent>>"
 
 
+-- -- | Transform the derivation tree into a tree which is easier
+-- -- to draw using the standard `R.draw` function.
+-- -- `fst` values in nodes are `False` for modifiers.
+-- deriv4show :: Deriv n t -> R.Tree (PrintNode (O.Node n t))
+-- deriv4show =
+--   go False
+--   where
+--     go isMod t = addDep isMod $ R.Node
+--       { R.rootLabel = Regular . node . R.rootLabel $ t
+--       , R.subForest = map goSubtree (R.subForest t)
+--                    ++ map (go True) (modif $ R.rootLabel t) }
+--     goSubtree t =
+--       case node (R.rootLabel t) of
+--         O.Sister _ -> go True t
+--         _ -> go False t
+--     addDep isMod t
+--       | isMod == True = R.Node Dependent [t]
+--       | otherwise = t
+
+
 -- | Transform the derivation tree into a tree which is easier
 -- to draw using the standard `R.draw` function.
--- `fst` values in nodes are `False` for modifiers.
 deriv4show :: Deriv n t -> R.Tree (PrintNode (O.Node n t))
 deriv4show =
   go False
   where
     go isMod t = addDep isMod $ R.Node
       { R.rootLabel = Regular . node . R.rootLabel $ t
-      , R.subForest = map goSubtree (R.subForest t)
+      , R.subForest = map (go False) (R.subForest t)
                    ++ map (go True) (modif $ R.rootLabel t) }
-    goSubtree t =
-      case node (R.rootLabel t) of
-        O.Sister _ -> go True t
-        _ -> go False t
     addDep isMod t
       | isMod == True = R.Node Dependent [t]
       | otherwise = t
@@ -283,6 +321,10 @@ unAdjoinTree cmb = do
 
 -- | Extract derivation trees obtained on the given input sentence. Should be
 -- run on the final result of the earley parser.
+--
+-- WARNING: the results are not normalized, sister-adjunction trees are not
+-- represented in the `modif` field.  Consider using `normalize`.
+--
 derivTrees
     :: (Ord n, Ord t)
     => A.Hype n t   -- ^ Final state of the earley parser

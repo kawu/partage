@@ -428,7 +428,8 @@ run cmd =
               putStrLn ""
               putStrLn 
                 . R.drawTree . fmap show
-                . DG.deriv4show . DG.fromDeriv
+                -- . DG.deriv4show . DG.fromDeriv
+                . D.deriv4show . D.normalize
                 $ deriv
               putStrLn ""
               -- putStrLn . R.drawTree . fmap show $ O.unTree tree

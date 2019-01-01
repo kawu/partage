@@ -88,6 +88,7 @@ import qualified Data.List                  as L
 -- import qualified NLP.Partage.Tree           as T
 import qualified NLP.Partage.Tree.Other     as O
 
+-- import Debug.Trace (trace)
 
 ----------------------
 -- DAGs
@@ -569,10 +570,15 @@ mkGram
     -> Gram n t
 #if Compression
 mkGram ts = Gram
-    { dagGram   = dagGram_
-    , factGram  = rulesMapFromDAG dagGram_
+    { dagGram   = 
+        -- trace ("dag size: " ++ show (M.size $ nodeMap dagGram_))
+        dagGram_
+    , factGram  =
+        -- trace ("ruleMap size: " ++ show (M.size ruleMap))
+        ruleMap
     , termWei   = mkTermWei ts }
   where
+    ruleMap = rulesMapFromDAG dagGram_
 #if ExtraCompression
     dagGram_ = dagFromWeightedForest ts
 #else
