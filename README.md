@@ -56,6 +56,11 @@ The last command builds the `partage` command-line tool and (on Linux) places
 it in the `~/.local/bin/` directory by default. Installation on Windows, even
 though not tested, should be also possible.
 
+You can also run the following command in the local repository to make sure
+that all the tests succeed:
+
+    stack test
+
 
 Data format
 -----------
@@ -71,15 +76,18 @@ in the corresponding sentence and contains the following columns:
   * 2nd supertag
   * ...
 
-The head distribution has the form of `|` separated pairs, each pair consisting
+The head distribution entry has the form of `|` separated pairs, each pair consisting
 of a head token ID and the corresponding probability (separated by a colon).
+If this entry is empty, no head dependency constraints are assumed for the
+corresponding position.
+
 Each supertag entry consists of a supertag represented in the bracketed format
 and the corresponding probability (also separated by a colon).  Here is an
 example of how an input sentence represented in this format can look like.
 
 ```
 1	John	2:1.0	(NP (N <>)):1.0
-2	eats	0:1.0	(SENT (NP ) (VP (V <>))):0.6	(SENT (NP ) (VP (V <>) (NP ))):0.4
+2	eats	0:1.0	(SENT (NP) (VP (V <>))):0.6	(SENT (NP) (VP (V <>) (NP))):0.4
 3	an	4:0.5|1:0.5	(NP* (D <>)):1.0
 4	apple	2:0.5|0:0.5	(NP (N <>)):1.0
 ```
@@ -87,7 +95,7 @@ example of how an input sentence represented in this format can look like.
 In general, the token IDs have to correspond to the range `1..n` where `n` is
 the sentence length.  ID `0` is reserved for the special dummy token
 representing the root.  Another, larger example can be found in
-`example/french.tsv`.
+`examples/french.tsv`.
 
 
 Usage
@@ -98,11 +106,27 @@ Use the following command to parse an input `test.tsv` file using A\*:
     partage astar -i test.tsv -s SENT
 
 The `-s` option allows to specify the start symbol (i.e. the label of the root
-of the resulting parse).
+of the resulting parse).  Assuming the example sentence presented above, this
+command should result in:
+
+```
+1	John	2	(NP (N John))
+2	eats	0	(SENT (NP) (VP (V eats) (NP)))
+3	an	4	(NP* (D an))
+4	apple	2	(NP (N apple))
+```
 
 In order to run the Earley-style parser on the same input file, run:
 
     partage earley -i test.tsv -s SENT --with-prob
+
+Note that the Earley-style parser ignores the dependency-related constraints
+(third column of the input file).  The output is also different, it consists of
+the set of parsed trees.  For the example above:
+
+```
+(SENT (NP (N John)) (VP (V eats) (NP (D an) (N apple))))
+```
 
 Run `partage astar --help` and `partage earley --help` to learn more about the
 possible parsing options.
@@ -120,6 +144,16 @@ Computational Linguistics, pp. 150-157, Bergen, Norway, 1999.
 Parsing Efficiency by Capturing Redundancy*, 21st International Conference on
 Implementation and Application of Automata (CIAA 2016),
 ([PDF](https://hal.archives-ouvertes.fr/hal-01309598v2/document)).
+
+[3] Jakub Waszczuk, Agata Savary, and Yannick Parmentier, *Promoting multiword
+expressions in A\* TAG parsing*, 26th International Conference on Computational
+Linguistics (COLING 2016),
+([PDF](https://aclweb.org/anthology/C/C16/C16-1042.pdf)).
+
+[4] Jakub Waszczuk, Agata Savary, and Yannick Parmentier, *Multiword
+Expression-Aware A\* TAG Parsing Revisited*, 13th International Workshop on
+Tree Adjoining Grammars and Related Formalisms
+([PDF](http://www.aclweb.org/anthology/W17-6209)).
 
 
 [stack]: http://docs.haskellstack.org "Haskell Tool Stack"

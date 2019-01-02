@@ -177,7 +177,7 @@ anchorP = Anchor <$ Atto.string "<>"
 -- (sister/foot).
 nonTermP :: Atto.Parser (NonTerm, Bool)
 nonTermP = do
-  nonTerm <- Atto.takeTill $ \c -> C.isSpace c || c == '*'
+  nonTerm <- Atto.takeTill $ \c -> C.isSpace c || c == '*' || c == ')'
   starred <- (True <$ Atto.char '*') <|> pure False
   return (nonTerm, starred)
 
@@ -289,7 +289,8 @@ showTree = B.toLazyText . buildTree
 
 buildTree :: LexTree -> B.Builder
 buildTree tree
-  | null (R.subForest tree) =
+  -- | null (R.subForest tree) =
+  | isTerm (R.rootLabel tree) =
       buildLabel (R.rootLabel tree)
   | otherwise = mconcat
       [ "("
@@ -311,6 +312,12 @@ buildLabel = \case
   O.Term x -> B.fromText x
   O.Sister x -> B.fromText x `mappend` "*"
   O.Foot x -> B.fromText x `mappend` "*"
+
+
+isTerm :: O.Node NonTerm T.Text -> Bool
+isTerm = \case
+  O.Term _ -> True
+  _ -> False
 
 
 -------------------------------------------------------------

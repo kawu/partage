@@ -1,23 +1,13 @@
 name:               partage
-version:            0.3.0.0
-synopsis:           Earley-style parsing with compressed TAGs
+version:            1.0.0.0
+synopsis:           A* TAG parsing
 description:
-    The library implements an Earley-style, bottom-up parser for tree adjoining
-    grammars (TAGs) with special focus on structure (and, hence, computation) sharing.
+    The library implements an A* parser for tree adjoining grammars (TAGs).
     .
-    Two particular flavours of structure sharing are currently implemented:
-    .
-    * Subtrees common to different elementary trees are shared amongst them.
-      The input TAG, which can be seen as a set of elementary (initial and auxiliary)
-      grammar trees, is in fact transformed into an equivalent DAG.
-    .
-    * Flat production grammar rules representing the individual parts of the DAG
-      are then compressed in the form of a minimal FSA. Other forms of
-      compression are also provided by the library (e.g. prefix tree).
 license:            BSD3
 license-file:       LICENSE
 cabal-version:      >= 1.10
-copyright:          Copyright (c) 2015-2018 Jakub Waszczuk
+copyright:          Copyright (c) 2015-2019 Jakub Waszczuk
 author:             Jakub Waszczuk
 maintainer:         waszczuk.kuba@gmail.com
 stability:          experimental

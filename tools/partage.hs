@@ -15,7 +15,7 @@ import           Data.Monoid ((<>))
 import           Data.Maybe (catMaybes, maybeToList)
 import           Options.Applicative
 import qualified Data.IORef as IORef
--- import qualified Data.List as List
+import qualified Data.List as List
 import qualified Data.Set as S
 import qualified Data.Map.Strict as M
 import qualified Data.Vector as V
@@ -48,7 +48,8 @@ import qualified NLP.Partage.Format.Brackets as Br
 data Command
     = Earley
       { inputPath :: FilePath
-      , withProb :: Bool
+      , verbose :: Bool
+      -- , withProb :: Bool
       , maxTags :: Maybe Int
       , minProb :: Maybe Double
       , betaParam :: Maybe Double
@@ -63,13 +64,14 @@ data Command
     -- ^ Parse the input sentences using the Earley-style chart parser
     | AStar
       { inputPath :: FilePath
+      , verbose :: Bool
       , maxTags :: Maybe Int
       , minProb :: Maybe Double
       , betaParam :: Maybe Double
       , startSym :: T.Text
       , fullHype :: Bool
       , maxLen :: Maybe Int
-      , showBestParse :: Bool
+      -- , showBestParse :: Bool
       , brackets :: Bool
 --       , checkRepetitions :: Bool
       }
@@ -93,10 +95,15 @@ earleyOptions = Earley
     <> help "Input file with supertagging results"
   )
   <*> switch
-  ( long "with-prob"
-    -- <> short 'p'
-    <> help "Set on if the input file contains info about probabilities"
+  ( long "verbose"
+    <> short 'v'
+    <> help "Verbose reporting"
   )
+--   <*> switch
+--   ( long "with-prob"
+--     -- <> short 'p'
+--     <> help "Set on if the input file contains info about probabilities"
+--   )
   <*> (optional . option auto)
   ( long "max-tags"
     <> short 'm'
@@ -154,6 +161,11 @@ astarOptions = AStar
     <> short 'i'
     <> help "Input file with supertagging results"
   )
+  <*> switch
+  ( long "verbose"
+    <> short 'v'
+    <> help "Verbose reporting"
+  )
   <*> (optional . option auto)
   ( long "max-tags"
     <> short 'm'
@@ -180,11 +192,11 @@ astarOptions = AStar
   ( long "max-len"
     <> help "Limit on sentence length"
   )
-  <*> switch
-  ( long "print-parse"
-    <> short 'p'
-    <> help "Show the best parse"
-  )
+--   <*> switch
+--   ( long "print-parse"
+--     <> short 'p'
+--     <> help "Show the best parse"
+--   )
   <*> switch
   ( long "brackets"
     <> short 'b'
@@ -234,10 +246,10 @@ run cmd =
     Earley{..} -> do
 
       -- Read input supertagging file
-      let parseSuper =
-            if withProb
-            then Br.parseSuperProb
-            else Br.parseSuper
+      let parseSuper = Br.parseSuperProb
+--             if withProb
+--             then Br.parseSuperProb
+--             else Br.parseSuper
           filterLen =
             case maxLen of
               Nothing -> id
@@ -280,9 +292,10 @@ run cmd =
             $ sent
 
         -- Check against the gold file or perform simple recognition
-        putStr "# "
-        TIO.putStr . T.unwords $ map snd input
-        LIO.putStr " => "
+        when verbose $ do
+          putStr "# "
+          TIO.putStr . T.unwords $ map snd input
+          LIO.putStr " => "
         case goldTree of
           Just tree -> do
             parses <- map (fmap rmTokID . O.unTree) <$>
@@ -296,40 +309,39 @@ run cmd =
             hype <- E.earley gram (E.fromList input)
             let n = length input
                 reco = (not.null) (E.finalFrom startSym n hype)
-            print reco
-            endTime <- Time.getCurrentTime
-            putStr (show n)
-            putStr "\t"
-            putStr (show $ E.hyperEdgesNum hype)
-            putStr "\t"
-            putStr (show $ endTime `Time.diffUTCTime` begTime)
+            when verbose $ do
+              print reco
+              endTime <- Time.getCurrentTime
+              putStr (show n)
+              putStr "\t"
+              putStr (show $ E.hyperEdgesNum hype)
+              putStr "\t"
+              putStr (show $ endTime `Time.diffUTCTime` begTime)
             -- Show the number of parsed trees
             case showParseNum of
               Nothing -> return ()
               Just k -> do
-                putStr "\t"
                 parses <- E.parse gram startSym (E.fromList input)
-                putStr . show $ sum
+                putStr "# Parse num: "
+                putStrLn . show $ sum
                   -- We have to evaluate them to alleviate the memory leak
                   [ L.length txtTree `seq` (1 :: Int)
                   | tree <- take k parses
                   , let txtTree = (Br.showTree . fmap rmTokID $ O.unTree tree)
                   ]
-            putStrLn ""
 
         -- Show the parsed trees
-        case showParses of
-          Nothing -> return ()
-          Just k -> do
-            parses <- E.parse gram startSym (E.fromList input)
-            forM_ (take k parses) $ \tree -> do
-              if brackets
-                then do
-                  LIO.putStrLn . Br.showTree . fmap rmTokID $ O.unTree tree
-                else do
-                  putStrLn ""
-                  putStrLn . R.drawTree . fmap show $ O.unTree tree
+        let shorten = 
+              case showParses of
+                Just k  -> take k
+                Nothing -> id
+        parses <- E.parse gram startSym (E.fromList input)
+        forM_ (shorten parses) $ \tree -> do
+          when verbose $ do
             putStrLn ""
+            putStrLn . R.drawTree . fmap show $ O.unTree tree
+          LIO.putStrLn . Br.showTree . fmap rmTokID $ O.unTree tree
+        putStrLn ""
 
 
     AStar{..} -> do
@@ -376,9 +388,10 @@ run cmd =
             Memo.integral
 
         -- Check against the gold file or perform simple recognition
-        putStr "# "
-        TIO.putStr . T.unwords $ map snd input
-        LIO.putStr " => "
+        when verbose $ do
+          putStr "# "
+          TIO.putStr . T.unwords $ map snd input
+          LIO.putStr " => "
 
         begTime <- Time.getCurrentTime
         hypeRef <- IORef.newIORef Nothing
@@ -403,40 +416,35 @@ run cmd =
         endTime <- Time.getCurrentTime
         (semiHype, semiTime) <- maybe (finalHype, endTime) id
           <$> IORef.readIORef hypeRef
-        let reco = (not.null) (A.finalFrom startSym n semiHype)
-        print reco
-        putStr (show n)
-        putStr "\t"
-        putStr (show $ A.hyperEdgesNum semiHype)
-        putStr "\t"
-        putStr $ show (semiTime `Time.diffUTCTime` begTime)
-        if fullHype then do
+        when verbose $ do
+          let reco = (not.null) (A.finalFrom startSym n semiHype)
+          print reco
+          putStr (show n)
           putStr "\t"
-          putStr (show $ A.hyperEdgesNum finalHype)
+          putStr (show $ A.hyperEdgesNum semiHype)
           putStr "\t"
-          print (endTime `Time.diffUTCTime` begTime)
-        else do
-          putStrLn ""
+          putStr $ show (semiTime `Time.diffUTCTime` begTime)
+          if fullHype then do
+            putStr "\t"
+            putStr (show $ A.hyperEdgesNum finalHype)
+            putStr "\t"
+            print (endTime `Time.diffUTCTime` begTime)
+          else do
+            putStrLn ""
 
-        -- Show the parsed trees
-        if not showBestParse
-           then return ()
-           else do
-             let derivs = D.derivTreesW finalHype startSym (length input)
-             forM_ (maybeToList derivs) $ \(deriv, w) -> do
-               putStrLn ""
-               putStrLn $ "# weight: " ++ show w
-               putStrLn 
-                 . R.drawTree . fmap show
-                 -- . DG.deriv4show . DG.fromDeriv
-                 . D.deriv4show . D.normalize
-                 $ deriv
-               putStrLn ""
-               -- putStrLn . R.drawTree . fmap show $ O.unTree tree
-               let tagMap = tagsFromDeriv $ DG.fromDeriv deriv
-               forM_ (M.toList tagMap) $ \(posSet, et) -> do
-                 LIO.putStrLn . Br.showTree $ fmap rmTokID et
-             putStrLn ""
+        -- Show the derivations
+        let derivs = D.derivTreesW finalHype startSym (length input)
+        forM_ (maybeToList derivs) $ \(deriv, w) -> do
+          renderDeriv deriv
+          when verbose $ do
+            putStrLn ""
+            putStrLn $ "# weight: " ++ show w
+            putStrLn 
+              . R.drawTree . fmap show
+              . D.deriv4show . D.normalize
+              $ deriv
+            putStrLn ""
+        putStrLn ""
 
 
     RemoveCol{..} -> do
@@ -578,26 +586,81 @@ mapMap f g m = M.fromList
 
 
 --------------------------------------------------
+-- Rendering derivation
+--------------------------------------------------
+
+
+-- | Render the given derivation.
+renderDeriv 
+  :: D.Deriv T.Text (A.Tok (Int, T.Text))
+  -> IO ()
+renderDeriv deriv0 = do
+  let deriv = DG.fromDeriv deriv0
+      tagMap = tagsFromDeriv deriv
+      depMap = depsFromDeriv deriv
+      getPos = L.pack . show . (+1) . A.position
+      getTerm = L.fromStrict . snd . A.terminal
+  forM_ (M.toList tagMap) $ \(tok, et) -> do
+    LIO.putStr . L.intercalate "," $
+      map getPos (S.toList tok)
+    LIO.putStr "\t"
+    LIO.putStr . L.intercalate "," $
+      map getTerm (S.toList tok)
+    LIO.putStr "\t"
+    LIO.putStr . L.intercalate "," $
+        maybe ["0"] (map getPos . S.toList) $
+          M.lookup tok depMap
+    LIO.putStr "\t"
+    LIO.putStrLn . Br.showTree $ fmap rmTokID et
+
+
+--------------------------------------------------
 -- ETs from derivation
 --------------------------------------------------
 
 
--- | Retrieve the list of selected ETs on the individual positions.
+-- | Complex token.
+type Tok t = S.Set (A.Tok t)
+
+
+-- | Retrieve the list of selected ETs for the individual tokens.
 tagsFromDeriv
   :: DG.Deriv n (A.Tok t)
-  -> M.Map (S.Set A.Pos) (O.Tree n t)
+  -> M.Map (Tok t) (O.Tree n t)
 tagsFromDeriv =
   go
     where
       go DG.Deriv{..} =
-        let pos = getPos rootET
+        let tok = getTok rootET
             chMap = M.unions . map go . concat $ M.elems modifs
-        in  M.insert pos (fmap (O.mapTerm A.terminal) rootET) chMap
+        in  M.insert tok (fmap (O.mapTerm A.terminal) rootET) chMap
+
+
+-- | Retrieve the map of selected dependency heads.
+depsFromDeriv
+  :: DG.Deriv n (A.Tok t)
+  -- -> M.Map (Tok t) (S.Set (Tok t))
+  -> M.Map (Tok t) (Tok t)
+depsFromDeriv =
+  snd . go
+    where
+      go DG.Deriv{..} =
+        let tok = getTok rootET
+            children = map go . concat $ M.elems modifs
+            chToks = map fst children
+            chMap = M.unions $ map snd children
+            newMap = List.foldl' (\m dep -> M.insert dep tok m) chMap chToks
+        in  (tok, newMap)
 
 
 -- | Determine the position set in the given tree.
 getPos :: O.Tree n (A.Tok t) -> S.Set A.Pos
 getPos = S.fromList . map A.position . O.project
+
+
+-- | Determine the token set in the given tree.
+getTok :: O.Tree n (A.Tok t) -> S.Set (A.Tok t)
+getTok = S.fromList . O.project
 
 
 --------------------------------------------------
