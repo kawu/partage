@@ -33,10 +33,10 @@ which:
     also assigned.  This can result from statistical dependency parsing.
 
 The probability of a TAG derivation in this setting is defined as the product
-of the probabilities of the participating supertags and the product of the
-probabilities of the entailed dependency arcs.  The A\* parser then gurantees
-to find a most probable derivation without searching the entire space of the
-possible derivations.
+of the probabilities of the participating supertags multiplied by the product
+of the probabilities of the entailed dependency arcs.  The A\* parser then
+gurantees to find a most probable derivation without searching the entire space
+of the possible derivations.
 
 Grammar compression is also used in the A\* parser, but to a very limited
 extent.
@@ -87,7 +87,7 @@ example of how an input sentence represented in this format can look like.
 In general, the token IDs have to correspond to the range `1..n` where `n` is
 the sentence length.  ID `0` is reserved for the special dummy token
 representing the root.  Another, larger example can be found in
-`example/example.tsv`.
+`example/french.tsv`.
 
 
 

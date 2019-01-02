@@ -354,7 +354,7 @@ fromPassiveTrav
   -> A.Hype n t
   -> [Deriv n (Tok t)]
 fromPassiveTrav p trav hype = case trav of
-  A.Adjoin qa qm ->
+  A.Adjoin qa qm _ ->
     [ adjoinTree ini aux
     | aux <- passiveDerivs qa
     , ini <- passiveDerivs qm ]
@@ -403,7 +403,7 @@ fromActiveTrav _p trav hype = case trav of
     [ substNode hype qp t : ts
     | ts <- activeDerivs qa
     , t  <- passiveDerivs qp ]
-  A.SisterAdjoin qp qa ->
+  A.SisterAdjoin qp qa _ ->
     [ t : ts
     | ts <- activeDerivs qa
     , t  <- passiveDerivs qp ]
@@ -470,19 +470,20 @@ travWeight trav h =
     A.Scan q _t _ -> activeWeight q h
     A.Subst qp qa _ -> passiveWeight qp h + activeWeight qa h
     A.Foot q _x _ -> activeWeight q h
-    A.SisterAdjoin qp qa -> passiveWeight qp h + activeWeight qa h
-    A.Adjoin qa qm -> passiveWeight qa h + passiveWeight qm h
+    A.SisterAdjoin qp qa _ -> passiveWeight qp h + activeWeight qa h
+    A.Adjoin qa qm _ -> passiveWeight qa h + passiveWeight qm h
     A.Deactivate q _ -> activeWeight q h
     _ -> error "travWeight: cul-de-sac"
 
 
 -- | Weight of an arc alone.
 arcWeight :: A.Trav n t -> Weight
-arcWeight arc =
-  case arc of
-    A.Adjoin{} -> 0
-    A.SisterAdjoin{} -> 0
-    _ -> A._weight arc
+arcWeight = A._weight
+-- arcWeight arc =
+--   case arc of
+--     A.Adjoin{} -> 0
+--     A.SisterAdjoin{} -> 0
+--     _ -> A._weight arc
 
 
 -----------------------------------------
@@ -533,7 +534,7 @@ fromPassiveTravW
   -> Maybe (Deriv n (Tok t), Weight)
 fromPassiveTravW p trav hype =
   second (+ arcWeight trav) <$> case trav of
-    A.Adjoin qa qm -> do
+    A.Adjoin qa qm _ -> do
       (aux, w) <- passiveDerivs qa
       (ini, w') <- passiveDerivs qm
       return (adjoinTree ini aux, w + w')
@@ -584,7 +585,7 @@ fromActiveTravW _p trav hype =
       (ts, w) <- activeDerivs qa
       (t, w') <- passiveDerivs qp
       return (substNode hype qp t : ts, w + w')
-    A.SisterAdjoin qp qa -> do
+    A.SisterAdjoin qp qa _ -> do
       (ts, w) <- activeDerivs qa
       (t, w') <- passiveDerivs qp
       return (t : ts, w + w')
@@ -677,7 +678,7 @@ passiveTravEncodes
   -> Bool
 passiveTravEncodes p trav hype root = case trav of
 
-  A.Adjoin qa qm -> isJust $ do
+  A.Adjoin qa qm _ -> isJust $ do
     (ini, aux) <- unAdjoinTree root
     guard $ passiveEncodes qa hype aux
     guard $ passiveEncodes qm hype ini
@@ -755,7 +756,7 @@ activeTravEncodes _p trav hype root = case trav of
 --     | ts <- activeDerivs qa
 --     , t  <- passiveDerivs qp ]
 
-  A.SisterAdjoin qp qa -> isJust $ do
+  A.SisterAdjoin qp qa _ -> isJust $ do
     t : ts <- return root
     guard $ passiveEncodes qp hype t
     guard $ activeEncodes qa hype ts

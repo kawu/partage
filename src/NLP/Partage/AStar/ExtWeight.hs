@@ -83,6 +83,8 @@ data Trav n t
         -- ^ The adjoined item
         , passMod :: Passive n t
         -- ^ The modified item
+        , _weight   :: Weight
+        -- ^ The traversal weight
         }
     -- ^ Adjoin terminate with two passive arguments
     | SisterAdjoin
@@ -90,6 +92,8 @@ data Trav n t
         -- ^ The passive argument of the action
         , actArg   :: Active
         -- ^ The active argument of the action
+        , _weight   :: Weight
+        -- ^ The traversal weight
         }
     | Deactivate
         { actArg   :: Active

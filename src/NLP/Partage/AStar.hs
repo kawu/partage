@@ -1431,7 +1431,7 @@ tryAdjoinTerm q qw = void $ P.runListT $ do
     let newBeta = sumWeight [duoBeta pw, duoBeta qw, depCost]
         newGap = duoGap pw
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
-    lift $ pushPassive p' newDuo (Adjoin q p)
+    lift $ pushPassive p' newDuo (Adjoin q p depCost)
 #ifdef CheckMonotonic
     totalP <- lift . lift $ est2total pw <$> estimateDistP p
     totalQ <- lift . lift $ est2total qw <$> estimateDistP q
@@ -1513,7 +1513,7 @@ tryAdjoinTerm' p pw = void $ P.runListT $ do
     let newBeta = sumWeight [duoBeta pw, duoBeta qw, depCost]
         newGap = duoGap pw
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
-    lift $ pushPassive p' newDuo (Adjoin q p)
+    lift $ pushPassive p' newDuo (Adjoin q p depCost)
 #ifdef CheckMonotonic
     totalP <- lift . lift $ est2total pw <$> estimateDistP p
     totalQ <- lift . lift $ est2total qw <$> estimateDistP q
@@ -1655,7 +1655,7 @@ trySisterAdjoin p pw = void $ P.runListT $ do
         newGap = duoGap qw
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
     -- push the resulting state into the waiting queue
-    lift $ pushInduced q' newDuo (SisterAdjoin p q)
+    lift $ pushInduced q' newDuo (SisterAdjoin p q depCost)
 #ifdef CheckMonotonic
     lift . lift $ testMono "SISTER-ADJOIN" (p, pw) (q, qw) (q', newDuo)
 #endif
@@ -1722,7 +1722,7 @@ trySisterAdjoin' q qw = void $ P.runListT $ do
       newGap = duoGap qw
       newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
   -- push the resulting state into the waiting queue
-  lift $ pushInduced q' newDuo (SisterAdjoin p q)
+  lift $ pushInduced q' newDuo (SisterAdjoin p q depCost)
 #ifdef CheckMonotonic
   lift . lift $ testMono "SISTER-ADJOIN'" (p, pw) (q, qw) (q', newDuo)
 #endif
@@ -1771,7 +1771,7 @@ fromActive active hype =
         [ t : ts
         | ts <- fromActive qa hype
         , t  <- fromPassive qp hype ]
-    fromActiveTrav _p (SisterAdjoin qp qa) =
+    fromActiveTrav _p (SisterAdjoin qp qa _) =
         [ ts' ++ ts
         | ts  <- fromActive qa hype
         , ts' <- T.subTrees <$> fromPassive qp hype ]
@@ -1786,7 +1786,7 @@ fromPassive passive hype = concat
   | ext <- maybeToList $ passiveTrav passive hype
   , trav <- S.toList (prioTrav ext) ]
   where
-    fromPassiveTrav _p (Adjoin qa qm) =
+    fromPassiveTrav _p (Adjoin qa qm _) =
         [ replaceFoot ini aux
         | aux <- fromPassive qa hype
         , ini <- fromPassive qm hype ]
