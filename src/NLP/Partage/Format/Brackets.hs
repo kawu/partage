@@ -289,7 +289,6 @@ showTree = B.toLazyText . buildTree
 
 buildTree :: LexTree -> B.Builder
 buildTree tree
-  -- | null (R.subForest tree) =
   | isTerm (R.rootLabel tree) =
       buildLabel (R.rootLabel tree)
   | otherwise = mconcat
