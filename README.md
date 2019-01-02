@@ -90,6 +90,23 @@ representing the root.  Another, larger example can be found in
 `example/french.tsv`.
 
 
+Usage
+-----
+
+Use the following command to parse an input `test.tsv` file using A\*:
+
+    partage astar -i test.tsv -s SENT
+
+The `-s` option allows to specify the start symbol (i.e. the label of the root
+of the resulting parse).
+
+In order to run the Earley-style parser on the same input file, run:
+
+    partage earley -i test.tsv -s SENT --with-prob
+
+Run `partage astar --help` and `partage earley --help` to learn more about the
+possible parsing options.
+
 
 References
 ----------
