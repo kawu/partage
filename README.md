@@ -118,11 +118,11 @@ command should result in:
 
 In order to run the Earley-style parser on the same input file, run:
 
-    partage earley -i test.tsv -s SENT --with-prob
+    partage earley -i test.tsv -s SENT
 
 Note that the Earley-style parser ignores the dependency-related constraints
 (third column of the input file).  The output is also different, it consists of
-the set of parsed trees.  For the example above:
+the set of parsed trees.  For the example sentence above:
 
 ```
 (SENT (NP (N John)) (VP (V eats) (NP (D an) (N apple))))
@@ -142,17 +142,17 @@ Computational Linguistics, pp. 150-157, Bergen, Norway, 1999.
 
 [2] Jakub Waszczuk, Agata Savary, Yannick Parmentier, *Enhancing Practical TAG
 Parsing Efficiency by Capturing Redundancy*, 21st International Conference on
-Implementation and Application of Automata (CIAA 2016),
-([PDF](https://hal.archives-ouvertes.fr/hal-01309598v2/document)).
+Implementation and Application of Automata (CIAA 2016), Seoul, South Korea,
+2016, ([PDF](https://hal.archives-ouvertes.fr/hal-01309598v2/document)).
 
 [3] Jakub Waszczuk, Agata Savary, and Yannick Parmentier, *Promoting multiword
 expressions in A\* TAG parsing*, 26th International Conference on Computational
-Linguistics (COLING 2016),
+Linguistics (COLING 2016), Osaka, Japan, 2016,
 ([PDF](https://aclweb.org/anthology/C/C16/C16-1042.pdf)).
 
 [4] Jakub Waszczuk, Agata Savary, and Yannick Parmentier, *Multiword
 Expression-Aware A\* TAG Parsing Revisited*, 13th International Workshop on
-Tree Adjoining Grammars and Related Formalisms
+Tree Adjoining Grammars and Related Formalisms, Umeå, Sweden, 2017.
 ([PDF](http://www.aclweb.org/anthology/W17-6209)).
 
 
