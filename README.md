@@ -1,19 +1,45 @@
 Partage
 ==========
 
-**Partage** is a Haskell library dedicated to parsing *tree adjoining grammars* (TAGs).
+**Partage** is a library and a tool dedicated to parsing *tree adjoining
+grammars* (TAGs).  It supports both adjunction and sister-adjunction.
 
-It implements an Earley-style, bottom-up parser similar to the one described in [1],
-with special focus on structure (and, hence, computation) sharing.
-Two particular flavours of structure sharing are currently implemented:
+It implements two kinds of parsers -- an Earley-style, bottom-up parser [1]
+with special focus on structure (and, hence, computation) sharing [2], and an
+A\* parser [3,4]. 
 
-  * Subtrees common to different elementary trees are shared amongst them.
-    The input TAG, which can be seen as a set of elementary (initial and auxiliary)
-    grammar trees, is in fact transformed into an equivalent DAG.
+### Earley-style parser
+
+The Earley-style parser implements two flavors of grammar compression:
+
+  * Subtrees common to different elementary trees are shared.  The input TAG is
+    transformed into an equivalent directed acyclic graph (DAG).
   * Flat production grammar rules representing the individual parts of the DAG
-    are then compressed in the form of a minimal FSA. Other forms of
-    compression are also provided by the library (e.g. prefix tree).
+    are compressed into an FSA.  The default choice is a prefix-tree
+    compression, although other forms of compression are also possible (e.g.,
+    minimal FSA).
 
+### A\* parser
+
+The A\* parser works best on the results of dependency-aware supertagging in
+which:
+
+  * To each position in the input sentence a distribution of TAG elementary
+    trees (supertags) which can be anchored at this position is assigned.  This
+    comes from classic statistical supertagging.
+  * To each position in the sentence the distribution of the possible heads is
+    also assigned.  This can result from statistical dependency parsing.
+
+The probability of a TAG derivation in this setting is defined as the product
+of the probabilities of the participating supertags and the product of the
+probabilities of the entailed dependency arcs.  The A\* parser then gurantees
+to find a most probable derivation without searching the entire space of the
+possible derivations.
+
+Grammar compression is also used in the A\* parser, but to a very limited
+extent.
+
+    
 [![Build Status](https://travis-ci.org/kawu/partage.svg)](https://travis-ci.org/kawu/partage)
 
 
@@ -35,6 +61,11 @@ References
 Vilares, *Tabular Algorithms for TAG Parsing*, in Proc. of EACL'99,
 Ninth Conference of the European Chapter of the Association for
 Computational Linguistics, pp. 150-157, Bergen, Norway, 1999.
+
+[2] Jakub Waszczuk, Agata Savary, Yannick Parmentier, *Enhancing Practical TAG
+Parsing Efficiency by Capturing Redundancy*, 21st International Conference on
+Implementation and Application of Automata (CIAA 2016),
+([PDF](https://hal.archives-ouvertes.fr/hal-01309598v2/document)).
 
 
 [stack]: http://docs.haskellstack.org "Haskell Tool Stack"
