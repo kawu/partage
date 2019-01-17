@@ -14,6 +14,7 @@ import qualified Control.Monad.RWS.Strict   as RWS
 import           Data.Monoid ((<>))
 import           Data.Maybe (catMaybes, maybeToList)
 import           Options.Applicative
+import           Data.Ord (comparing)
 import qualified Data.IORef as IORef
 import qualified Data.List as List
 import qualified Data.Set as S
@@ -75,6 +76,10 @@ data Command
       , brackets :: Bool
       , useSoftMax :: Bool
 --       , checkRepetitions :: Bool
+      }
+    -- ^ Parse the input sentences using the Earley-style A* chart parser
+    | Dummy
+      { inputPath :: FilePath
       }
     -- ^ Parse the input sentences using the Earley-style A* chart parser
     | RemoveCol
@@ -209,6 +214,15 @@ astarOptions = AStar
   )
 
 
+dummyOptions :: Parser Command
+dummyOptions = Dummy
+  <$> strOption
+  ( long "input"
+    <> short 'i'
+    <> help "Input file with supertagging results"
+  )
+
+
 removeColOptions :: Parser Command
 removeColOptions = RemoveCol
   <$> option auto
@@ -233,6 +247,11 @@ opts = subparser
     command "astar"
     (info (helper <*> astarOptions)
       (progDesc "Parse the input grammar file with A*")
+    )
+    <>
+    command "dummy"
+    (info (helper <*> dummyOptions)
+      (progDesc "Output the most probable input tags/deps")
     )
     <>
     command "remcol"
@@ -455,6 +474,13 @@ run cmd =
         putStrLn ""
 
 
+    Dummy{..} -> do
+      super <- Br.parseSuperProb <$> LIO.readFile inputPath
+      forM_ super $ \sent -> do
+        renderInput $ zip [1 :: Int ..] sent
+        putStrLn ""
+
+
     RemoveCol{..} -> do
       file <- LIO.getContents
       forM_ (L.lines file)
@@ -613,6 +639,31 @@ softMax m =
   fmap (\x -> exp x / normFact) m
   where
     normFact = sum . map exp $ M.elems m
+
+
+--------------------------------------------------
+-- Rendering input (dummy mode)
+--------------------------------------------------
+
+
+-- | Render the given derivation.
+renderInput :: [(Int, Br.SuperTok)] -> IO ()
+renderInput inp = do
+  forM_ inp $ \(tokID, Br.SuperTok{..}) -> do
+    let takeBest df xs = 
+          case List.sortBy (comparing snd) xs of
+            [] -> df
+            ys -> fst . head $ reverse ys
+        depHed = takeBest (-1) (M.toList tokDeph)
+        supTag = Br.anchor tokWord $
+          takeBest (error "renderInput: no supertags") tokTags
+    LIO.putStr . L.pack . show $ tokID
+    LIO.putStr "\t"
+    LIO.putStr $ L.fromStrict tokWord
+    LIO.putStr "\t"
+    LIO.putStr . L.pack . show $ depHed
+    LIO.putStr "\t"
+    LIO.putStrLn $ Br.showTree supTag
 
 
 --------------------------------------------------
