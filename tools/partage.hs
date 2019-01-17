@@ -73,6 +73,7 @@ data Command
       , maxLen :: Maybe Int
       -- , showBestParse :: Bool
       , brackets :: Bool
+      , useSoftMax :: Bool
 --       , checkRepetitions :: Bool
       }
     -- ^ Parse the input sentences using the Earley-style A* chart parser
@@ -201,6 +202,10 @@ astarOptions = AStar
   ( long "brackets"
     <> short 'b'
     <> help "Render trees in the bracketed format"
+  )
+  <*> switch
+  ( long "softmax"
+    <> help "Apply softmax to dependency weights"
   )
 
 
@@ -372,8 +377,8 @@ run cmd =
           -- positions)
           posMap = M.fromList [(x, fst x) | x <- input]
 
-          -- Create the corresponding position map
-          depMap = mkDepMap' $ zip [0 :: Int ..] sent
+          -- Create the corresponding dependency map
+          depMap = mkDepMap' useSoftMax $ zip [0 :: Int ..] sent
 
           -- Create the compressed grammar representation
           gram
@@ -548,6 +553,10 @@ anchorTag x = fmap . O.mapTerm $ \case
   Br.Term _ -> error "Cannot process a co-anchor terminal node"
 
 
+--------------------------------------------------
+-- Dependency Map
+--------------------------------------------------
+
 -- | Create the dependency map corresponding to the given list of tokens.  Note
 -- that the `Br.deph` values have to be handled carefully -- in the
 -- corresponding format, tokens are numbered from 1 and not from 0.
@@ -563,13 +572,20 @@ anchorTag x = fmap . O.mapTerm $ \case
 
 -- | A variant of `mkDepMap` which creates a map of possible head positions
 -- together with the corresponding heads.  A stub so far, really.
-mkDepMap' :: [(Int, Br.SuperTok)] -> M.Map Int (M.Map Int DAG.Weight)
-mkDepMap' toks = M.fromList $ catMaybes
+mkDepMap'
+  :: Bool -- ^ Apply softmax to get probabilities from weights first
+  -> [(Int, Br.SuperTok)]
+  -> M.Map Int (M.Map Int DAG.Weight)
+mkDepMap' applySM toks = M.fromList $ catMaybes
   [ (dep,) <$> do
       guard . not $ M.null tokDeph
-      return $ mapMap (\k -> k-1) (\p -> -log(p)) tokDeph
+      return $ mapMap
+        (\k -> k-1)
+        (\p -> -log(p))
+        (trySoftMax tokDeph)
     | (dep, Br.SuperTok{..}) <- toks
-  ]
+  ] where
+    trySoftMax = if applySM then softMax else id
 
 
 -- | Map a function over keys and values of the given map.
@@ -583,6 +599,17 @@ mapMap f g m = M.fromList
   [ (f key, g val)
     | (key, val) <- M.toList m
   ]
+
+
+-- | Apply softmax to the given map.
+softMax
+  :: (Ord k)
+  => M.Map k Double
+  -> M.Map k Double
+softMax m =
+  fmap (\x -> exp x / normFact) m
+  where
+    normFact = sum . map exp $ M.elems m
 
 
 --------------------------------------------------
