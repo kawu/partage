@@ -439,6 +439,9 @@ run cmd =
 
         -- Show the derivations
         let derivs = D.derivTreesW finalHype startSym (length input)
+        when (null derivs) $ do
+          putStr "# NO PARSE FOR: "
+          TIO.putStrLn . T.unwords $ map snd input
         forM_ (maybeToList derivs) $ \(deriv, w) -> do
           renderDeriv deriv
           when verbose $ do
