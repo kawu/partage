@@ -137,7 +137,7 @@ treeP = nodeP <|> leafP
 
 
 forestP :: Atto.Parser [Tree]
-forestP = treeP `Atto.sepBy` Atto.skipMany1 Atto.space
+forestP = treeP `Atto.sepBy` Atto.skipMany Atto.space
 
 
 -- | Non-leaf tree.
