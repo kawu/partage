@@ -72,8 +72,8 @@ data Command
       , startSym :: T.Text
       , fullHype :: Bool
       , maxLen :: Maybe Int
-      -- , showBestParse :: Bool
-      , brackets :: Bool
+      , fullParse :: Bool
+      -- , brackets :: Bool
       , useSoftMax :: Bool
 --       , checkRepetitions :: Bool
       }
@@ -198,16 +198,16 @@ astarOptions = AStar
   ( long "max-len"
     <> help "Limit on sentence length"
   )
---   <*> switch
---   ( long "print-parse"
---     <> short 'p'
---     <> help "Show the best parse"
---   )
   <*> switch
-  ( long "brackets"
-    <> short 'b'
-    <> help "Render trees in the bracketed format"
+  ( long "full-parse"
+    <> short 'p'
+    <> help "Show the full output parse tree"
   )
+--   <*> switch
+--   ( long "brackets"
+--     <> short 'b'
+--     <> help "Render trees in the bracketed format"
+--   )
   <*> switch
   ( long "softmax"
     <> help "Apply softmax to dependency weights"
@@ -462,11 +462,15 @@ run cmd =
           putStr "# NO PARSE FOR: "
           TIO.putStrLn . T.unwords $ map snd input
         forM_ (maybeToList derivs) $ \(deriv, w) -> do
-          renderDeriv deriv
+          if fullParse
+             then do
+               -- renderParse' deriv
+               renderParse deriv
+             else renderDeriv deriv
           when verbose $ do
             putStrLn ""
             putStrLn $ "# weight: " ++ show w
-            putStrLn 
+            putStrLn
               . R.drawTree . fmap show
               . D.deriv4show . D.normalize
               $ deriv
@@ -693,6 +697,34 @@ renderDeriv deriv0 = do
           M.lookup tok depMap
     LIO.putStr "\t"
     LIO.putStrLn . Br.showTree $ fmap rmTokID et
+
+
+-- | Render the given derivation.
+renderParse 
+  :: D.Deriv T.Text (A.Tok (Int, T.Text))
+  -> IO ()
+renderParse deriv
+  = printIt
+  . check
+  $ parse
+  where
+    -- printIt = putStrLn  . R.drawTree . fmap show
+    printIt = LIO.putStr . Br.showTree . fmap rmTokID'
+    parse = D.toParse A.position $ D.normalize deriv
+    check t =
+      let posList = map A.position (O.project t) in
+      if posList == List.sort posList
+         then t
+         else error "partage.renderParse: words not in order!"
+
+
+-- renderParse' 
+--   :: D.Deriv T.Text (A.Tok (Int, T.Text))
+--   -> IO ()
+-- renderParse' =
+--   putStrLn
+--     . R.drawTree . fmap show
+--     . D.deriv4show . D.normalize
 
 
 --------------------------------------------------

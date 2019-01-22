@@ -12,6 +12,7 @@ module NLP.Partage.AStar.Deriv
 , derivTreesW
 , fromPassive
 , normalize
+, toParse
 , deriv4show
 , encodes
 
@@ -35,6 +36,7 @@ import           Control.Monad.Trans.Class (lift)
 import           Control.Monad.Trans.Maybe (MaybeT (..))
 import qualified Control.Monad.Morph       as Morph
 
+import qualified Data.Foldable as F
 import           Data.Lens.Light
 import qualified Data.Map.Strict           as M
 import           Data.Maybe                (maybeToList, isJust)
@@ -51,6 +53,7 @@ import           Pipes                     ((>->))
 -- import qualified Pipes.Prelude              as P
 
 import           NLP.Partage.SOrd          (SOrd)
+import qualified NLP.Partage.Tree          as T
 import qualified NLP.Partage.DAG as DAG
 import           NLP.Partage.AStar         (Tok)
 import qualified NLP.Partage.AStar         as A
@@ -153,6 +156,116 @@ deriv4show =
     addDep isMod t
       | isMod == True = R.Node Dependent [t]
       | otherwise = t
+
+
+---------------------------
+-- Parsed Trees
+---------------------------
+
+
+-- | Convert the given derivation tree to a parsed tree.
+--
+-- WARNING: the input tree should be normalized!
+--
+toParse
+  :: (Show n, Show t, Ord pos, Num pos)
+  => (t -> pos)
+  -> Deriv n t
+  -> O.Tree n t
+toParse pos deriv =
+  applyAll
+    (map (applyDeriv pos . toParse pos) modif)
+    tree'
+  where
+    tree' = R.Node
+      { R.rootLabel = node
+      , R.subForest = map (toParse pos) (R.subForest deriv)
+      }
+    DerivNode{..} = R.rootLabel deriv
+
+
+-- -- | Get the "main" position of the derivation tree.  If several, arbitrarily
+-- -- pick one of them.
+-- derivPos :: (Ord pos) => (t -> pos) -> Deriv n t -> pos
+-- derivPos pos deriv =
+--   case project deriv of
+--     x:_ -> pos x
+--     otherwise -> error
+--       "AStar.Deriv.applySister: no terminal in an elementary tree"
+--   where
+--     project = O.project . fmap node
+
+
+-- | Apply a given modifier tree to a given head tree.
+applyDeriv
+  :: (Show n, Show t, Ord pos)
+  => (t -> pos) -> O.Tree n t -> O.Tree n t -> O.Tree n t
+applyDeriv pos mod hed
+  | isLeaf hed = applySubst mod hed
+  | isSister mod = applySister pos mod hed
+  | otherwise = applyAdj pos mod hed
+  where
+    isLeaf = null . R.subForest
+    isSister t =
+      case R.rootLabel t of
+        O.Sister _ -> True
+        _ -> False
+
+
+-- | Apply substitution
+applySubst :: O.Tree n t -> O.Tree n t -> O.Tree n t
+applySubst mod _hed = mod
+
+
+-- | Apply sister adjunction
+applySister
+  :: (Show n, Show t, Ord pos)
+  => (t -> pos)
+  -> O.Tree n t
+  -> O.Tree n t
+  -> O.Tree n t
+applySister pos mod hed =
+  root (left ++ R.subForest mod ++ right)
+  where
+    (left, right) =
+      splitForest pos
+        (treePos pos mod)
+        (R.subForest hed)
+    root subf = R.Node
+      { R.rootLabel = R.rootLabel hed
+      , R.subForest = subf }
+
+
+-- | Apply adjunction
+applyAdj
+  :: (Show n, Show t, Ord pos)
+  => (t -> pos) -> O.Tree n t -> O.Tree n t -> O.Tree n t
+applyAdj pos mod hed =
+--   trace ("mod: " ++ (R.drawTree . fmap show $ mod)) $ 
+--   trace ("hed: " ++ (R.drawTree . fmap show $ hed)) $
+    error "AStar.Deriv.applyAdj: not implemented yet!"
+
+
+-- | Split the forest into two separate parts, on two sides of the given
+-- position.
+splitForest
+  :: (Ord pos)
+  => (t -> pos) 
+  -> pos
+  -> [O.Tree n t]
+  -> ([O.Tree n t], [O.Tree n t])
+splitForest pos k =
+  L.partition (\t -> treePos pos t < k)
+
+
+-- | Get the "main" position of the tree.  If several, arbitrarily
+-- pick one of them.
+treePos :: (t -> pos) -> O.Tree n t -> pos
+treePos pos t =
+  case O.project t of
+    x:_ -> pos x
+    otherwise -> error
+      "AStar.Deriv.treePos: no terminal in the given elementary tree"
 
 
 -- --------------------------------------------------
