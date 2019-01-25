@@ -286,7 +286,8 @@ finalFrom start n Chart{..} =
     Just m ->
       [ p
       | p <- M.keys m
-      , p ^. dagID == Left root ]
+      , p ^. dagID == Left root 
+      , regular (p ^. spanP) ]
   where
     root = NotFoot {notFootLabel = start, isSister = False}
 

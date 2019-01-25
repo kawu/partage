@@ -105,6 +105,9 @@ library
     -- WARNING: doesn't work with A* (and makes soma A* tests fail)
     -- cpp-options: -DExtraCompression
 
+    -- Allow only one (regular) adjunction at a given node
+    -- cpp-options: -DNoAdjunctionRestriction
+
 
 source-repository head
     type: git

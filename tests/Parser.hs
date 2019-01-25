@@ -51,55 +51,55 @@ testEarley =
     termToSet = fmap (O.mapTerm S.singleton)
 
 
--- | All the tests of the parsing algorithm.
-testAStar :: TestTree
-testAStar =
-  T.testTree "A*" parser
-  where
-    parser = T.dummyParser
-      { T.recognize = Just recFrom
-      , T.parsedTrees = Just parseFrom
-      , T.derivTrees = Just derivFrom
-      , T.encodes = Just encodesFrom
-      , T.derivPipe  = Just derivPipe
-      , T.dependencySupport = True }
-    recFrom gram start input headMap
-      = A.recognizeFrom memoTerm gram start (posMap input) headMap
-      . A.fromList
-      $ input
-    parseFrom gram start sent headMap = do
-      let dag = DAG.mkGram gram
-          input = A.fromList sent
-          auto = A.mkAuto memoTerm dag input (posMap sent) headMap
-      hype <- A.earleyAuto auto input
-      return
-        . S.fromList
-        -- below we just map (Tok t -> t) but we have to also
-        -- do the corresponding encoding/decoding
-        . map (O.mkTree . fmap (O.mapTerm A.terminal) . O.unTree)
-        $ A.parsedTrees hype start (length sent)
-    derivFrom gram start sent headMap = do
-      let dag = DAG.mkGram gram
-          input = A.fromList sent
-          auto = A.mkAuto memoTerm dag input (posMap sent) headMap
-      hype <- A.earleyAuto auto input
-      return $ D.derivTrees hype start (length sent)
-    encodesFrom hype start input = D.encodes hype start (length input)
-    derivPipe gram start sent headMap =
-      let dag = DAG.mkGram gram
-          input = A.fromList sent
-          auto = A.mkAuto memoTerm dag input (posMap sent) headMap
-      in  D.consumeDerivs auto input start
---           conf = D.DerivR
---             { D.startSym = start
---             , D.sentLen = length sent }
---       in  A.earleyAutoP auto input P.>-> D.derivsPipe conf
-    memoTerm = Memo.wrap
-      (uncurry T.Term)
-      ((,) <$> T.orth <*> T.pos)
-      (Memo.pair memoString (Memo.maybe Memo.integral))
-    memoString = Memo.list Memo.char
-    posMap input = M.fromList $ do
-      tok <- input
-      pos <- maybeToList (T.pos tok)
-      return (tok, pos)
+-- -- | All the tests of the parsing algorithm.
+-- testAStar :: TestTree
+-- testAStar =
+--   T.testTree "A*" parser
+--   where
+--     parser = T.dummyParser
+--       { T.recognize = Just recFrom
+--       , T.parsedTrees = Just parseFrom
+--       , T.derivTrees = Just derivFrom
+--       , T.encodes = Just encodesFrom
+--       , T.derivPipe  = Just derivPipe
+--       , T.dependencySupport = True }
+--     recFrom gram start input headMap
+--       = A.recognizeFrom memoTerm gram start (posMap input) headMap
+--       . A.fromList
+--       $ input
+--     parseFrom gram start sent headMap = do
+--       let dag = DAG.mkGram gram
+--           input = A.fromList sent
+--           auto = A.mkAuto memoTerm dag input (posMap sent) headMap
+--       hype <- A.earleyAuto auto input
+--       return
+--         . S.fromList
+--         -- below we just map (Tok t -> t) but we have to also
+--         -- do the corresponding encoding/decoding
+--         . map (O.mkTree . fmap (O.mapTerm A.terminal) . O.unTree)
+--         $ A.parsedTrees hype start (length sent)
+--     derivFrom gram start sent headMap = do
+--       let dag = DAG.mkGram gram
+--           input = A.fromList sent
+--           auto = A.mkAuto memoTerm dag input (posMap sent) headMap
+--       hype <- A.earleyAuto auto input
+--       return $ D.derivTrees hype start (length sent)
+--     encodesFrom hype start input = D.encodes hype start (length input)
+--     derivPipe gram start sent headMap =
+--       let dag = DAG.mkGram gram
+--           input = A.fromList sent
+--           auto = A.mkAuto memoTerm dag input (posMap sent) headMap
+--       in  D.consumeDerivs auto input start
+-- --           conf = D.DerivR
+-- --             { D.startSym = start
+-- --             , D.sentLen = length sent }
+-- --       in  A.earleyAutoP auto input P.>-> D.derivsPipe conf
+--     memoTerm = Memo.wrap
+--       (uncurry T.Term)
+--       ((,) <$> T.orth <*> T.pos)
+--       (Memo.pair memoString (Memo.maybe Memo.integral))
+--     memoString = Memo.list Memo.char
+--     posMap input = M.fromList $ do
+--       tok <- input
+--       pos <- maybeToList (T.pos tok)
+--       return (tok, pos)

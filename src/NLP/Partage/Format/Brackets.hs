@@ -59,7 +59,8 @@ type NonTerm = T.Text
 
 -- | Terminal or anchor
 data Term
-  = Term T.Text
+  = Term (Maybe T.Text)
+      -- ^ `Nothing` represent an empty terminal
   | Anchor
   deriving (Show, Eq, Ord)
 
@@ -69,7 +70,7 @@ type Tree = O.Tree NonTerm Term
 
 
 -- | Lexicalized tree (with the anchor lexicalized)
-type LexTree = O.Tree NonTerm T.Text
+type LexTree = O.Tree NonTerm (Maybe T.Text)
 
 
 -- | Supertagging token is a pair (word, tags), where:
@@ -104,7 +105,7 @@ anchor :: T.Text -> Tree -> LexTree
 anchor lx =
   fmap onNode
   where
-    onNode (O.Term Anchor) = O.Term lx
+    onNode (O.Term Anchor) = O.Term (Just lx)
     onNode (O.Term (Term x)) = O.Term x
     onNode (O.NonTerm x) = O.NonTerm x
     onNode (O.Sister x) = O.Sister x
@@ -133,7 +134,7 @@ parseTree' txt =
 
 -- | Parse a tree in bracketed format. Only anchors are allowed as terminals.
 treeP :: Atto.Parser Tree
-treeP = nodeP <|> leafP
+treeP = emptyP <|> nodeP <|> leafP
 
 
 forestP :: Atto.Parser [Tree]
@@ -164,9 +165,16 @@ leafP =
 
 terminalP :: Atto.Parser Term
 terminalP =
-  Term <$> Atto.takeWhile1 pr
+  Term . Just <$> Atto.takeWhile1 pr
   where
     pr c = not $ C.isSpace c || elem c [')', '(']
+
+
+emptyP :: Atto.Parser Tree
+emptyP = between '(' ')' $ do
+  _ <- Atto.string "-NONE-"
+  Atto.skipWhile C.isSpace
+  return $ R.Node (O.Term $ Term Nothing) []
 
 
 anchorP :: Atto.Parser Term
@@ -305,15 +313,16 @@ buildForest =
   -- mconcat . intersperse " " . map buildTree
 
 
-buildLabel :: O.Node NonTerm T.Text -> B.Builder
+buildLabel :: O.Node NonTerm (Maybe T.Text) -> B.Builder
 buildLabel = \case
   O.NonTerm x -> B.fromText x
-  O.Term x -> B.fromText x
+  O.Term (Just x) -> B.fromText x
+  O.Term Nothing -> "-NONE-" -- B.fromText 
   O.Sister x -> B.fromText x `mappend` "*"
   O.Foot x -> B.fromText x `mappend` "*"
 
 
-isTerm :: O.Node NonTerm T.Text -> Bool
+isTerm :: O.Node NonTerm (Maybe T.Text) -> Bool
 isTerm = \case
   O.Term _ -> True
   _ -> False

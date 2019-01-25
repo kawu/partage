@@ -360,6 +360,9 @@ run cmd =
                 Just k  -> take k
                 Nothing -> id
         parses <- E.parse gram startSym (E.fromList input)
+        when (null parses) $ do
+          putStr "# NO PARSE FOR: "
+          TIO.putStrLn . T.unwords $ map snd input
         forM_ (shorten parses) $ \tree -> do
           when verbose $ do
             putStrLn ""
@@ -368,114 +371,114 @@ run cmd =
         putStrLn ""
 
 
-    AStar{..} -> do
-
-      -- Read input supertagging file
-      let parseSuper = Br.parseSuperProb
-          filterLen =
-            case maxLen of
-              Nothing -> id
-              Just ml -> filter ((<=ml) . length)
-      super <-
-          filterLen
-        . limitTagsProb minProb
-        . limitTagsBeta betaParam
-        . limitTagsNum maxTags
-        . parseSuper
-        <$> LIO.readFile inputPath
-
-      forM_ super $ \sent -> do
-
-        let
-          -- Add token IDs in order to distinguish tokens with identical word
-          -- forms (which may have different supertags)
-          input = zip [0 :: Int ..] (map Br.tokWord sent)
-          inputVect = V.fromList (map Br.tokWord sent)
-
-          -- Calculate the position map (mapping from tokens to their
-          -- positions)
-          posMap = M.fromList [(x, fst x) | x <- input]
-
-          -- Create the corresponding dependency map
-          depMap = mkDepMap' useSoftMax $ zip [0 :: Int ..] sent
-
-          -- Create the compressed grammar representation
-          gram
-            = DAG.mkGram
-            . anchorTags
-            . zip [0 :: Int ..]
-            $ sent
-          automat = A.mkAuto memoTerm gram (A.fromList input) posMap depMap
-          memoTerm = Memo.wrap
-            (\i -> (i, inputVect V.! i))
-            (\(i, _w) -> i)
-            Memo.integral
-
-        -- Check against the gold file or perform simple recognition
-        when verbose $ do
-          putStr "# "
-          TIO.putStr . T.unwords $ map snd input
-          LIO.putStr " => "
-
-        begTime <- Time.getCurrentTime
-        hypeRef <- IORef.newIORef Nothing
-        let n = length input
-            consume = do
-              A.HypeModif{..} <- P.await
-              -- modifHype <- RWS.get
-              case (modifType, modifItem) of
-                (A.NewNode, A.ItemP p) ->
-                  if (D.isFinal_ modifHype startSym n p) then do
-                    semiTime <- P.liftIO Time.getCurrentTime
-                    P.liftIO . IORef.writeIORef hypeRef $ Just (modifHype, semiTime)
-                    if fullHype
-                      then consume
-                      else return modifHype
-                  else consume
-                _ -> consume
---         finalHype <- P.runEffect $
---           A.earleyAutoP automat (A.fromList input)
---           P.>-> consume
-        finalHype <- A.earleyAutoP automat (A.fromList input) consume
-        endTime <- Time.getCurrentTime
-        (semiHype, semiTime) <- maybe (finalHype, endTime) id
-          <$> IORef.readIORef hypeRef
-        when verbose $ do
-          let reco = (not.null) (A.finalFrom startSym n semiHype)
-          print reco
-          putStr (show n)
-          putStr "\t"
-          putStr (show $ A.hyperEdgesNum semiHype)
-          putStr "\t"
-          putStr $ show (semiTime `Time.diffUTCTime` begTime)
-          if fullHype then do
-            putStr "\t"
-            putStr (show $ A.hyperEdgesNum finalHype)
-            putStr "\t"
-            print (endTime `Time.diffUTCTime` begTime)
-          else do
-            putStrLn ""
-
-        -- Show the derivations
-        let derivs = D.derivTreesW finalHype startSym (length input)
-        when (null derivs) $ do
-          putStr "# NO PARSE FOR: "
-          TIO.putStrLn . T.unwords $ map snd input
-        forM_ (maybeToList derivs) $ \(deriv, w) -> do
-          if fullParse
-             then do
-               -- renderParse' deriv
-               renderParse deriv
-             else renderDeriv deriv
-          when verbose $ do
-            putStrLn ""
-            putStrLn $ "# weight: " ++ show w
-            putStrLn
-              . R.drawTree . fmap show
-              . D.deriv4show . D.normalize
-              $ deriv
-            putStrLn ""
-        putStrLn ""
+--     AStar{..} -> do
+-- 
+--       -- Read input supertagging file
+--       let parseSuper = Br.parseSuperProb
+--           filterLen =
+--             case maxLen of
+--               Nothing -> id
+--               Just ml -> filter ((<=ml) . length)
+--       super <-
+--           filterLen
+--         . limitTagsProb minProb
+--         . limitTagsBeta betaParam
+--         . limitTagsNum maxTags
+--         . parseSuper
+--         <$> LIO.readFile inputPath
+-- 
+--       forM_ super $ \sent -> do
+-- 
+--         let
+--           -- Add token IDs in order to distinguish tokens with identical word
+--           -- forms (which may have different supertags)
+--           input = zip [0 :: Int ..] (map Br.tokWord sent)
+--           inputVect = V.fromList (map Br.tokWord sent)
+-- 
+--           -- Calculate the position map (mapping from tokens to their
+--           -- positions)
+--           posMap = M.fromList [(x, fst x) | x <- input]
+-- 
+--           -- Create the corresponding dependency map
+--           depMap = mkDepMap' useSoftMax $ zip [0 :: Int ..] sent
+-- 
+--           -- Create the compressed grammar representation
+--           gram
+--             = DAG.mkGram
+--             . anchorTags
+--             . zip [0 :: Int ..]
+--             $ sent
+--           automat = A.mkAuto memoTerm gram (A.fromList input) posMap depMap
+--           memoTerm = Memo.wrap
+--             (\i -> (i, inputVect V.! i))
+--             (\(i, _w) -> i)
+--             Memo.integral
+-- 
+--         -- Check against the gold file or perform simple recognition
+--         when verbose $ do
+--           putStr "# "
+--           TIO.putStr . T.unwords $ map snd input
+--           LIO.putStr " => "
+-- 
+--         begTime <- Time.getCurrentTime
+--         hypeRef <- IORef.newIORef Nothing
+--         let n = length input
+--             consume = do
+--               A.HypeModif{..} <- P.await
+--               -- modifHype <- RWS.get
+--               case (modifType, modifItem) of
+--                 (A.NewNode, A.ItemP p) ->
+--                   if (D.isFinal_ modifHype startSym n p) then do
+--                     semiTime <- P.liftIO Time.getCurrentTime
+--                     P.liftIO . IORef.writeIORef hypeRef $ Just (modifHype, semiTime)
+--                     if fullHype
+--                       then consume
+--                       else return modifHype
+--                   else consume
+--                 _ -> consume
+-- --         finalHype <- P.runEffect $
+-- --           A.earleyAutoP automat (A.fromList input)
+-- --           P.>-> consume
+--         finalHype <- A.earleyAutoP automat (A.fromList input) consume
+--         endTime <- Time.getCurrentTime
+--         (semiHype, semiTime) <- maybe (finalHype, endTime) id
+--           <$> IORef.readIORef hypeRef
+--         when verbose $ do
+--           let reco = (not.null) (A.finalFrom startSym n semiHype)
+--           print reco
+--           putStr (show n)
+--           putStr "\t"
+--           putStr (show $ A.hyperEdgesNum semiHype)
+--           putStr "\t"
+--           putStr $ show (semiTime `Time.diffUTCTime` begTime)
+--           if fullHype then do
+--             putStr "\t"
+--             putStr (show $ A.hyperEdgesNum finalHype)
+--             putStr "\t"
+--             print (endTime `Time.diffUTCTime` begTime)
+--           else do
+--             putStrLn ""
+-- 
+--         -- Show the derivations
+--         let derivs = D.derivTreesW finalHype startSym (length input)
+--         when (null derivs) $ do
+--           putStr "# NO PARSE FOR: "
+--           TIO.putStrLn . T.unwords $ map snd input
+--         forM_ (maybeToList derivs) $ \(deriv, w) -> do
+--           if fullParse
+--              then do
+--                -- renderParse' deriv
+--                renderParse deriv
+--              else renderDeriv deriv
+--           when verbose $ do
+--             putStrLn ""
+--             putStrLn $ "# weight: " ++ show w
+--             putStrLn
+--               . R.drawTree . fmap show
+--               . D.deriv4show . D.normalize
+--               $ deriv
+--             putStrLn ""
+--         putStrLn ""
 
 
     Dummy{..} -> do
@@ -531,6 +534,13 @@ main =
 --------------------------------------------------
 
 
+-- | Local tree type
+type Tree =
+  O.Tree  
+    T.Text
+    (S.Set (Maybe (Int, T.Text)))
+
+
 -- | Tag anchoring function which:
 --
 --   (a) Joins identical trees with different terminals
@@ -538,52 +548,61 @@ main =
 --
 anchorTagsIgnoreProbs
   :: [(Int, Br.SuperTok)]
-  -> [(O.Tree T.Text (S.Set (Int, T.Text)), DAG.Weight)]
+  -> [(Tree, DAG.Weight)]
 anchorTagsIgnoreProbs xs = do
   (tag, termSet) <- M.toList tagMap
-  return (anchorTag termSet tag, 0)
+  return (anchorTag termSet onTerm tag, 0)
   where
     tagMap = M.fromListWith S.union $ do
       (tokID, Br.SuperTok{..}) <- xs
       (tag, _weight) <- tokTags
-      return (tag, S.singleton (tokID, tokWord))
+      return (tag, S.singleton (Just (tokID, tokWord)))
+    onTerm = \case
+      Nothing -> S.singleton Nothing
+      Just _ -> error "Cannot process a co-anchor terminal node"
 
 
--- | A version of `anchorTagsIgnoreProbs` which preserves probabilities, but
--- does not join identical supertags.  Besides, it replaces each probability
--- `p` by `-log(p)`.
-anchorTags
-  :: [(Int, Br.SuperTok)]
-  -> [(O.Tree T.Text (Int, T.Text), DAG.Weight)]
-anchorTags =
-  concatMap (uncurry anchor)
-  where
-    anchor tokID Br.SuperTok{..} = map
-      ( Arr.first (anchorTag (tokID, tokWord))
-      . Arr.second (\p -> -log(p))
-      )
-      tokTags
+-- -- | A version of `anchorTagsIgnoreProbs` which preserves probabilities, but
+-- -- does not join identical supertags.  Besides, it replaces each probability
+-- -- `p` by `-log(p)`.
+-- anchorTags
+--   :: [(Int, Br.SuperTok)]
+--   -> [(Tree, DAG.Weight)]
+-- anchorTags =
+--   concatMap (uncurry anchor)
+--   where
+--     anchor tokID Br.SuperTok{..} = map
+--       ( Arr.first (anchorTag (tokID, tokWord))
+--       . Arr.second (\p -> -log(p))
+--       )
+--       tokTags
+-- 
+-- 
+-- -- -- | A version of `anchorTags` (really works the same, just different output
+-- -- -- type; hence can be used with the Earley-style parser).
+-- -- anchorTags'
+-- --   :: [(Int, Br.SuperTok)]
+-- --   -> [(Tree, DAG.Weight)]
+-- -- anchorTags' =
+-- --   concatMap (uncurry anchor)
+-- --   where
+-- --     anchor tokID Br.SuperTok{..} = map
+-- --       ( Arr.first (anchorTag $ S.singleton (tokID, tokWord))
+-- --       . Arr.second (\p -> -log(p))
+-- --       )
+-- --       tokTags
 
 
--- | A version of `anchorTags` (really works the same, just different output
--- type; hence can be used with the Earley-style parser).
-anchorTags'
-  :: [(Int, Br.SuperTok)]
-  -> [(O.Tree T.Text (S.Set (Int, T.Text)), DAG.Weight)]
-anchorTags' =
-  concatMap (uncurry anchor)
-  where
-    anchor tokID Br.SuperTok{..} = map
-      ( Arr.first (anchorTag $ S.singleton (tokID, tokWord))
-      . Arr.second (\p -> -log(p))
-      )
-      tokTags
-
-
-anchorTag :: t -> Br.Tree -> O.Tree T.Text t
-anchorTag x = fmap . O.mapTerm $ \case
+anchorTag
+  :: t
+    -- ^ To substitute the anchor
+  -> (Maybe T.Text -> t)
+    -- ^ To map over standard terminals
+  -> Br.Tree
+  -> O.Tree T.Text t
+anchorTag x f = fmap . O.mapTerm $ \case
   Br.Anchor -> x
-  Br.Term _ -> error "Cannot process a co-anchor terminal node"
+  Br.Term t -> f t
 
 
 --------------------------------------------------
@@ -675,56 +694,56 @@ renderInput inp = do
 --------------------------------------------------
 
 
--- | Render the given derivation.
-renderDeriv 
-  :: D.Deriv T.Text (A.Tok (Int, T.Text))
-  -> IO ()
-renderDeriv deriv0 = do
-  let deriv = DG.fromDeriv deriv0
-      tagMap = tagsFromDeriv deriv
-      depMap = depsFromDeriv deriv
-      getPos = L.pack . show . (+1) . A.position
-      getTerm = L.fromStrict . snd . A.terminal
-  forM_ (M.toList tagMap) $ \(tok, et) -> do
-    LIO.putStr . L.intercalate "," $
-      map getPos (S.toList tok)
-    LIO.putStr "\t"
-    LIO.putStr . L.intercalate "," $
-      map getTerm (S.toList tok)
-    LIO.putStr "\t"
-    LIO.putStr . L.intercalate "," $
-        maybe ["0"] (map getPos . S.toList) $
-          M.lookup tok depMap
-    LIO.putStr "\t"
-    LIO.putStrLn . Br.showTree $ fmap rmTokID et
-
-
--- | Render the given derivation.
-renderParse 
-  :: D.Deriv T.Text (A.Tok (Int, T.Text))
-  -> IO ()
-renderParse deriv
-  = printIt
-  . check
-  $ parse
-  where
-    -- printIt = putStrLn  . R.drawTree . fmap show
-    printIt = LIO.putStr . Br.showTree . fmap rmTokID'
-    parse = D.toParse A.position $ D.normalize deriv
-    check t =
-      let posList = map A.position (O.project t) in
-      if posList == List.sort posList
-         then t
-         else error "partage.renderParse: words not in order!"
-
-
--- renderParse' 
+-- -- | Render the given derivation.
+-- renderDeriv 
 --   :: D.Deriv T.Text (A.Tok (Int, T.Text))
 --   -> IO ()
--- renderParse' =
---   putStrLn
---     . R.drawTree . fmap show
---     . D.deriv4show . D.normalize
+-- renderDeriv deriv0 = do
+--   let deriv = DG.fromDeriv deriv0
+--       tagMap = tagsFromDeriv deriv
+--       depMap = depsFromDeriv deriv
+--       getPos = L.pack . show . (+1) . A.position
+--       getTerm = L.fromStrict . snd . A.terminal
+--   forM_ (M.toList tagMap) $ \(tok, et) -> do
+--     LIO.putStr . L.intercalate "," $
+--       map getPos (S.toList tok)
+--     LIO.putStr "\t"
+--     LIO.putStr . L.intercalate "," $
+--       map getTerm (S.toList tok)
+--     LIO.putStr "\t"
+--     LIO.putStr . L.intercalate "," $
+--         maybe ["0"] (map getPos . S.toList) $
+--           M.lookup tok depMap
+--     LIO.putStr "\t"
+--     LIO.putStrLn . Br.showTree $ fmap rmTokID et
+
+
+-- -- | Render the given derivation.
+-- renderParse 
+--   :: D.Deriv T.Text (A.Tok (Int, T.Text))
+--   -> IO ()
+-- renderParse deriv
+--   = printIt
+--   . check
+--   $ parse
+--   where
+--     -- printIt = putStrLn  . R.drawTree . fmap show
+--     printIt = LIO.putStr . Br.showTree . fmap rmTokID'
+--     parse = D.toParse A.position $ D.normalize deriv
+--     check t =
+--       let posList = map A.position (O.project t) in
+--       if posList == List.sort posList
+--          then t
+--          else error "partage.renderParse: words not in order!"
+-- 
+-- 
+-- -- renderParse' 
+-- --   :: D.Deriv T.Text (A.Tok (Int, T.Text))
+-- --   -> IO ()
+-- -- renderParse' =
+-- --   putStrLn
+-- --     . R.drawTree . fmap show
+-- --     . D.deriv4show . D.normalize
 
 
 --------------------------------------------------
@@ -787,21 +806,22 @@ remove k xs = take k xs ++ drop (k+1) xs
 
 
 -- | Remove info about token IDs.
-rmTokID :: O.Node n (Int, t) -> O.Node n t
+rmTokID :: O.Node n (Maybe (Int, t)) -> O.Node n (Maybe t)
 rmTokID = \case
-  O.Term (_, x) -> O.Term x
+  O.Term (Just (_, x)) -> O.Term (Just x)
+  O.Term Nothing -> O.Term Nothing
   O.NonTerm x -> O.NonTerm x
   O.Sister x -> O.Sister x
   O.Foot x -> O.Foot x
 
 
--- | Remove info about token IDs.
-rmTokID' :: O.Node n (A.Tok (Int, t)) -> O.Node n t
-rmTokID' = \case
-  O.Term tok -> O.Term . snd $ A.terminal tok
-  O.NonTerm x -> O.NonTerm x
-  O.Sister x -> O.Sister x
-  O.Foot x -> O.Foot x
+-- -- | Remove info about token IDs.
+-- rmTokID' :: O.Node n (A.Tok (Int, t)) -> O.Node n t
+-- rmTokID' = \case
+--   O.Term tok -> O.Term . snd $ A.terminal tok
+--   O.NonTerm x -> O.NonTerm x
+--   O.Sister x -> O.Sister x
+--   O.Foot x -> O.Foot x
 
 
 -- | Remove the repeating elements from the input list.

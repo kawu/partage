@@ -43,6 +43,10 @@ data Trav n t
         , _scanTerm :: t
         -- ^ The scanned terminal
         }
+    | Empty
+        { _scanFrom :: Active
+        -- ^ The input active state
+        }
     | Subst
         { _passArg  :: Passive n t
         -- ^ The passive argument of the action

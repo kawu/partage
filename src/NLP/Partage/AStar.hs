@@ -1396,8 +1396,13 @@ tryAdjoinTerm q qw = void $ P.runListT $ do
     -- by `rootSpan`)
     qNonTerm <- some (nonTerm' qDID dag)
     (p, pw) <- rootSpan qNonTerm (gapBeg, gapEnd)
+#ifdef NoAdjunctionRestriction
+    let changeAdjState = id
+#else
     -- make sure that node represented by `p` was not yet adjoined to
     guard . not $ getL isAdjoinedTo p
+    let changeAdjState = setL isAdjoinedTo True
+#endif
     -- check w.r.t. the dependency structure
     let anchorMap = anchorPos auto
         headMap = headPos auto
@@ -1422,7 +1427,7 @@ tryAdjoinTerm q qw = void $ P.runListT $ do
     -- construct the resulting item
     let p' = setL (spanP >>> beg) (qSpan ^. beg)
            . setL (spanP >>> end) (qSpan ^. end)
-           . setL isAdjoinedTo True
+           . changeAdjState
            $ p
     -- lift $ pushPassive p' $ Adjoin q p
     -- compute the estimated distance for the resulting state
