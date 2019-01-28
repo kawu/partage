@@ -39,7 +39,7 @@ import qualified Control.Monad.Morph       as Morph
 import qualified Data.Foldable as F
 import           Data.Lens.Light
 import qualified Data.Map.Strict           as M
-import           Data.Maybe                (maybeToList, isJust)
+import           Data.Maybe                (maybeToList, isJust, catMaybes)
 import qualified Data.PSQueue              as Q
 import qualified Data.Set                  as S
 import qualified Data.Tree                 as R
@@ -84,7 +84,7 @@ type Deriv n t = R.Tree (DerivNode n t)
 
 -- | A node of a derivation tree.
 data DerivNode n t = DerivNode
-  { node  :: O.Node n t
+  { node  :: O.Node n (Maybe t)
   , modif :: [Deriv n t]
   } deriving (Eq, Ord, Show)
 
@@ -145,7 +145,7 @@ instance Show a => Show (PrintNode a) where
 
 -- | Transform the derivation tree into a tree which is easier
 -- to draw using the standard `R.draw` function.
-deriv4show :: Deriv n t -> R.Tree (PrintNode (O.Node n t))
+deriv4show :: Deriv n t -> R.Tree (PrintNode (O.Node n (Maybe t)))
 deriv4show =
   go False
   where
@@ -171,7 +171,7 @@ toParse
   :: (Show n, Show t, Ord pos, Num pos)
   => (t -> pos)
   -> Deriv n t
-  -> O.Tree n t
+  -> O.Tree n (Maybe t)
 toParse pos deriv =
   applyAll
     (map (applyDeriv pos . toParse pos) modif)
@@ -199,7 +199,10 @@ toParse pos deriv =
 -- | Apply a given modifier tree to a given head tree.
 applyDeriv
   :: (Show n, Show t, Ord pos)
-  => (t -> pos) -> O.Tree n t -> O.Tree n t -> O.Tree n t
+  => (t -> pos)
+  -> O.Tree n (Maybe t)
+  -> O.Tree n (Maybe t)
+  -> O.Tree n (Maybe t)
 applyDeriv pos mod hed
   | isLeaf hed = applySubst mod hed
   | isSister mod = applySister pos mod hed
@@ -213,7 +216,7 @@ applyDeriv pos mod hed
 
 
 -- | Apply substitution
-applySubst :: O.Tree n t -> O.Tree n t -> O.Tree n t
+applySubst :: O.Tree n (Maybe t) -> O.Tree n (Maybe t) -> O.Tree n (Maybe t)
 applySubst mod _hed = mod
 
 
@@ -221,9 +224,9 @@ applySubst mod _hed = mod
 applySister
   :: (Show n, Show t, Ord pos)
   => (t -> pos)
-  -> O.Tree n t
-  -> O.Tree n t
-  -> O.Tree n t
+  -> O.Tree n (Maybe t)
+  -> O.Tree n (Maybe t)
+  -> O.Tree n (Maybe t)
 applySister pos mod hed =
   root (left ++ R.subForest mod ++ right)
   where
@@ -239,11 +242,12 @@ applySister pos mod hed =
 -- | Apply adjunction
 applyAdj
   :: (Show n, Show t, Ord pos)
-  => (t -> pos) -> O.Tree n t -> O.Tree n t -> O.Tree n t
-applyAdj pos mod hed =
---   trace ("mod: " ++ (R.drawTree . fmap show $ mod)) $ 
---   trace ("hed: " ++ (R.drawTree . fmap show $ hed)) $
-    error "AStar.Deriv.applyAdj: not implemented yet!"
+  => (t -> pos)
+  -> O.Tree n (Maybe t)
+  -> O.Tree n (Maybe t)
+  -> O.Tree n (Maybe t)
+applyAdj _pos mod hed =
+  O.replaceFoot hed mod
 
 
 -- | Split the forest into two separate parts, on two sides of the given
@@ -252,17 +256,17 @@ splitForest
   :: (Ord pos)
   => (t -> pos) 
   -> pos
-  -> [O.Tree n t]
-  -> ([O.Tree n t], [O.Tree n t])
+  -> [O.Tree n (Maybe t)]
+  -> ([O.Tree n (Maybe t)], [O.Tree n (Maybe t)])
 splitForest pos k =
   L.partition (\t -> treePos pos t < k)
 
 
 -- | Get the "main" position of the tree.  If several, arbitrarily
 -- pick one of them.
-treePos :: (t -> pos) -> O.Tree n t -> pos
+treePos :: (t -> pos) -> O.Tree n (Maybe t) -> pos
 treePos pos t =
-  case O.project t of
+  case catMaybes (O.project t) of
     x:_ -> pos x
     otherwise -> error
       "AStar.Deriv.treePos: no terminal in the given elementary tree"
@@ -322,7 +326,7 @@ unTree hype p deriv = do
   return . reverse $ R.subForest deriv
 
 -- | Construct a derivation node with no modifier.
-only :: O.Node n t -> DerivNode n t
+only :: O.Node n (Maybe t) -> DerivNode n t
 only x = DerivNode {node = x, modif =  []}
 
 -- | Several constructors which allow to build non-modified nodes.
@@ -351,7 +355,7 @@ mkRoot hype p = only $
 mkFoot :: n -> DerivNode n t
 mkFoot x = only . O.Foot $ x
 
-mkTerm :: t -> DerivNode n t
+mkTerm :: Maybe t -> DerivNode n t
 mkTerm = only . O.Term
 
 -- | Build non-modified nodes of different types.
@@ -359,7 +363,10 @@ footNode :: n -> Deriv n t
 footNode x = R.Node (mkFoot x) []
 
 termNode :: t -> Deriv n t
-termNode x = R.Node (mkTerm x) []
+termNode x = R.Node (mkTerm $ Just x) []
+
+emptyNode :: Deriv n t
+emptyNode = R.Node (mkTerm Nothing) []
 
 -- | Retrieve root non-terminal of a derivation tree.
 derivRoot :: Deriv n t -> n
@@ -691,6 +698,9 @@ fromActiveTravW _p trav hype =
     A.Scan q t _ -> do
       (ts, w) <- activeDerivs q
       return (termNode t : ts, w)
+    A.Empty q _ -> do
+      (ts, w) <- activeDerivs q
+      return (emptyNode : ts, w)
     A.Foot q x _ -> do
       (ts, w) <- activeDerivs q
       return (footNode x : ts, w)
@@ -1336,6 +1346,7 @@ procModif A.HypeModif{..}
     -- leading to the corresponding target node.
     goArc node arc = addArc node arc << case arc of
       A.Scan{..} -> goNodeA scanFrom
+      A.Empty{..} -> error "procModif: Empty not yet implemented!"
       A.Subst{..} -> goNodeP passArg >> goNodeA actArg
       A.Foot{..} -> goNodeA actArg
       A.Adjoin{..} -> goNodeP passAdj >> goNodeP passMod
@@ -1430,6 +1441,8 @@ turnAround item trav = case trav of
     , (A.ItemA actArg, SisterAdjoinA passArg target) ]
   A.Deactivate{..} ->
     [ (A.ItemA actArg, DeactivateA (pass item)) ]
+  A.Empty{..} ->
+    error "turnAround: Empty not yet implemented!"
   where
     pass (A.ItemP p) = p
     pass _ = error "turnAround.pass: expected passive item, got active"

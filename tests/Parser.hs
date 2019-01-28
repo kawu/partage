@@ -48,7 +48,7 @@ testEarley =
             . E.fromList
             $ input
     mkGram = DAG.mkGram . map (Arr.first termToSet)
-    termToSet = fmap (O.mapTerm S.singleton)
+    termToSet = fmap (O.mapTerm $ fmap S.singleton)
 
 
 -- -- | All the tests of the parsing algorithm.

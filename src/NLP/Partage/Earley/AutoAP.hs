@@ -1157,7 +1157,7 @@ parsedTrees hype start n
 
 -- | We have some non-determinism at the level of terminals as well as possible
 -- empty terminals.
-type DAGram n t = DAG.Gram n (S.Set (Maybe t))
+type DAGram n t = DAG.Gram n (S.Set t)
 
 
 -- | Does the given grammar generate the given sentence?

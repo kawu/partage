@@ -57,7 +57,7 @@ data NotFoot n = NotFoot
 -- symbols.
 type DAG n t w =
   DAG.DAG
-    (O.Node n (S.Set (Maybe t)))
+    (O.Node n (Maybe (S.Set t)))
     w
 
 
@@ -130,8 +130,11 @@ mkTermDID
 mkTermDID dag = M.fromListWith S.union
     [ (t, S.singleton i)
     | i <- S.toList (DAG.nodeSet dag)
-    , O.Term ts <- maybeToList (DAG.label i dag)
-    , t <- S.toList ts
+    , O.Term mayTS <- maybeToList (DAG.label i dag)
+    -- , t <- S.toList ts
+    , t <- case mayTS of
+             Nothing -> [Nothing]
+             Just ts -> map Just (S.toList ts)
     ]
 
 

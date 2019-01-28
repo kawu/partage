@@ -327,7 +327,7 @@ readInput i = do
 
 -- | Follow the given terminal in the underlying automaton.
 followTerm :: (Ord n, Ord t)
-           => ID -> t -> P.ListT (EarleyPipe n t) (Weight, ID)
+           => ID -> Maybe t -> P.ListT (EarleyPipe n t) (Weight, ID)
 followTerm i c = do
     -- get the underlying automaton
     auto <- RWS.gets $ automat
@@ -840,7 +840,7 @@ tryScan p duo = void $ P.runListT $ do
   depCost <- lift . lift $ minDepCost tok
   -- follow appropriate terminal transition outgoing from the
   -- given automaton state
-  (termCost, j) <- followTerm (getL state p) (terminal tok)
+  (termCost, j) <- followTerm (getL state p) (Just $ terminal tok)
   -- construct the resultant active item
   let q = setL state j
         . modL' (spanA >>> end) (+1)
@@ -867,6 +867,51 @@ tryScan p duo = void $ P.runListT $ do
   liftIO $ do
       endTime <- Time.getCurrentTime
       putStr "[S]  " >> printActive p
+      putStr "  :  " >> printActive q
+      putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
+      putStr " #W  " >> print newBeta
+      -- putStr " #E  " >> print estDist
+#endif
+
+
+-- | Try to scan an empty terminal.
+tryEmpty :: (SOrd t, SOrd n) => Active -> DuoWeight -> EarleyPipe n t ()
+tryEmpty p duo = void $ P.runListT $ do
+#ifdef DebugOn
+  begTime <- liftIO $ Time.getCurrentTime
+#endif
+--   -- read the word immediately following the ending position of
+--   -- the state
+--   tok <- readInput $ getL (spanA >>> end) p
+--   -- determine the minimal cost of `tok` being a dependent
+--   depCost <- lift . lift $ minDepCost tok
+  -- follow appropriate terminal transition outgoing from the
+  -- given automaton state
+  (termCost, j) <- followTerm (getL state p) Nothing
+  -- construct the resultant active item
+  let q = setL state j $ p
+  -- compute the estimated distance for the resulting item
+  -- estDist <- lift . estimateDistA $ q
+  -- push the resulting state into the waiting queue
+  let newBeta = addWeight (duoBeta duo) termCost
+      newGap = duoGap duo
+      newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
+  lift $ pushInduced q newDuo
+           (Empty p termCost)
+       -- . extWeight (addWeight cost termCost) estDist
+#ifdef CheckMonotonic
+  totalP <- lift . lift $ est2total duo <$> estimateDistA p
+  totalQ <- lift . lift $ est2total newDuo <$> estimateDistA q
+  when (totalQ + epsilon < totalP) $ do
+    P.liftIO . putStrLn $
+      "[EMPTY: MONOTONICITY TEST FAILED] TAIL WEIGHT: " ++ show totalP ++
+      ", HEAD WEIGHT: " ++ show totalQ
+#endif
+#ifdef DebugOn
+  -- print logging information
+  liftIO $ do
+      endTime <- Time.getCurrentTime
+      putStr "[E]  " >> printActive p
       putStr "  :  " >> printActive q
       putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
       putStr " #W  " >> print newBeta
@@ -1849,7 +1894,7 @@ parsedTrees hype start n
 recognizeFrom
     :: (SOrd t, SOrd n)
     => Memo.Memo t             -- ^ Memoization strategy for terminals
-    -> [ ( O.Tree n t
+    -> [ ( O.Tree n (Maybe t)
          , Weight ) ]          -- ^ Weighted grammar
     -> n                    -- ^ The start symbol
     -> M.Map t Int          -- ^ Position map
@@ -2062,6 +2107,7 @@ step (ItemA p :-> e) = do
       , modifTrav = e }
     mapM_ (\f -> f p $ duoWeight e)
       [ tryScan
+      , tryEmpty
       , tryDeactivate
       , trySubst'
       , tryAdjoinInit'

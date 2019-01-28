@@ -35,7 +35,7 @@ import qualified NLP.Partage.Tree.Other  as O
 -- attaches. Note that the address determines the type of the operation:
 -- substitution or adjunction.
 data Deriv n t = Deriv
-  { rootET :: O.Tree n t
+  { rootET :: O.Tree n (Maybe t)
     -- ^ Root (elementary tree, ET) of the derivation tree
     -- (reminder: using the `rootET` name because it doesn't stem from
     --  the type the the root is an ET)
@@ -58,7 +58,7 @@ size Deriv{..} = 1 + sum
 
 -- | Transform the derivation tree into a tree which is easy
 -- to draw using the standard `R.draw` function.
-deriv4show :: Deriv n t -> R.Tree (Either Path (O.Node n t))
+deriv4show :: Deriv n t -> R.Tree (Either Path (O.Node n (Maybe t)))
 deriv4show =
   go
   where
@@ -93,7 +93,7 @@ fromDeriv =
 
 
 -- | Extract the root ET from the given derivation.
-getRootET :: D.Deriv n t -> O.Tree n t
+getRootET :: D.Deriv n t -> O.Tree n (Maybe t)
 getRootET = fmap D.node
 
 
