@@ -67,6 +67,7 @@ data Command
       { inputPath :: FilePath
       , verbose :: Bool
       , maxTags :: Maybe Int
+      , maxDeps :: Maybe Int
       , minProb :: Maybe Double
       , betaParam :: Maybe Double
       , startSym :: T.Text
@@ -112,8 +113,8 @@ earleyOptions = Earley
 --   )
   <*> (optional . option auto)
   ( long "max-tags"
-    <> short 'm'
-    <> help "Maximum number of the most probable supertags to take"
+    <> short 't'
+    <> help "Maximum number of supertags to take"
   )
   <*> (optional . option auto)
   ( long "min-prob"
@@ -174,8 +175,13 @@ astarOptions = AStar
   )
   <*> (optional . option auto)
   ( long "max-tags"
-    <> short 'm'
-    <> help "Maximum number of the most probable supertags to take"
+    <> short 't'
+    <> help "Maximum number of supertags to take"
+  )
+  <*> (optional . option auto)
+  ( long "max-deps"
+    <> short 'd'
+    <> help "Maximum number of head arcs to take"
   )
   <*> (optional . option auto)
   ( long "min-prob"
@@ -380,6 +386,7 @@ run cmd =
           filterLen
         . limitTagsProb minProb
         . limitTagsBeta betaParam
+        . limitDepsNum maxDeps
         . limitTagsNum maxTags
         . parseSuper
         <$> LIO.readFile inputPath
@@ -511,7 +518,17 @@ run cmd =
     limitTagsNum = \case
       Nothing -> id
       Just m -> map . map $ \superTok -> superTok
-        {Br.tokTags = take m (Br.tokTags superTok)}
+        {Br.tokTags = takeBest m (Br.tokTags superTok)}
+    limitDepsNum = \case
+      Nothing -> id
+      Just m -> map . map $ \superTok -> superTok
+        {Br.tokDeph =
+          (M.fromList . takeBest m . M.toList)
+          (Br.tokDeph superTok)
+        }
+    takeBest k xs
+      = take k . reverse
+      $ List.sortBy (comparing snd) xs
 
 
 main :: IO ()
