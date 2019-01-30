@@ -862,7 +862,38 @@ gram9Tests =
       test start sent res = Test start (map tok sent) M.empty res
       tok t = Term t Nothing
       -- mkLeaf = Leaf . Just . tok
+        
+        
+---------------------------------------------------------------------
+-- Test 10
+---------------------------------------------------------------------
 
+
+-- | A grammar sprinkled with empty terminals
+mkGram10 :: [(OTree, Weight)]
+mkGram10 = map (,0)
+  [seen, shaking]
+    where
+      term' t = term . Just $ Term t Nothing
+      empty = term Nothing
+      seen =
+        node "S"
+          [ node "V" [term' "seen"]
+          , node "S" []
+          ]
+      shaking =
+        node "S"
+          [ node "NP" [empty]
+          , term' "shaking"
+          ]
+
+
+gram10Tests :: [Test]
+gram10Tests =
+  [ test "S" (words "seen shaking") Yes
+  ] where
+      test start sent res = Test start (map tok sent) M.empty res
+      tok t = Term t Nothing
 
 
 ---------------------------------------------------------------------
@@ -882,6 +913,7 @@ data Res = Res
   , gram7 :: [(OTree, Weight)]
   , gram8 :: [(OTree, Weight)]
   , gram9 :: [(OTree, Weight)]
+  , gram10 :: [(OTree, Weight)]
   }
 
 
@@ -892,6 +924,7 @@ mkGrams :: Res
 mkGrams =
   Res mkGram1 mkGram1_1 mkGram2 mkGram3 mkGram4
       mkGram5 mkGram6 mkGram7 mkGram8 mkGram9
+      mkGram10
 
 
 ---------------------------------------------------------------------
@@ -999,7 +1032,8 @@ testTree modName TagParser{..} = do
         map (testIt resIO gram6) gram6Tests ++
         map (testIt resIO gram7) gram7Tests ++
         map (testIt resIO gram8) gram8Tests ++
-        map (testIt resIO gram9) gram9Tests
+        map (testIt resIO gram9) gram9Tests ++
+        map (testIt resIO gram10) gram10Tests
   where
     testIt resIO getGram test =
       -- make sure that headMap is empty if no dependency support

@@ -97,8 +97,9 @@ import qualified NLP.Partage.Earley.Chart as Chart
 
 -- For debugging purposes
 #ifdef DebugOn
+import           Control.Monad.IO.Class     (liftIO)
 import qualified NLP.Partage.Earley.Item as Item
-import qualified Data.Time              as Time
+import qualified Data.Time               as Time
 #endif
 
 
@@ -120,7 +121,7 @@ printPassive :: (Show n) => Passive n t -> Hype n t -> IO ()
 printPassive p hype = Item.printPassive p (automat hype)
 
 
--- | Print an active item.
+-- | Print an item.
 printItem :: (Show n, Show t) => Item n t -> Hype n t -> IO ()
 printItem (ItemP p) h = printPassive p h
 printItem (ItemA p) _ = printActive p
@@ -1132,6 +1133,10 @@ parsedTrees hype start n
         [ T.Leaf (Just t) : ts
         | ts <- fromActive q ]
 
+    fromActiveTrav _p (Empty q) =
+        [ T.Leaf Nothing : ts
+        | ts <- fromActive q ]
+
     fromActiveTrav _p (Foot q p) =
         [ T.Branch (nonTerm (p ^. dagID) hype) [] : ts
         | ts <- fromActive q ]
@@ -1291,7 +1296,14 @@ earleyAuto auto input = do
     -- is non-empty.
     loop = popItem >>= \mp -> case mp of
         Nothing -> return ()
-        Just p  -> step p >> loop
+        Just p  -> do
+#ifdef DebugOn
+          let item :-> e = p
+          hype <- RWS.get
+          liftIO $ do
+            putStr "POP: " >> printItem item hype
+#endif
+          step p >> loop
 
 
 --------------------------------------------------

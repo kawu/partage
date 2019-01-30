@@ -516,6 +516,9 @@ fromActiveTrav _p trav hype = case trav of
   A.Scan q t _ ->
     [ termNode t : ts
     | ts <- activeDerivs q ]
+  A.Empty q _ ->
+    [ emptyNode : ts
+    | ts <- activeDerivs q ]
   A.Foot q x _ ->
     [ footNode x : ts
     | ts <- activeDerivs q ]

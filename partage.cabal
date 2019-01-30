@@ -106,7 +106,7 @@ library
     -- cpp-options: -DExtraCompression
 
     -- Allow many (regular) adjunctions at a given node
-    cpp-options: -DNoAdjunctionRestriction
+    -- cpp-options: -DNoAdjunctionRestriction
 
 
 source-repository head
