@@ -1794,7 +1794,11 @@ trySisterAdjoin' q qw = void $ P.runListT $ do
 
 
 -- | Extract the set of the parsed trees w.r.t. to the given active item.
-fromActive :: (Ord n, Ord t) => Active -> Hype n t -> [[T.Tree n (Tok t)]]
+fromActive
+  :: (Ord n, Ord t)
+  => Active
+  -> Hype n t
+  -> [[T.Tree n (Maybe (Tok t))]]
 fromActive active hype =
   case activeTrav active hype of
     -- Nothing  -> error "fromActive: unknown active item"
@@ -1812,7 +1816,10 @@ fromActive active hype =
             (S.toList (prioTrav ext))
   where
     fromActiveTrav _p (Scan q t _) =
-        [ T.Leaf t : ts
+        [ T.Leaf (Just t) : ts
+        | ts <- fromActive q hype ]
+    fromActiveTrav _p (Empty q _) =
+        [ T.Leaf Nothing : ts
         | ts <- fromActive q hype ]
     fromActiveTrav _p (Foot q x _) =
         [ T.Branch x [] : ts
@@ -1830,7 +1837,11 @@ fromActive active hype =
 
 
 -- | Extract the set of the parsed trees w.r.t. to the given passive item.
-fromPassive :: (Ord n, Ord t) => Passive n t -> Hype n t -> [T.Tree n (Tok t)]
+fromPassive
+  :: (Ord n, Ord t)
+  => Passive n t
+  -> Hype n t
+  -> [T.Tree n (Maybe (Tok t))]
 fromPassive passive hype = concat
   [ fromPassiveTrav passive trav
   | ext <- maybeToList $ passiveTrav passive hype
@@ -1861,7 +1872,7 @@ parsedTrees
     => Hype n t     -- ^ Final state of the earley parser
     -> n            -- ^ The start symbol
     -> Int          -- ^ Length of the input sentence
-    -> [T.Tree n (Tok t)]
+    -> [T.Tree n (Maybe (Tok t))]
 parsedTrees hype start n
     = concatMap (`fromPassive` hype)
     $ finalFrom start n hype

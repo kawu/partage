@@ -863,6 +863,14 @@ activeTravEncodes _p trav hype root = case trav of
 
 --     [ termNode t : ts
 --     | ts <- activeDerivs q ]
+--
+  A.Empty q _ -> isJust $ do
+    deriv : ts <- return root
+    guard $ deriv == emptyNode
+    guard $ activeEncodes q hype ts
+
+--     [ emptyNode : ts
+--     | ts <- activeDerivs q ]
 
   A.Foot q x _ -> isJust $ do
     deriv : ts <- return root
@@ -930,6 +938,11 @@ data RevTrav n t
         -- ^ The scanned terminal
         }
     -- ^ Scan: scan the leaf terminal with a terminal from the input
+    | EmptyA
+        { outItemA :: A.Active
+        -- ^ The output active item
+        }
+    -- ^ Empty: scan the empty terminal
     | SubstP
         { outItemA :: A.Active
         -- ^ The output active or passive item
@@ -1349,7 +1362,7 @@ procModif A.HypeModif{..}
     -- leading to the corresponding target node.
     goArc node arc = addArc node arc << case arc of
       A.Scan{..} -> goNodeA scanFrom
-      A.Empty{..} -> error "procModif: Empty not yet implemented!"
+      A.Empty{..} -> goNodeA scanFrom
       A.Subst{..} -> goNodeP passArg >> goNodeA actArg
       A.Foot{..} -> goNodeA actArg
       A.Adjoin{..} -> goNodeP passAdj >> goNodeP passMod
@@ -1429,6 +1442,8 @@ turnAround
 turnAround item trav = case trav of
   A.Scan{..} ->
     [ (A.ItemA scanFrom, ScanA (act item) _scanTerm) ]
+  A.Empty{..} ->
+    [ (A.ItemA scanFrom, EmptyA (act item)) ]
   A.Subst{..} ->
     [ (A.ItemP passArg, SubstP (act item) actArg)
     , (A.ItemA actArg, SubstA passArg (act item)) ]
@@ -1444,8 +1459,6 @@ turnAround item trav = case trav of
     , (A.ItemA actArg, SisterAdjoinA passArg target) ]
   A.Deactivate{..} ->
     [ (A.ItemA actArg, DeactivateA (pass item)) ]
-  A.Empty{..} ->
-    error "turnAround: Empty not yet implemented!"
   where
     pass (A.ItemP p) = p
     pass _ = error "turnAround.pass: expected passive item, got active"
