@@ -6,9 +6,9 @@ adjoining grammars* (TAGs).  It supports both adjunction and sister-adjunction.
 
 It implements two kinds of parsers -- an Earley-style, bottom-up parser [1]
 with special focus on structure (and, hence, computation) sharing [2], and an
-A\* parser [3,4].
+A\* parser [3,4,5].
     
-[![Build Status](https://travis-ci.org/kawu/partage.svg)](https://travis-ci.org/kawu/partage)
+[![Build Status](https://travis-ci.org/kawu/partage.svg?branch=master)](https://travis-ci.org/kawu/partage)
 
 #### Earley-style parser
 
@@ -154,6 +154,10 @@ Linguistics (COLING 2016), Osaka, Japan, 2016,
 Expression-Aware A\* TAG Parsing Revisited*, 13th International Workshop on
 Tree Adjoining Grammars and Related Formalisms, Umeå, Sweden, 2017.
 ([PDF](http://www.aclweb.org/anthology/W17-6209)).
+
+[5] Jakub Waszczuk, *Leveraging MWEs in practical TAG parsing: towards the best
+of the two worlds*, PhD Thesis, Tours, 2017,
+([PDF](http://www.applis.univ-tours.fr/theses/2017/jakub.waszczuk_6706.pdf))
 
 
 [stack]: http://docs.haskellstack.org "Haskell Tool Stack"
