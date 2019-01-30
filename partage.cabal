@@ -80,7 +80,7 @@ library
       , NLP.Partage.AStar.Auto
       , NLP.Partage.AStar.Heuristic
       , NLP.Partage.AStar.HeuristicNew
-      , NLP.Partage.AStar.HeuristicOld
+      -- , NLP.Partage.AStar.HeuristicOld
       , NLP.Partage.AStar.Heuristic.Bag
 --       , NLP.Partage.AStar.Heuristic.Dummy
 --       , NLP.Partage.AStar.Heuristic.Base
@@ -104,6 +104,9 @@ library
 
     -- WARNING: doesn't work with A* (and makes soma A* tests fail)
     -- cpp-options: -DExtraCompression
+
+    -- Allow many (regular) adjunctions at a given node
+    -- cpp-options: -DNoAdjunctionRestriction
 
 
 source-repository head

@@ -63,7 +63,8 @@ import qualified NLP.Partage.Format.Brackets as Br
 
 
 -- | Local type aliases.
-type Tr    = Tree String Term
+type Tr    = Tree String (Maybe Term)
+type OTree = O.Tree String (Maybe Term)
 -- type AuxTr = AuxTree String String
 -- type Other = O.SomeTree String String
 type Hype  = AStar.Hype String Term
@@ -155,7 +156,9 @@ instance Show TestRes where
       where
         showOne = Br.showTree . fmap process . O.unTree
         lazyText = L.intercalate " " (map showOne $ S.toList ts)
-        process (O.Term t) = O.Term . T.pack $ show t
+        -- process (O.Term t) = O.Term . Just . T.pack $ show t
+        process (O.Term (Just t)) = O.Term . Just . T.pack $ show t
+        process (O.Term Nothing) = O.Term Nothing
         process (O.NonTerm x) = O.NonTerm $ T.pack x
         process (O.Sister x) = O.Sister $ T.pack x
         process (O.Foot x) = O.Foot $ T.pack x
@@ -174,13 +177,13 @@ instance Show TestRes where
 
 
 -- | Compile the first grammar.
-mkGram1 :: [(O.Tree String Term, Weight)]
+mkGram1 :: [(OTree, Weight)]
 mkGram1 = map (,1) $
   [tom, sleeps, caught, a, mouse] ++ --, prostuPL] ++
   [almost, quickly, quickly', with, dot, dots] --, poPL, poProstuPL ]
     where
       -- terminal with unspecified position
-      term' t = term $ Term t Nothing
+      term' t = term . Just $ Term t Nothing
       tom =
         node "NP"
         [ node "N"
@@ -313,7 +316,7 @@ gram1Tests =
       where
         test start sent res = Test start (map tok sent) M.empty res
         tok t = Term t Nothing
-        mkLeaf = Leaf . tok
+        mkLeaf = Leaf . Just . tok
 
 
 ---------------------------------------------------------------------
@@ -322,11 +325,11 @@ gram1Tests =
 
 
 -- | A variant of the first grammar.
-mkGram1_1 :: [(O.Tree String Term, Weight)]
+mkGram1_1 :: [(OTree, Weight)]
 mkGram1_1 = map (,1) $
   [root, tom, almost, almost', caught, a, mouse]
     where
-      term' t k = term $ Term t (Just k)
+      term' t k = term . Just $ Term t (Just k)
       root = node "ROOT"
         [ term' "root" 0
         , leaf "S"
@@ -372,46 +375,46 @@ gram1_1Tests =
     [ test "ROOT" ["root", "Tom", "almost", "caught", "a", "mouse"] Yes
     , test "ROOT" ["root", "Tom", "almost", "caught", "a", "mouse"] . Trees . S.fromList $
       [ Branch "ROOT"
-          [ Leaf $ tok "root" 0
+          [ mkLeaf "root" 0
           , Branch "S"
             [ Branch "NP"
                 [ Branch "N"
-                    [ Leaf $ tok "Tom" 1 ] ]
+                    [ mkLeaf "Tom" 1 ] ]
             , Branch "VP"
                 [ Branch "V"
                     [ Branch "Ad"
-                        [Leaf $ tok "almost" 2]
+                        [mkLeaf "almost" 2]
                     , Branch "V"
-                        [Leaf $ tok "caught" 3]
+                        [mkLeaf "caught" 3]
                     ]
                 , Branch "NP"
                     [ Branch "D"
-                        [Leaf $ tok "a" 4]
+                        [mkLeaf "a" 4]
                     , Branch "N"
-                        [Leaf $ tok "mouse" 5]
+                        [mkLeaf "mouse" 5]
                     ]
                 ]
             ]
           ]
       , Branch "ROOT"
-          [ Leaf $ tok "root" 0
+          [ mkLeaf "root" 0
           , Branch "S"
             [ Branch "NP"
                 [ Branch "N"
                     [ Branch "N"
-                        [Leaf $ tok "Tom" 1]
+                        [mkLeaf "Tom" 1]
                     , Branch "Ad"
-                        [Leaf $ tok "almost" 2]
+                        [mkLeaf "almost" 2]
                     ]
                 ]
             , Branch "VP"
                 [ Branch "V"
-                    [ Leaf $ tok "caught" 3 ]
+                    [ mkLeaf "caught" 3 ]
                 , Branch "NP"
                     [ Branch "D"
-                        [Leaf $ tok "a" 4]
+                        [mkLeaf "a" 4]
                     , Branch "N"
-                        [Leaf $ tok "mouse" 5]
+                        [mkLeaf "mouse" 5]
                     ]
                 ]
             ]
@@ -439,6 +442,7 @@ gram1_1Tests =
           hedMap
           res
         tok t k = Term t (Just k)
+        mkLeaf t k = Leaf . Just $ tok t k
 
 
 ---------------------------------------------------------------------
@@ -446,11 +450,11 @@ gram1_1Tests =
 ---------------------------------------------------------------------
 
 
-mkGram2 :: [(O.Tree String Term, Weight)]
+mkGram2 :: [(OTree, Weight)]
 mkGram2 = map (,1) $
   [alpha, beta1, beta2]
     where
-      term' t = term $ Term t Nothing
+      term' t = term . Just $ Term t Nothing
       alpha =
         node "S"
         [ node "X"
@@ -508,11 +512,11 @@ gram2Tests =
 ---------------------------------------------------------------------
 
 
-mkGram3 :: [(O.Tree String Term, Weight)]
+mkGram3 :: [(OTree, Weight)]
 mkGram3 = map (,1) $
   [sent, xtree]
     where
-      term' t = term $ Term t Nothing
+      term' t = term . Just $ Term t Nothing
       sent = node "S"
         [ term' "p"
         , node "X"
@@ -543,11 +547,11 @@ gram3Tests =
 ---------------------------------------------------------------------
 
 
-mkGram4 :: [(O.Tree String Term, Weight)]
+mkGram4 :: [(OTree, Weight)]
 mkGram4 =
   [(ztree, 1), (stree, 10), (atree, 5)]
     where
-      term' t = term $ Term t Nothing
+      term' t = term . Just $ Term t Nothing
       stree = node "S"
         [ node "A"
           [ node "B"
@@ -582,11 +586,11 @@ gram4Tests =
 ---------------------------------------------------------------------
 
 
-mkGram5 :: [(O.Tree String Term, Weight)]
+mkGram5 :: [(OTree, Weight)]
 mkGram5 = map (,1)
   [ben, eatsTra, eatsIntra, vigorously, pasta, tasty, a, plate]
   where
-    term' t = term $ Term t Nothing
+    term' t = term . Just $ Term t Nothing
     ben =
       node "NP"
       [ node "N"
@@ -672,7 +676,7 @@ gram5Tests =
       test start sent res = Test start (toks sent) M.empty res
       toks = map tok . words
       tok t = Term t Nothing
-      mkLeaf = Leaf . tok
+      mkLeaf = Leaf . Just . tok
 
 -- To discuss (May 2018):
 -- * allow sister adjunction to the root of a modifier (sister) tree?
@@ -694,11 +698,11 @@ gram5Tests =
 ---------------------------------------------------------------------
 
 
-mkGram6 :: [(O.Tree String Term, Weight)]
+mkGram6 :: [(OTree, Weight)]
 mkGram6 = map (,1) $
   [en, excuser]
     where
-      term' t = term $ Term t Nothing
+      term' t = term . Just $ Term t Nothing
       en = 
         node "DUMMY"
           [ node "CL"
@@ -727,11 +731,11 @@ gram6Tests =
 ---------------------------------------------------------------------
 
 
-mkGram7 :: [(O.Tree String Term, Weight)]
+mkGram7 :: [(OTree, Weight)]
 mkGram7 =
   [(cine, 1.0), (et, 1.0), (lect, 1.0)]
     where
-      term' t k = term $ Term t (Just k)
+      term' t k = term . Just $ Term t (Just k)
       cine =
         node "NP"
           [ node "N"
@@ -768,6 +772,7 @@ gram7Tests =
         hedMap
         res
       tok t k = Term t (Just k)
+      -- mkLeaf t k = Leaf . Just $ tok t k
 
 
 ---------------------------------------------------------------------
@@ -775,11 +780,11 @@ gram7Tests =
 ---------------------------------------------------------------------
 
 
-mkGram8 :: [(O.Tree String Term, Weight)]
+mkGram8 :: [(OTree, Weight)]
 mkGram8 =
   [(cine, 0.0), (cine', 1.0), (et, 0.0), (lect, 0.0)]
     where
-      term' t k = term $ Term t (Just k)
+      term' t k = term . Just $ Term t (Just k)
       cine =
         node "DUMMY"
           [ node "N"
@@ -824,6 +829,72 @@ gram8Tests =
       tok t k = Term t (Just k)
 
 
+---------------------------------------------------------------------
+-- Test 9
+---------------------------------------------------------------------
+
+
+-- | A grammar sprinkled with empty terminals
+mkGram9 :: [(OTree, Weight)]
+mkGram9 = map (,0)
+  [main, aux]
+    where
+      term' t = term . Just $ Term t Nothing
+      empty = term Nothing
+      main =
+        node "S"
+          [ empty
+          , node "A" [empty, term' "a"]
+          , empty
+          , node "X" [empty]
+          , empty
+          , node "B" [term' "b", empty]
+          , empty
+          ]
+      aux =
+        sister "X" [term' "a"]
+
+
+gram9Tests :: [Test]
+gram9Tests =
+  [ test "S" (words "a a b") Yes
+  ] where
+      test start sent res = Test start (map tok sent) M.empty res
+      tok t = Term t Nothing
+      -- mkLeaf = Leaf . Just . tok
+        
+        
+---------------------------------------------------------------------
+-- Test 10
+---------------------------------------------------------------------
+
+
+-- | A grammar sprinkled with empty terminals
+mkGram10 :: [(OTree, Weight)]
+mkGram10 = map (,0)
+  [seen, shaking]
+    where
+      term' t = term . Just $ Term t Nothing
+      empty = term Nothing
+      seen =
+        node "S"
+          [ node "V" [term' "seen"]
+          , node "S" []
+          ]
+      shaking =
+        node "S"
+          [ node "NP" [empty]
+          , term' "shaking"
+          ]
+
+
+gram10Tests :: [Test]
+gram10Tests =
+  [ test "S" (words "seen shaking") Yes
+  ] where
+      test start sent res = Test start (map tok sent) M.empty res
+      tok t = Term t Nothing
+
 
 ---------------------------------------------------------------------
 -- Resources
@@ -832,15 +903,17 @@ gram8Tests =
 
 -- | Compiled grammars.
 data Res = Res
-  { gram1 :: [(O.Tree String Term, Weight)]
-  , gram1_1 :: [(O.Tree String Term, Weight)]
-  , gram2 :: [(O.Tree String Term, Weight)]
-  , gram3 :: [(O.Tree String Term, Weight)]
-  , gram4 :: [(O.Tree String Term, Weight)]
-  , gram5 :: [(O.Tree String Term, Weight)]
-  , gram6 :: [(O.Tree String Term, Weight)]
-  , gram7 :: [(O.Tree String Term, Weight)]
-  , gram8 :: [(O.Tree String Term, Weight)]
+  { gram1 :: [(OTree, Weight)]
+  , gram1_1 :: [(OTree, Weight)]
+  , gram2 :: [(OTree, Weight)]
+  , gram3 :: [(OTree, Weight)]
+  , gram4 :: [(OTree, Weight)]
+  , gram5 :: [(OTree, Weight)]
+  , gram6 :: [(OTree, Weight)]
+  , gram7 :: [(OTree, Weight)]
+  , gram8 :: [(OTree, Weight)]
+  , gram9 :: [(OTree, Weight)]
+  , gram10 :: [(OTree, Weight)]
   }
 
 
@@ -849,7 +922,9 @@ data Res = Res
 -- mkGrams :: IO Res
 mkGrams :: Res
 mkGrams =
-    Res mkGram1 mkGram1_1 mkGram2 mkGram3 mkGram4 mkGram5 mkGram6 mkGram7 mkGram8
+  Res mkGram1 mkGram1_1 mkGram2 mkGram3 mkGram4
+      mkGram5 mkGram6 mkGram7 mkGram8 mkGram9
+      mkGram10
 
 
 ---------------------------------------------------------------------
@@ -859,7 +934,7 @@ mkGrams =
 
 -- | Recognition
 type RecoP 
-  = [(O.Tree String Term, Weight)]
+  = [(OTree, Weight)]
     -- ^ Weighted grammar
   -> String
     -- ^ Start symbol
@@ -872,7 +947,7 @@ type RecoP
 
 -- | Parsed trees
 type ParsedP 
-  = [(O.Tree String Term, Weight)]
+  = [(OTree, Weight)]
     -- ^ Weighted grammar
   -> String
     -- ^ Start symbol
@@ -885,7 +960,7 @@ type ParsedP
 
 -- | Derivation trees
 type DerivP
-  = [(O.Tree String Term, Weight)]
+  = [(OTree, Weight)]
     -- ^ Weighted grammar
   -> String
     -- ^ Start symbol
@@ -899,7 +974,7 @@ type DerivP
 
 -- | Derivation pipe
 type DerivPipeP
-  = [(O.Tree String Term, Weight)]
+  = [(OTree, Weight)]
   -> String
   -> [Term]
   -> M.Map Int (M.Map Int Weight)
@@ -956,7 +1031,9 @@ testTree modName TagParser{..} = do
         map (testIt resIO gram5) gram5Tests ++
         map (testIt resIO gram6) gram6Tests ++
         map (testIt resIO gram7) gram7Tests ++
-        map (testIt resIO gram8) gram8Tests
+        map (testIt resIO gram8) gram8Tests ++
+        map (testIt resIO gram9) gram9Tests ++
+        map (testIt resIO gram10) gram10Tests
   where
     testIt resIO getGram test =
       -- make sure that headMap is empty if no dependency support

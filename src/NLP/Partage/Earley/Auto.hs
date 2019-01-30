@@ -52,7 +52,13 @@ data NotFoot n = NotFoot
 --------------------------------------------------
 
 
-type DAG n t w = DAG.DAG (O.Node n (S.Set t)) w
+-- | Each leaf contains a set of `Maybe t`s, which corresponds to the
+-- possibility of representing (i) non-determinism and (ii) empty terminal
+-- symbols.
+type DAG n t w =
+  DAG.DAG
+    (O.Node n (Maybe (S.Set t)))
+    w
 
 
 -- | Local automaton type based on `A.GramAuto`.
@@ -64,7 +70,7 @@ data Auto n t = Auto
     , withBody :: M.Map DID (S.Set ID)
     -- ^ A data structure which, for each label, determines the set of automaton
     -- states from which this label goes out as a body transition.
-    , termDID  :: M.Map t (S.Set DID)
+    , termDID  :: M.Map (Maybe t) (S.Set DID)
     -- ^ A map which assigns DAG IDs to the corresponding terminals.
     --
     -- NOTE: There can be actually many DAG IDs corresponding to a given
@@ -120,12 +126,15 @@ mkWithBody dag = M.fromListWith S.union
 mkTermDID
     :: (Ord t)
     => DAG n t w
-    -> M.Map t (S.Set DID)
+    -> M.Map (Maybe t) (S.Set DID)
 mkTermDID dag = M.fromListWith S.union
     [ (t, S.singleton i)
     | i <- S.toList (DAG.nodeSet dag)
-    , O.Term ts <- maybeToList (DAG.label i dag)
-    , t <- S.toList ts
+    , O.Term mayTS <- maybeToList (DAG.label i dag)
+    -- , t <- S.toList ts
+    , t <- case mayTS of
+             Nothing -> [Nothing]
+             Just ts -> map Just (S.toList ts)
     ]
 
 

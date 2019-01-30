@@ -99,7 +99,7 @@ mkEsti _memoElem D.Gram{..} autoGram input posMap hedMap = Esti
   { termEsti = estiTerm
   , trieEsti = estiCost2 autoGram dagGram estiTerm
   , dagEsti  = estiNode
-  , dagAmort = amortDag 
+  , dagAmort = amortDag
   , trieAmort = amortTrie 
   , depPrefEsti = \p -> maybe 0 id (M.lookup p prefDepSum)
   , depSuffEsti = \q -> maybe 0 id (M.lookup q suffDepSum)
@@ -244,7 +244,8 @@ estiCost1 termWei bag =
 estiCost2
     :: (Ord n, SOrd t)
     => A.WeiGramAuto n t            -- ^ The weighted automaton
-    -> D.DAG (O.Node n t) D.Weight  -- ^ The corresponding grammar DAG
+    -> D.DAG (O.Node n (Maybe t)) D.Weight
+                                    -- ^ The corresponding grammar DAG
     -> (Bag t -> D.Weight)          -- ^ `estiCost1`
     -> ID                           -- ^ ID of the automaton node
     -> Bag t                        -- ^ Bag of terminals
@@ -276,8 +277,8 @@ estiCost2 weiAuto@A.WeiAuto{..} weiDag estiTerm =
 -- stored in leaves of the subtree.
 subCost
     :: (Ord n, Ord t, Num w)
-    => D.DAG (O.Node n t) w     -- ^ Grammar DAG
-    -> D.DID                    -- ^ ID of the DAG node
+    => D.DAG (O.Node n (Maybe t)) w     -- ^ Grammar DAG
+    -> D.DID                            -- ^ ID of the DAG node
     -> (Bag t, w)
 subCost dag =
     cost
@@ -286,7 +287,7 @@ subCost dag =
     cost' i = case labelValue i dag of
       Nothing -> error "subCost: incorrect ID"
       Just (x, v) -> case x of
-        O.Term t -> (pocket t, v)
+        O.Term (Just t) -> (pocket t, v)
         _  -> L.foldl' add2 (bagEmpty, v)
           [ Arr.second (+w) (cost j)
           | (j, w) <- D.edges i dag ]
@@ -301,8 +302,8 @@ subCost dag =
 -- for the individual super-trees surrounding the given DAG node.
 supCost
     :: (Ord n, Ord t, Num w, Ord w)
-    => D.DAG (O.Node n t) w     -- ^ Grammar DAG
-    -> D.DID                    -- ^ ID of the DAG node
+    => D.DAG (O.Node n (Maybe t)) w     -- ^ Grammar DAG
+    -> D.DID                            -- ^ ID of the DAG node
     -> M.Map (Bag t) w
 supCost dag =
     sup
@@ -338,7 +339,7 @@ supCost dag =
 -- and return 'sup' for such states.
 trieCost
     :: (Ord n, Ord t)
-    => D.DAG (O.Node n t) D.Weight  -- ^ Grammar DAG
+    => D.DAG (O.Node n (Maybe t)) D.Weight  -- ^ Grammar DAG
     -> A.WeiGramAuto n t            -- ^ The weighted automaton
     -> ID                           -- ^ ID of the *automaton* node
     -> M.Map (Bag t) D.Weight

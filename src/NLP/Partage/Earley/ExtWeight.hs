@@ -43,6 +43,10 @@ data Trav n t
         , _scanTerm :: t
         -- ^ The scanned terminal
         }
+    | Empty
+        { _scanFrom :: Active
+        -- ^ The input active state
+        }
     | Subst
         { _passArg  :: Passive n t
         -- ^ The passive argument of the action
@@ -105,12 +109,16 @@ data Trav n t
 
 -- | Priority type.
 --
--- NOTE: Priority has to be composed from two elements because
--- otherwise `tryAdjoinTerm` could work incorrectly.  That is,
--- the modified item could be popped from the queue after the
--- modifier (auxiliary) item and, as a result, adjunction would
--- not be considered.
-type Prio = (Int, Int)
+-- NOTE: Priority has to be composed from two elements because otherwise
+-- `tryAdjoinTerm` could work incorrectly.  That is, the modified item could be
+-- popped from the queue after the modifier (auxiliary) item and, as a result,
+-- adjunction would not be considered.
+--
+-- NEW 30.01.2019: a third element has been added which tells if the
+-- corresponding item *is passive*.  This promotes the active items over
+-- passive items with the same span and guarantees correct item ordering in
+-- case of empty terminals.
+type Prio = (Int, Int, Bool)
 
 
 -- | Priority of an active item.  Crucial for the algorithm --
@@ -119,7 +127,7 @@ prioA :: Active -> Prio
 prioA p =
     let i = getL (beg . spanA) p
         j = getL (end . spanA) p
-    in  (j, j - i)
+    in  (j, j - i, False)
 
 
 -- | Priority of a passive item.  Crucial for the algorithm --
@@ -128,7 +136,7 @@ prioP :: Passive n t -> Prio
 prioP p =
     let i = getL (beg . spanP) p
         j = getL (end . spanP) p
-    in  (j, j - i)
+    in  (j, j - i, True)
 
 
 -- | Extended priority which preservs information about the traversal

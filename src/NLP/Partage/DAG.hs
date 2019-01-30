@@ -79,6 +79,7 @@ import           Control.Monad              (forM)
 import qualified Control.Monad.State.Strict as E
 import           Prelude                    hiding (lookup)
 
+import           Data.Maybe                 (catMaybes)
 import qualified Data.Map.Strict            as M
 import qualified Data.MemoCombinators       as Memo
 import qualified Data.Set                   as S
@@ -547,7 +548,7 @@ parents i = maybe S.empty id . M.lookup i
 -- parsing. The main component is the `dagGram` DAG, from which the other two
 -- elements (`factGram` and `termWei`) can be derived.
 data Gram n t = Gram
-    { dagGram  :: DAG (O.Node n t) Weight
+    { dagGram  :: DAG (O.Node n (Maybe t)) Weight
     -- ^ Grammar as a DAG.
     , factGram :: M.Map Rule Weight
     -- ^ Grammar as a set of production rules, with a weight assigned to each
@@ -566,7 +567,7 @@ data Gram n t = Gram
 --
 mkGram
     :: (Ord n, Ord t)
-    => [(O.Tree n t, Weight)]
+    => [(O.Tree n (Maybe t), Weight)]
     -> Gram n t
 #if Compression
 mkGram ts = Gram
@@ -586,7 +587,7 @@ mkGram ts = Gram
     byTerm = M.fromListWith (++)
       [ (termSet t, [(t, w)])
       | (t, w) <- ts ]
-    termSet = S.fromList . O.project
+    termSet = S.fromList . catMaybes . O.project
 #endif
 #else
 mkGram = mkDummy
@@ -597,7 +598,7 @@ mkGram = mkDummy
 -- grammar.
 mkDummy
     :: (Ord t)
-    => [(O.Tree n t, Weight)]
+    => [(O.Tree n (Maybe t), Weight)]
     -> Gram n t
 mkDummy ts = Gram
     { dagGram   = dagGram_
@@ -629,12 +630,12 @@ mkDummy ts = Gram
 -- over their terminals.
 mkTermWei
     :: (Ord t)
-    => [(O.Tree n t, Weight)]   -- ^ Weighted grammar
+    => [(O.Tree n (Maybe t), Weight)]   -- ^ Weighted grammar
     -> M.Map t Weight
 mkTermWei ts = M.fromListWith min
     [ (x, w / fromIntegral n)
     | (t, w) <- ts
-    , let terms = O.project t
+    , let terms = catMaybes (O.project t)
           n = length terms
     , x <- terms ]
 

@@ -48,7 +48,7 @@ testEarley =
             . E.fromList
             $ input
     mkGram = DAG.mkGram . map (Arr.first termToSet)
-    termToSet = fmap (O.mapTerm S.singleton)
+    termToSet = fmap (O.mapTerm $ fmap S.singleton)
 
 
 -- | All the tests of the parsing algorithm.
@@ -62,7 +62,8 @@ testAStar =
       , T.derivTrees = Just derivFrom
       , T.encodes = Just encodesFrom
       , T.derivPipe  = Just derivPipe
-      , T.dependencySupport = True }
+      , T.dependencySupport = True 
+      }
     recFrom gram start input headMap
       = A.recognizeFrom memoTerm gram start (posMap input) headMap
       . A.fromList
@@ -76,7 +77,7 @@ testAStar =
         . S.fromList
         -- below we just map (Tok t -> t) but we have to also
         -- do the corresponding encoding/decoding
-        . map (O.mkTree . fmap (O.mapTerm A.terminal) . O.unTree)
+        . map (O.mkTree . fmap (O.mapTerm $ fmap A.terminal) . O.unTree)
         $ A.parsedTrees hype start (length sent)
     derivFrom gram start sent headMap = do
       let dag = DAG.mkGram gram

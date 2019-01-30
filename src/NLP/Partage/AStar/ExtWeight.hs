@@ -58,6 +58,12 @@ data Trav n t
         , _weight   :: Weight
         -- ^ The traversal weight
         }
+    | Empty
+        { scanFrom  :: Active
+        -- ^ The input active state
+        , _weight   :: Weight
+        -- ^ The traversal weight
+        }
     | Subst
         { passArg :: Passive n t
         -- ^ The passive argument of the action

@@ -327,7 +327,7 @@ readInput i = do
 
 -- | Follow the given terminal in the underlying automaton.
 followTerm :: (Ord n, Ord t)
-           => ID -> t -> P.ListT (EarleyPipe n t) (Weight, ID)
+           => ID -> Maybe t -> P.ListT (EarleyPipe n t) (Weight, ID)
 followTerm i c = do
     -- get the underlying automaton
     auto <- RWS.gets $ automat
@@ -840,7 +840,7 @@ tryScan p duo = void $ P.runListT $ do
   depCost <- lift . lift $ minDepCost tok
   -- follow appropriate terminal transition outgoing from the
   -- given automaton state
-  (termCost, j) <- followTerm (getL state p) (terminal tok)
+  (termCost, j) <- followTerm (getL state p) (Just $ terminal tok)
   -- construct the resultant active item
   let q = setL state j
         . modL' (spanA >>> end) (+1)
@@ -867,6 +867,51 @@ tryScan p duo = void $ P.runListT $ do
   liftIO $ do
       endTime <- Time.getCurrentTime
       putStr "[S]  " >> printActive p
+      putStr "  :  " >> printActive q
+      putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
+      putStr " #W  " >> print newBeta
+      -- putStr " #E  " >> print estDist
+#endif
+
+
+-- | Try to scan an empty terminal.
+tryEmpty :: (SOrd t, SOrd n) => Active -> DuoWeight -> EarleyPipe n t ()
+tryEmpty p duo = void $ P.runListT $ do
+#ifdef DebugOn
+  begTime <- liftIO $ Time.getCurrentTime
+#endif
+--   -- read the word immediately following the ending position of
+--   -- the state
+--   tok <- readInput $ getL (spanA >>> end) p
+--   -- determine the minimal cost of `tok` being a dependent
+--   depCost <- lift . lift $ minDepCost tok
+  -- follow appropriate terminal transition outgoing from the
+  -- given automaton state
+  (termCost, j) <- followTerm (getL state p) Nothing
+  -- construct the resultant active item
+  let q = setL state j $ p
+  -- compute the estimated distance for the resulting item
+  -- estDist <- lift . estimateDistA $ q
+  -- push the resulting state into the waiting queue
+  let newBeta = addWeight (duoBeta duo) termCost
+      newGap = duoGap duo
+      newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
+  lift $ pushInduced q newDuo
+           (Empty p termCost)
+       -- . extWeight (addWeight cost termCost) estDist
+#ifdef CheckMonotonic
+  totalP <- lift . lift $ est2total duo <$> estimateDistA p
+  totalQ <- lift . lift $ est2total newDuo <$> estimateDistA q
+  when (totalQ + epsilon < totalP) $ do
+    P.liftIO . putStrLn $
+      "[EMPTY: MONOTONICITY TEST FAILED] TAIL WEIGHT: " ++ show totalP ++
+      ", HEAD WEIGHT: " ++ show totalQ
+#endif
+#ifdef DebugOn
+  -- print logging information
+  liftIO $ do
+      endTime <- Time.getCurrentTime
+      putStr "[E]  " >> printActive p
       putStr "  :  " >> printActive q
       putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
       putStr " #W  " >> print newBeta
@@ -1396,8 +1441,13 @@ tryAdjoinTerm q qw = void $ P.runListT $ do
     -- by `rootSpan`)
     qNonTerm <- some (nonTerm' qDID dag)
     (p, pw) <- rootSpan qNonTerm (gapBeg, gapEnd)
+#ifdef NoAdjunctionRestriction
+    let changeAdjState = id
+#else
     -- make sure that node represented by `p` was not yet adjoined to
     guard . not $ getL isAdjoinedTo p
+    let changeAdjState = setL isAdjoinedTo True
+#endif
     -- check w.r.t. the dependency structure
     let anchorMap = anchorPos auto
         headMap = headPos auto
@@ -1422,7 +1472,7 @@ tryAdjoinTerm q qw = void $ P.runListT $ do
     -- construct the resulting item
     let p' = setL (spanP >>> beg) (qSpan ^. beg)
            . setL (spanP >>> end) (qSpan ^. end)
-           . setL isAdjoinedTo True
+           . changeAdjState
            $ p
     -- lift $ pushPassive p' $ Adjoin q p
     -- compute the estimated distance for the resulting state
@@ -1744,7 +1794,11 @@ trySisterAdjoin' q qw = void $ P.runListT $ do
 
 
 -- | Extract the set of the parsed trees w.r.t. to the given active item.
-fromActive :: (Ord n, Ord t) => Active -> Hype n t -> [[T.Tree n (Tok t)]]
+fromActive
+  :: (Ord n, Ord t)
+  => Active
+  -> Hype n t
+  -> [[T.Tree n (Maybe (Tok t))]]
 fromActive active hype =
   case activeTrav active hype of
     -- Nothing  -> error "fromActive: unknown active item"
@@ -1762,7 +1816,10 @@ fromActive active hype =
             (S.toList (prioTrav ext))
   where
     fromActiveTrav _p (Scan q t _) =
-        [ T.Leaf t : ts
+        [ T.Leaf (Just t) : ts
+        | ts <- fromActive q hype ]
+    fromActiveTrav _p (Empty q _) =
+        [ T.Leaf Nothing : ts
         | ts <- fromActive q hype ]
     fromActiveTrav _p (Foot q x _) =
         [ T.Branch x [] : ts
@@ -1780,7 +1837,11 @@ fromActive active hype =
 
 
 -- | Extract the set of the parsed trees w.r.t. to the given passive item.
-fromPassive :: (Ord n, Ord t) => Passive n t -> Hype n t -> [T.Tree n (Tok t)]
+fromPassive
+  :: (Ord n, Ord t)
+  => Passive n t
+  -> Hype n t
+  -> [T.Tree n (Maybe (Tok t))]
 fromPassive passive hype = concat
   [ fromPassiveTrav passive trav
   | ext <- maybeToList $ passiveTrav passive hype
@@ -1811,7 +1872,7 @@ parsedTrees
     => Hype n t     -- ^ Final state of the earley parser
     -> n            -- ^ The start symbol
     -> Int          -- ^ Length of the input sentence
-    -> [T.Tree n (Tok t)]
+    -> [T.Tree n (Maybe (Tok t))]
 parsedTrees hype start n
     = concatMap (`fromPassive` hype)
     $ finalFrom start n hype
@@ -1844,7 +1905,7 @@ parsedTrees hype start n
 recognizeFrom
     :: (SOrd t, SOrd n)
     => Memo.Memo t             -- ^ Memoization strategy for terminals
-    -> [ ( O.Tree n t
+    -> [ ( O.Tree n (Maybe t)
          , Weight ) ]          -- ^ Weighted grammar
     -> n                    -- ^ The start symbol
     -> M.Map t Int          -- ^ Position map
@@ -2057,6 +2118,7 @@ step (ItemA p :-> e) = do
       , modifTrav = e }
     mapM_ (\f -> f p $ duoWeight e)
       [ tryScan
+      , tryEmpty
       , tryDeactivate
       , trySubst'
       , tryAdjoinInit'

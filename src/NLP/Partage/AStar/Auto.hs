@@ -30,7 +30,7 @@ import qualified NLP.Partage.AStar.Heuristic as H
 -- import qualified NLP.Partage.AStar.Heuristic.Base as H
 import qualified NLP.Partage.Auto.WeiTrie    as Trie
 import qualified NLP.Partage.Auto.WeiSet     as WS
-import           NLP.Partage.DAG             (DAG, DID, Gram, Weight)
+import           NLP.Partage.DAG             (DID, Gram, Weight)
 import qualified NLP.Partage.DAG             as DAG
 import qualified NLP.Partage.Tree.Other      as O
 
@@ -56,9 +56,18 @@ data NotFoot n = NotFoot
 --------------------------------------------------
 
 
+-- | Each leaf contains a set of `Maybe t`s, which corresponds to the
+-- possibility of representing (i) non-determinism and (ii) empty terminal
+-- symbols.
+type DAG n t =
+  DAG.DAG
+    (O.Node n (Maybe t))
+    Weight
+
+
 -- | Local automaton type based on `A.GramAuto`.
 data Auto n t = Auto
-    { gramDAG  :: DAG (O.Node n t) Weight
+    { gramDAG  :: DAG n t -- DAG (O.Node n t) Weight
     -- ^ The underlying grammar DAG; the weights must be consistent
     -- with what is in the `gramAuto`
     , isSpine  :: DID -> Bool
@@ -72,7 +81,7 @@ data Auto n t = Auto
     -- ^ The lower bound estimates on reading terminal weights. Based on the
     -- idea that weights of the elementary trees are evenly distributed over its
     -- terminals.
-    , termDID  :: M.Map t (S.Set DID)
+    , termDID  :: M.Map (Maybe t) (S.Set DID)
     -- ^ A map which assigns DAG IDs to the corresponding terminals. Note that
     -- each grammar terminal is represented by exactly one grammar DAG node.
     , footDID  :: M.Map n (S.Set DID)
@@ -181,8 +190,8 @@ mkWithBody dag = M.fromListWith S.union
 -- | Create the `termDID` component of the hypergraph.
 mkTermDID
     :: (Ord t)
-    => DAG (O.Node n t) w
-    -> M.Map t (S.Set DID)
+    => DAG n t
+    -> M.Map (Maybe t) (S.Set DID)
 mkTermDID dag = M.fromListWith S.union
     [ (t, S.singleton i)
     | i <- S.toList (DAG.nodeSet dag)
@@ -192,7 +201,7 @@ mkTermDID dag = M.fromListWith S.union
 -- | Create the `footDID` component of the hypergraph.
 mkFootDID
     :: (Ord n)
-    => DAG (O.Node n t) w
+    => DAG n t
     -> M.Map n (S.Set DID)
 mkFootDID dag = M.fromListWith S.union
     [ (x, S.singleton i)
@@ -203,7 +212,7 @@ mkFootDID dag = M.fromListWith S.union
 -- | Create the `leafDID` component of the hypergraph.
 mkLeafDID
     :: (Ord n)
-    => DAG (O.Node n t) w
+    => DAG n t
     -> M.Map n (S.Set DID)
 mkLeafDID dag = M.fromListWith S.union
     [ (x, S.singleton i)
@@ -214,7 +223,7 @@ mkLeafDID dag = M.fromListWith S.union
 
 -- | Create the `lhsNonTerm` component.
 mkLhsNonTerm
-  :: DAG (O.Node n t) w
+  :: DAG n t
   -> A.WeiGramAuto n t
   -> M.Map ID (NotFoot n)
 mkLhsNonTerm dag auto = M.fromList
@@ -252,7 +261,7 @@ mkLhsNonTerm dag auto = M.fromList
 -- TODO: copy from `Earley.Auto`
 mkAnchorPos
   :: (Ord t)
-  => DAG (O.Node n t) w
+  => DAG n t
   -> A.GramAuto
   -> M.Map t Int   -- ^ Position map
   -> (M.Map DID Int, M.Map ID Int)
@@ -293,7 +302,7 @@ mkAnchorPos dag auto posMap =
     down' did =
       case DAG.label did dag of
         -- Just (O.Term ts) -> nub . mapMaybe (flip M.lookup posMap) $ S.toList ts
-        Just (O.Term t) -> maybeToList $ M.lookup t posMap
+        Just (O.Term (Just t)) -> maybeToList $ M.lookup t posMap
         _ -> concat [down child | child <- DAG.children did dag]
 
     parMap = DAG.parentMap dag

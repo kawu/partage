@@ -97,8 +97,9 @@ import qualified NLP.Partage.Earley.Chart as Chart
 
 -- For debugging purposes
 #ifdef DebugOn
+import           Control.Monad.IO.Class     (liftIO)
 import qualified NLP.Partage.Earley.Item as Item
-import qualified Data.Time              as Time
+import qualified Data.Time               as Time
 #endif
 
 
@@ -120,7 +121,7 @@ printPassive :: (Show n) => Passive n t -> Hype n t -> IO ()
 printPassive p hype = Item.printPassive p (automat hype)
 
 
--- | Print an active item.
+-- | Print an item.
 printItem :: (Show n, Show t) => Item n t -> Hype n t -> IO ()
 printItem (ItemP p) h = printPassive p h
 printItem (ItemA p) _ = printActive p
@@ -620,7 +621,7 @@ rootEnd = Chart.rootEnd chart
 
 
 -- | Follow the given terminal in the underlying automaton.
-followTerm :: (Ord t) => ID -> t -> P.ListT (Earley n t) ID
+followTerm :: (Ord t) => ID -> Maybe t -> P.ListT (Earley n t) ID
 followTerm i c = do
     -- get the underlying automaton
     auto <- RWS.gets $ automat
@@ -702,7 +703,7 @@ tryScan p = void $ P.runListT $ do
     c <- readInput $ getL (spanA >>> end) p
     -- follow appropriate terminal transition outgoing from the
     -- given automaton state
-    j <- followTerm (getL state p) c
+    j <- followTerm (getL state p) (Just c)
     -- construct the resultant active item
     -- let q = p {state = j, end = end p + 1}
     let q = setL state j
@@ -715,6 +716,30 @@ tryScan p = void $ P.runListT $ do
     lift . lift $ do
         endTime <- Time.getCurrentTime
         putStr "[S]  " >> printActive p
+        putStr "  :  " >> printActive q
+        putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
+#endif
+
+
+-- | Try to scan an empty terminal.
+tryEmpty :: (SOrd t, SOrd n) => Active -> Earley n t ()
+tryEmpty p = void $ P.runListT $ do
+#ifdef DebugOn
+    begTime <- lift . lift $ Time.getCurrentTime
+#endif
+    -- follow appropriate terminal transition outgoing from the
+    -- given automaton state
+    j <- followTerm (getL state p) Nothing
+    -- construct the resultant active item
+    -- let q = p {state = j}
+    let q = setL state j $ p
+    -- push the resulting state into the waiting queue
+    lift $ pushInduced q $ Empty p
+#ifdef DebugOn
+    -- print logging information
+    lift . lift $ do
+        endTime <- Time.getCurrentTime
+        putStr "[E]  " >> printActive p
         putStr "  :  " >> printActive q
         putStr "  @  " >> print (endTime `Time.diffUTCTime` begTime)
 #endif
@@ -910,12 +935,17 @@ tryAdjoinTerm q = void $ P.runListT $ do
     -- root non-terminal (IDs irrelevant)
     qNonTerm <- some (nonTerm' qDID dag)
     p <- rootSpan qNonTerm (gapBeg, gapEnd)
+#ifdef NoAdjunctionRestriction
+    let changeAdjState = id
+#else
     -- make sure that node represented by `p` was not yet adjoined to
     guard . not $ getL isAdjoinedTo p
+    let changeAdjState = setL isAdjoinedTo True
+#endif
     -- construct the resulting item
     let p' = setL (spanP >>> beg) (qSpan ^. beg)
            . setL (spanP >>> end) (qSpan ^. end)
-           . setL isAdjoinedTo True
+           . changeAdjState
            $ p
     lift $ pushPassive p' $ Adjoin q p
 #ifdef DebugOn
@@ -1033,6 +1063,7 @@ step (ItemP p :-> e) = do
 step (ItemA p :-> e) = do
     mapM_ ($ p)
       [ tryScan
+      , tryEmpty
       , tryDeactivate
       ]
     saveActive p (prioTrav e)
@@ -1050,7 +1081,7 @@ parsedTrees
     => Hype n t     -- ^ Final state of the earley parser
     -> n            -- ^ The start symbol
     -> Int          -- ^ Length of the input sentence
-    -> [T.Tree n t]
+    -> [T.Tree n (Maybe t)]
 parsedTrees hype start n
 
     = concatMap fromPassive
@@ -1058,7 +1089,7 @@ parsedTrees hype start n
 
   where
 
-    fromPassive :: Passive n t -> [T.Tree n t]
+    fromPassive :: Passive n t -> [T.Tree n (Maybe t)]
     fromPassive p = concat
         [ fromPassiveTrav p trav
         | travSet <- maybeToList $ passiveTrav p hype
@@ -1089,7 +1120,7 @@ parsedTrees hype start n
     replaceFoot _ t@(T.Leaf _)    = t
 
 
-    fromActive  :: Active -> [[T.Tree n t]]
+    fromActive  :: Active -> [[T.Tree n (Maybe t)]]
     fromActive p = case activeTrav p hype of
         Nothing -> error "fromActive: unknown active item"
         Just travSet -> if S.null travSet
@@ -1099,7 +1130,11 @@ parsedTrees hype start n
                 (S.toList travSet)
 
     fromActiveTrav _p (Scan q t) =
-        [ T.Leaf t : ts
+        [ T.Leaf (Just t) : ts
+        | ts <- fromActive q ]
+
+    fromActiveTrav _p (Empty q) =
+        [ T.Leaf Nothing : ts
         | ts <- fromActive q ]
 
     fromActiveTrav _p (Foot q p) =
@@ -1125,6 +1160,8 @@ parsedTrees hype start n
 --------------------------------------------------
 
 
+-- | We have some non-determinism at the level of terminals as well as possible
+-- empty terminals.
 type DAGram n t = DAG.Gram n (S.Set t)
 
 
@@ -1163,7 +1200,7 @@ parse
     => DAGram n t           -- ^ The grammar (set of rules)
     -> n                    -- ^ The start symbol
     -> Input t              -- ^ Input sentence
-    -> IO [T.Tree n t]
+    -> IO [T.Tree n (Maybe t)]
 parse DAG.Gram{..} start input = do
     let gram = fromGram (M.keysSet factGram)
         auto = mkAuto dagGram gram
@@ -1222,7 +1259,7 @@ parseAuto
     => Auto n t           -- ^ Grammar automaton
     -> n                  -- ^ The start symbol
     -> Input t            -- ^ Input sentence
-    -> IO [T.Tree n t]
+    -> IO [T.Tree n (Maybe t)]
 parseAuto auto start input = do
     earSt <- earleyAuto auto input
     let n = V.length (inputSent input)
@@ -1259,7 +1296,14 @@ earleyAuto auto input = do
     -- is non-empty.
     loop = popItem >>= \mp -> case mp of
         Nothing -> return ()
-        Just p  -> step p >> loop
+        Just p  -> do
+#ifdef DebugOn
+          let item :-> e = p
+          hype <- RWS.get
+          liftIO $ do
+            putStr "POP: " >> printItem item hype
+#endif
+          step p >> loop
 
 
 --------------------------------------------------

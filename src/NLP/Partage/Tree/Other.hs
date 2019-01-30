@@ -28,6 +28,7 @@ module NLP.Partage.Tree.Other
 , isAuxiliary
 , hasRoot
 , project
+, replaceFoot
 ) where
 
 
@@ -203,6 +204,14 @@ project =
 hasRoot :: Eq n => n -> Tree n t -> Bool
 hasRoot x (R.Node (NonTerm y) _) = x == y
 hasRoot _ _ = False
+
+
+-- | Replace the foot in the second tree with the first tree (if any).
+replaceFoot :: Tree n t -> Tree n t -> Tree n t
+replaceFoot t (R.Node n xs) =
+  case n of
+    Foot _ -> t
+    _      -> R.Node n (map (replaceFoot t) xs)
 
 
 ---------------------------------------------------------------------

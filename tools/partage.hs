@@ -4,6 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 
 
 -- import           Prelude hiding (words)
@@ -366,6 +367,9 @@ run cmd =
                 Just k  -> take k
                 Nothing -> id
         parses <- E.parse gram startSym (E.fromList input)
+        when (null parses) $ do
+          putStr "# NO PARSE FOR: "
+          TIO.putStrLn . T.unwords $ map snd input
         forM_ (shorten parses) $ \tree -> do
           when verbose $ do
             putStrLn ""
@@ -412,7 +416,9 @@ run cmd =
             . anchorTags
             . zip [0 :: Int ..]
             $ sent
-          automat = A.mkAuto memoTerm gram (A.fromList input) posMap depMap
+          automat =
+            A.mkAuto
+              memoTerm gram (A.fromList input) posMap depMap
           memoTerm = Memo.wrap
             (\i -> (i, inputVect V.! i))
             (\(i, _w) -> i)
@@ -548,6 +554,13 @@ main =
 --------------------------------------------------
 
 
+-- | Local tree type
+type Tree =
+  O.Tree  
+    T.Text
+    (Maybe (S.Set (Int, T.Text)))
+
+
 -- | Tag anchoring function which:
 --
 --   (a) Joins identical trees with different terminals
@@ -555,15 +568,18 @@ main =
 --
 anchorTagsIgnoreProbs
   :: [(Int, Br.SuperTok)]
-  -> [(O.Tree T.Text (S.Set (Int, T.Text)), DAG.Weight)]
+  -> [(Tree, DAG.Weight)]
 anchorTagsIgnoreProbs xs = do
   (tag, termSet) <- M.toList tagMap
-  return (anchorTag termSet tag, 0)
+  return (anchorTag (Just termSet) onTerm tag, 0)
   where
     tagMap = M.fromListWith S.union $ do
       (tokID, Br.SuperTok{..}) <- xs
       (tag, _weight) <- tokTags
       return (tag, S.singleton (tokID, tokWord))
+    onTerm = \case
+      Nothing -> Nothing
+      Just _ -> error "Cannot process a co-anchor terminal node"
 
 
 -- | A version of `anchorTagsIgnoreProbs` which preserves probabilities, but
@@ -571,36 +587,45 @@ anchorTagsIgnoreProbs xs = do
 -- `p` by `-log(p)`.
 anchorTags
   :: [(Int, Br.SuperTok)]
-  -> [(O.Tree T.Text (Int, T.Text), DAG.Weight)]
+  -> [(O.Tree T.Text (Maybe (Int, T.Text)), DAG.Weight)]
 anchorTags =
   concatMap (uncurry anchor)
   where
     anchor tokID Br.SuperTok{..} = map
-      ( Arr.first (anchorTag (tokID, tokWord))
+      ( Arr.first (anchorTag (Just (tokID, tokWord)) onTerm)
       . Arr.second (\p -> -log(p))
       )
       tokTags
+    onTerm = \case
+      Nothing -> Nothing
+      Just _ -> error "Cannot process a co-anchor terminal node"
 
 
--- | A version of `anchorTags` (really works the same, just different output
--- type; hence can be used with the Earley-style parser).
-anchorTags'
-  :: [(Int, Br.SuperTok)]
-  -> [(O.Tree T.Text (S.Set (Int, T.Text)), DAG.Weight)]
-anchorTags' =
-  concatMap (uncurry anchor)
-  where
-    anchor tokID Br.SuperTok{..} = map
-      ( Arr.first (anchorTag $ S.singleton (tokID, tokWord))
-      . Arr.second (\p -> -log(p))
-      )
-      tokTags
+-- -- | A version of `anchorTags` (really works the same, just different output
+-- -- type; hence can be used with the Earley-style parser).
+-- anchorTags'
+--   :: [(Int, Br.SuperTok)]
+--   -> [(Tree, DAG.Weight)]
+-- anchorTags' =
+--   concatMap (uncurry anchor)
+--   where
+--     anchor tokID Br.SuperTok{..} = map
+--       ( Arr.first (anchorTag $ S.singleton (tokID, tokWord))
+--       . Arr.second (\p -> -log(p))
+--       )
+--       tokTags
 
 
-anchorTag :: t -> Br.Tree -> O.Tree T.Text t
-anchorTag x = fmap . O.mapTerm $ \case
+anchorTag
+  :: t
+    -- ^ To substitute the anchor
+  -> (Maybe T.Text -> t)
+    -- ^ To map over standard terminals
+  -> Br.Tree
+  -> O.Tree T.Text t
+anchorTag x f = fmap . O.mapTerm $ \case
   Br.Anchor -> x
-  Br.Term _ -> error "Cannot process a co-anchor terminal node"
+  Br.Term t -> f t
 
 
 --------------------------------------------------
@@ -729,7 +754,8 @@ renderParse deriv
     printIt = LIO.putStr . Br.showTree . fmap rmTokID'
     parse = D.toParse A.position $ D.normalize deriv
     check t =
-      let posList = map A.position (O.project t) in
+      let posList = map A.position (catMaybes $ O.project t) in
+      -- let posList = map A.position (O.project t) in
       if posList == List.sort posList
          then t
          else error "partage.renderParse: words not in order!"
@@ -756,14 +782,14 @@ type Tok t = S.Set (A.Tok t)
 -- | Retrieve the list of selected ETs for the individual tokens.
 tagsFromDeriv
   :: DG.Deriv n (A.Tok t)
-  -> M.Map (Tok t) (O.Tree n t)
+  -> M.Map (Tok t) (O.Tree n (Maybe t))
 tagsFromDeriv =
   go
     where
       go DG.Deriv{..} =
         let tok = getTok rootET
             chMap = M.unions . map go . concat $ M.elems modifs
-        in  M.insert tok (fmap (O.mapTerm A.terminal) rootET) chMap
+        in  M.insert tok (fmap (O.mapTerm $ fmap A.terminal) rootET) chMap
 
 
 -- | Retrieve the map of selected dependency heads.
@@ -789,8 +815,8 @@ getPos = S.fromList . map A.position . O.project
 
 
 -- | Determine the token set in the given tree.
-getTok :: O.Tree n (A.Tok t) -> S.Set (A.Tok t)
-getTok = S.fromList . O.project
+getTok :: O.Tree n (Maybe (A.Tok t)) -> S.Set (A.Tok t)
+getTok = S.fromList . catMaybes . O.project
 
 
 --------------------------------------------------
@@ -804,18 +830,22 @@ remove k xs = take k xs ++ drop (k+1) xs
 
 
 -- | Remove info about token IDs.
-rmTokID :: O.Node n (Int, t) -> O.Node n t
+-- rmTokID :: O.Node n (Maybe (Int, t)) -> O.Node n (Maybe t)
+rmTokID :: O.Node n (Maybe (Int, t)) -> O.Node n (Maybe t)
 rmTokID = \case
-  O.Term (_, x) -> O.Term x
+  O.Term (Just (_, x)) -> O.Term (Just x)
+  O.Term Nothing -> O.Term Nothing
   O.NonTerm x -> O.NonTerm x
   O.Sister x -> O.Sister x
   O.Foot x -> O.Foot x
 
 
 -- | Remove info about token IDs.
-rmTokID' :: O.Node n (A.Tok (Int, t)) -> O.Node n t
+rmTokID' :: O.Node n (Maybe (A.Tok (Int, t))) -> O.Node n (Maybe t)
 rmTokID' = \case
-  O.Term tok -> O.Term . snd $ A.terminal tok
+  -- O.Term tok -> O.Term . snd $ A.terminal tok
+  O.Term (Just tok) -> O.Term . Just . snd $ A.terminal tok
+  O.Term Nothing -> O.Term Nothing
   O.NonTerm x -> O.NonTerm x
   O.Sister x -> O.Sister x
   O.Foot x -> O.Foot x

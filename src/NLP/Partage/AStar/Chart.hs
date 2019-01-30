@@ -384,7 +384,8 @@ finalFrom start n auto Chart{..} =
       | p <- M.keys m
       -- , p ^. dagID == Left root ]
       , DAG.isRoot (p ^. dagID) dag
-      , getLabel (p ^. dagID) == Just start ]
+      , getLabel (p ^. dagID) == Just start
+      , regular (p ^. spanP) ]
   where
     dag = gramDAG auto
     -- root = NotFoot {notFootLabel = start, isSister = False}
