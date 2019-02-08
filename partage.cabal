@@ -106,7 +106,8 @@ library
     -- cpp-options: -DExtraCompression
 
     -- Allow many (regular) adjunctions at a given node
-    -- cpp-options: -DNoAdjunctionRestriction
+    -- WARNING: you have to manage this flag in the test-suite as well!
+    cpp-options: -DNoAdjunctionRestriction
 
 
 source-repository head
@@ -134,9 +135,13 @@ test-suite test
       , tasty                   >= 0.10
       , tasty-hunit             >= 0.9
       , HUnit                   >= 1.2
-      , data-memocombinators    >= 0.5  && < 0.6
+      , data-memocombinators    >= 0.5      && < 0.6
       , pipes                   >= 4.1      && < 4.4
       , transformers            >= 0.3      && < 0.6
+
+    -- Allow many (regular) adjunctions at a given node
+    -- WARNING: you have to manage this flag in the library section as well!
+    cpp-options: -DNoAdjunctionRestriction
 
 
 -- executable test-partage

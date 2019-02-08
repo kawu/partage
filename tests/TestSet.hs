@@ -303,7 +303,10 @@ gram1Tests =
                 ]
             ]
     , test "S" ["Tom", "caught", "almost", "a", "mouse"] No
+#ifdef NoAdjunctionRestriction
+#else
     , test "S" ["Tom", "quickly", "almost", "caught", "Tom"] No
+#endif
     , test "S" ["Tom", "caught", "a", "mouse"] Yes
     , test "S" ["Tom", "caught", "Tom"] Yes
     , test "S" ["Tom", "caught", "a", "Tom"] No
@@ -497,7 +500,11 @@ gram2Tests =
   , test "S" ("a b e a a") No
   , test "S" ("a b a b a b a b e a b a b a b a b") Yes
   , test "S" ("a b a b a b a b e a b a b a b a") No
+#ifdef NoAdjunctionRestriction
+#else
+  -- Only fails if multiple adjunction is not allowed
   , test "S" ("a b e b a") No
+#endif
   , test "S" ("b e a") No
   , test "S" ("a b a b") No 
   ]
@@ -669,8 +676,11 @@ gram5Tests =
     , test "S" ("Ben vigorously eats tasty a pasta") No
     , test "S" ("Ben vigorously a eats tasty pasta") No
     , test "S" ("Ben eats a tasty pasta plate") Yes
+#ifdef NoAdjunctionRestriction
+#else
     -- Should fail because of multiple adjunction
     , test "S" ("Ben vigorously eats a a tasty pasta") No
+#endif
     ]
     where
       test start sent res = Test start (toks sent) M.empty res
