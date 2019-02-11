@@ -20,6 +20,8 @@ import           Data.Ord (comparing)
 import qualified Data.IORef as IORef
 import qualified Data.Char as C
 import qualified Data.List as List
+import qualified Data.Foldable as F
+import           Data.Monoid (Sum(..))
 import qualified Data.Set as S
 import qualified Data.Map.Strict as M
 import qualified Data.Vector as V
@@ -41,7 +43,7 @@ import qualified NLP.Partage.AStar.Deriv.Gorn as DG
 import qualified NLP.Partage.Earley as E
 import qualified NLP.Partage.Format.Brackets as Br
 
-import Debug.Trace (trace)
+-- import Debug.Trace (trace)
 
 
 --------------------------------------------------
@@ -645,9 +647,19 @@ anchorTag
     -- ^ To map over standard terminals
   -> Br.Tree
   -> O.Tree T.Text t
-anchorTag x f = fmap . O.mapTerm $ \case
-  Br.Anchor -> x
-  Br.Term t -> f t
+anchorTag x f t =
+  doAnchor $ check t
+  where
+    doAnchor = fmap . O.mapTerm $ \case
+      Br.Anchor -> x
+      Br.Term t -> f t
+    check t = isSum1 t . flip F.foldMap t $ \case
+      O.Term Br.Anchor -> Sum (1 :: Int)
+      _ -> Sum 0
+    isSum1 t (Sum x)
+      | x == 1 = t
+      | otherwise =
+          error $ "anchorTag: number of anchors = " ++ show x
 
 
 --------------------------------------------------
