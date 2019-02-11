@@ -591,6 +591,7 @@ travWeight
 travWeight trav h = 
   arcWeight trav + case trav of
     A.Scan q _t _ -> activeWeight q h
+    A.Empty q _ -> activeWeight q h
     A.Subst qp qa _ -> passiveWeight qp h + activeWeight qa h
     A.Foot q _x _ -> activeWeight q h
     A.SisterAdjoin qp qa _ -> passiveWeight qp h + activeWeight qa h
