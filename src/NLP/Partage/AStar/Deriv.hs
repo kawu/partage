@@ -457,7 +457,7 @@ unAdjoinTree cmb = do
 derivTrees
     :: (Ord n, Ord t)
     => A.Hype n t   -- ^ Final state of the earley parser
-    -> n            -- ^ The start symbol
+    -> S.Set n      -- ^ The start symbol set
     -> Int          -- ^ Length of the input sentence
     -> [Deriv n (Tok t)]
 derivTrees hype start n
@@ -624,7 +624,7 @@ arcWeight = A._weight
 derivTreesW
     :: (Ord n, Ord t)
     => A.Hype n t   -- ^ Final state of the earley parser
-    -> n            -- ^ The start symbol
+    -> S.Set n      -- ^ The start symbol set
     -> Int          -- ^ Length of the input sentence
     -> Maybe (Deriv n (Tok t), Weight)
 derivTreesW hype start n = do
@@ -766,7 +766,7 @@ minimumBy f xs =
 encodes
     :: (Ord n, Ord t)
     => A.Hype n t   -- ^ Final state of the earley parser
-    -> n            -- ^ The start symbol
+    -> S.Set n      -- ^ The start symbol set
     -> Int          -- ^ Length of the input sentence
     -> Deriv n (Tok t)
     -> Bool
@@ -1199,8 +1199,8 @@ type DerivM n t m =
 
 -- | Reader component of `DerivM`.
 data DerivR n = DerivR
-  { startSym :: n
-    -- ^ Start symbol of the grammar
+  { startSym :: S.Set n
+    -- ^ Accepted start symbols of the grammar
   , sentLen  :: Int
     -- ^ Length of the input sentence
   } deriving (Show, Eq, Ord)
@@ -1281,7 +1281,7 @@ consumeDerivs
   :: (SOrd n, SOrd t)
   => A.Auto n t
   -> A.Input t
-  -> n            -- ^ Start symbol
+  -> S.Set n            -- ^ Start symbol set
   -> P.Consumer (ModifDerivs n t) IO (A.Hype n t)
   -> IO (A.Hype n t)
 consumeDerivs automat input start cons0 = do
@@ -1469,7 +1469,7 @@ turnAround item trav = case trav of
 
 -- | Check whether the given passive item is final or not.
 isFinal
-  :: (Monad m, Eq n)
+  :: (Monad m, Ord n)
   => A.Hype n t
   -> A.Passive n t -- ^ The item to check
   -> DerivM n t m Bool
@@ -1486,24 +1486,29 @@ isFinal hype p = do
 -- | Check whether the given passive item is final or not.
 -- TODO: Move to some core module?
 isFinal_
-  :: (Eq n)
+  :: (Ord n)
   => A.Hype n t
-  -> n             -- ^ The start symbol
+  -> S.Set n       -- ^ Accepted start symbols
   -> Int           -- ^ The length of the input sentence
   -> A.Passive n t -- ^ The item to check
   -> Bool
-isFinal_ hype start n p =
+isFinal_ hype startSet n p =
   p ^. A.spanP ^. A.beg == 0 &&
   p ^. A.spanP ^. A.end == n &&
   p ^. A.spanP ^. A.gap == Nothing &&
   -- p ^. A.dagID == Left root &&
-  DAG.isRoot dagID dag &&
-  getLabel dagID == Just start
+  DAG.isRoot dagID dag && checkStart
+    (S.fromList . maybeToList $ getLabel dagID)
   where
     -- root = Base.NotFoot {notFootLabel=start, isSister=False}
     dag = Auto.gramDAG $ A.automat hype
     dagID = p ^. A.dagID
     getLabel did = Base.labNonTerm =<< DAG.label did dag
+--     checkStart labelSet
+--       | S.null startSet = True
+--       | otherwise = (not . S.null) (labelSet `S.intersection` startSet)
+    checkStart labelSet =
+      (not . S.null) (labelSet `S.intersection` startSet)
 
 
 -- -- | ListT from a list.

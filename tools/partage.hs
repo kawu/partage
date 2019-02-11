@@ -15,8 +15,10 @@ import qualified Control.Monad.RWS.Strict   as RWS
 import           Data.Monoid ((<>))
 import           Data.Maybe (catMaybes, maybeToList)
 import           Options.Applicative
+import qualified Data.Attoparsec.Text as Atto
 import           Data.Ord (comparing)
 import qualified Data.IORef as IORef
+import qualified Data.Char as C
 import qualified Data.List as List
 import qualified Data.Set as S
 import qualified Data.Map.Strict as M
@@ -39,7 +41,17 @@ import qualified NLP.Partage.AStar.Deriv.Gorn as DG
 import qualified NLP.Partage.Earley as E
 import qualified NLP.Partage.Format.Brackets as Br
 
--- import Debug.Trace (trace)
+import Debug.Trace (trace)
+
+
+--------------------------------------------------
+-- Attoparsec Utils
+--------------------------------------------------
+
+
+-- | Convert an attoparsec reader to `ReadM`.
+attoReader :: Atto.Parser a -> ReadM a
+attoReader p = eitherReader (Atto.parseOnly p . T.pack)
 
 
 --------------------------------------------------
@@ -56,7 +68,7 @@ data Command
       , minProb :: Maybe Double
       , betaParam :: Maybe Double
       , goldPath :: Maybe FilePath
-      , startSym :: T.Text
+      , startSym :: S.Set T.Text
       , showParses :: Maybe Int
       , showParseNum :: Maybe Int
       , brackets :: Bool
@@ -71,7 +83,7 @@ data Command
       , maxDeps :: Maybe Int
       , minProb :: Maybe Double
       , betaParam :: Maybe Double
-      , startSym :: T.Text
+      , startSym :: S.Set T.Text
       , fullHype :: Bool
       , maxLen :: Maybe Int
       , fullParse :: Bool
@@ -130,7 +142,7 @@ earleyOptions = Earley
     <> short 'g'
     <> help "Gold file with parsed trees"
   )
-  <*> (fmap T.pack . strOption)
+  <*> option (attoReader startSetP)
   ( long "start"
     <> short 's'
     <> help "Start symbol"
@@ -192,7 +204,7 @@ astarOptions = AStar
   ( long "beta"
     <> help "Beta parameter à la Clark & Curran"
   )
-  <*> (fmap T.pack . strOption)
+  <*> option (attoReader startSetP)
   ( long "start"
     <> short 's'
     <> help "Start symbol"
@@ -237,6 +249,16 @@ removeColOptions = RemoveCol
     <> short 'c'
     <> help "Column to remove"
   )
+
+
+-- | Start symbol set parser
+startSetP :: Atto.Parser (S.Set T.Text)
+startSetP = do
+  xs <- startSymP `Atto.sepBy1` spacesP
+  return (S.fromList xs)
+  where
+    startSymP = Atto.takeWhile1 C.isAlphaNum
+    spacesP = Atto.takeWhile1 C.isSpace
 
 
 --------------------------------------------------

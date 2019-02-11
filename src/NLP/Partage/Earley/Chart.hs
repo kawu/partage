@@ -26,6 +26,7 @@ module NLP.Partage.Earley.Chart
 
 -- * Extraction
 , finalFrom
+, finalFrom'
 , expectEnd
 , rootSpan
 , rootEnd
@@ -290,6 +291,17 @@ finalFrom start n Chart{..} =
       , regular (p ^. spanP) ]
   where
     root = NotFoot {notFootLabel = start, isSister = False}
+
+
+-- | Version of `finalFrom` which accepts several start symbols.
+finalFrom'
+    :: (Ord n)
+    => S.Set n      -- ^ The start symbol
+    -> Int          -- ^ The length of the input sentence
+    -> Chart n t    -- ^ Result of the earley computation
+    -> [Passive n t]
+finalFrom' startSet n chart =
+  concatMap (\start -> finalFrom start n chart) (S.toList startSet)
 
 
 -- -- | Return all active processed items which:

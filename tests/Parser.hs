@@ -40,11 +40,11 @@ testEarley =
       , T.dependencySupport = False }
     recFrom gram start input _headMap = do
         let dag = mkGram gram
-        E.recognizeFrom dag start (E.fromList input)
+        E.recognizeFrom dag (S.singleton start) (E.fromList input)
     parseFrom gram start input _headMap = do
         let dag = mkGram gram
         fmap S.fromList
-            . E.parse dag start
+            . E.parse dag (S.singleton start)
             . E.fromList
             $ input
     mkGram = DAG.mkGram . map (Arr.first termToSet)
@@ -65,7 +65,7 @@ testAStar =
       , T.dependencySupport = True 
       }
     recFrom gram start input headMap
-      = A.recognizeFrom memoTerm gram start (posMap input) headMap
+      = A.recognizeFrom memoTerm gram (S.singleton start) (posMap input) headMap
       . A.fromList
       $ input
     parseFrom gram start sent headMap = do
@@ -78,19 +78,19 @@ testAStar =
         -- below we just map (Tok t -> t) but we have to also
         -- do the corresponding encoding/decoding
         . map (O.mkTree . fmap (O.mapTerm $ fmap A.terminal) . O.unTree)
-        $ A.parsedTrees hype start (length sent)
+        $ A.parsedTrees hype (S.singleton start) (length sent)
     derivFrom gram start sent headMap = do
       let dag = DAG.mkGram gram
           input = A.fromList sent
           auto = A.mkAuto memoTerm dag input (posMap sent) headMap
       hype <- A.earleyAuto auto input
-      return $ D.derivTrees hype start (length sent)
-    encodesFrom hype start input = D.encodes hype start (length input)
+      return $ D.derivTrees hype (S.singleton start) (length sent)
+    encodesFrom hype start input = D.encodes hype (S.singleton start) (length input)
     derivPipe gram start sent headMap =
       let dag = DAG.mkGram gram
           input = A.fromList sent
           auto = A.mkAuto memoTerm dag input (posMap sent) headMap
-      in  D.consumeDerivs auto input start
+      in  D.consumeDerivs auto input (S.singleton start)
 --           conf = D.DerivR
 --             { D.startSym = start
 --             , D.sentLen = length sent }

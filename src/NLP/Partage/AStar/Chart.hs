@@ -29,6 +29,7 @@ module NLP.Partage.AStar.Chart
 
   -- * Extraction
   , finalFrom
+  , finalFrom'
   , expectEnd
   , rootSpan
   , rootEnd
@@ -373,7 +374,7 @@ finalFrom
     :: (Ord n, Eq t)
     => n            -- ^ The start symbol
     -> Int          -- ^ The length of the input sentence
-    -> Auto n t     -- ^ The underlying Earl yautomaton
+    -> Auto n t     -- ^ The underlying Earley yautomaton
     -> Chart n t    -- ^ Result of the earley computation
     -> [Passive n t]
 finalFrom start n auto Chart{..} =
@@ -390,6 +391,18 @@ finalFrom start n auto Chart{..} =
     dag = gramDAG auto
     -- root = NotFoot {notFootLabel = start, isSister = False}
     getLabel did = labNonTerm =<< DAG.label did dag
+
+
+-- | Version of `finalFrom` which accepts several start symbols.
+finalFrom'
+    :: (Ord n, Eq t)
+    => S.Set n      -- ^ The start symbol set
+    -> Int          -- ^ The length of the input sentence
+    -> Auto n t     -- ^ The underlying Earl yautomaton
+    -> Chart n t    -- ^ Result of the earley computation
+    -> [Passive n t]
+finalFrom' startSet n auto chart =
+  concatMap (\start -> finalFrom start n auto chart) (S.toList startSet)
 
 
 -- -- | Return all active processed items which:

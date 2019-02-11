@@ -1079,7 +1079,7 @@ step (ItemA p :-> e) = do
 parsedTrees
     :: forall n t. (Ord n, Ord t)
     => Hype n t     -- ^ Final state of the earley parser
-    -> n            -- ^ The start symbol
+    -> S.Set n      -- ^ The start symbol set
     -> Int          -- ^ Length of the input sentence
     -> [T.Tree n (Maybe t)]
 parsedTrees hype start n
@@ -1185,7 +1185,7 @@ recognize DAG.Gram{..} input = do
 recognizeFrom
     :: (SOrd t, SOrd n)
     => DAGram n t           -- ^ The grammar
-    -> n                    -- ^ The start symbol
+    -> S.Set n              -- ^ The start symbol
     -> Input t              -- ^ Input sentence
     -> IO Bool
 recognizeFrom DAG.Gram{..} start input = do
@@ -1198,7 +1198,7 @@ recognizeFrom DAG.Gram{..} start input = do
 parse
     :: (SOrd t, SOrd n)
     => DAGram n t           -- ^ The grammar (set of rules)
-    -> n                    -- ^ The start symbol
+    -> S.Set n              -- ^ The start symbol set
     -> Input t              -- ^ Input sentence
     -> IO [T.Tree n (Maybe t)]
 parse DAG.Gram{..} start input = do
@@ -1244,8 +1244,8 @@ recognizeAuto auto xs =
 recognizeFromAuto
     :: (SOrd t, SOrd n)
     => Auto n t       -- ^ Grammar automaton
-    -> n                    -- ^ The start symbol
-    -> Input t            -- ^ Input sentence
+    -> S.Set n        -- ^ The start symbol
+    -> Input t        -- ^ Input sentence
     -> IO Bool
 recognizeFromAuto auto start input = do
     hype <- earleyAuto auto input
@@ -1257,7 +1257,7 @@ recognizeFromAuto auto start input = do
 parseAuto
     :: (SOrd t, SOrd n)
     => Auto n t           -- ^ Grammar automaton
-    -> n                  -- ^ The start symbol
+    -> S.Set n            -- ^ The start symbol set
     -> Input t            -- ^ Input sentence
     -> IO [T.Tree n (Maybe t)]
 parseAuto auto start input = do
@@ -1394,11 +1394,11 @@ passiveTrav p h = Chart.passiveTrav p (automat h) (chart h)
 -- | Return the list of final, initial, passive chart items.
 finalFrom
     :: (Ord n)
-    => n            -- ^ The start symbol
+    => S.Set n      -- ^ The start symbol set
     -> Int          -- ^ The length of the input sentence
     -> Hype n t     -- ^ Result of the earley computation
     -> [Passive n t]
-finalFrom start n hype = Chart.finalFrom start n (chart hype)
+finalFrom start n hype = Chart.finalFrom' start n (chart hype)
 
 
 --------------------------------------------------

@@ -1870,7 +1870,7 @@ fromPassive passive hype = concat
 parsedTrees
     :: forall n t. (Ord n, Ord t)
     => Hype n t     -- ^ Final state of the earley parser
-    -> n            -- ^ The start symbol
+    -> S.Set n      -- ^ The start symbol set
     -> Int          -- ^ Length of the input sentence
     -> [T.Tree n (Maybe (Tok t))]
 parsedTrees hype start n
@@ -1907,7 +1907,7 @@ recognizeFrom
     => Memo.Memo t             -- ^ Memoization strategy for terminals
     -> [ ( O.Tree n (Maybe t)
          , Weight ) ]          -- ^ Weighted grammar
-    -> n                    -- ^ The start symbol
+    -> S.Set n              -- ^ The start symbol set
     -> M.Map t Int          -- ^ Position map
     -> M.Map Int (M.Map Int Weight)
                             -- ^ Head map
@@ -1978,7 +1978,7 @@ recognizeFrom memoTerm gram start posMap hedMap input = do
 recognizeFromAuto
     :: (SOrd t, SOrd n)
     => Auto n t         -- ^ Grammar automaton
-    -> n                -- ^ The start symbol
+    -> S.Set n          -- ^ The start symbol set
     -> Input t          -- ^ Input sentence
     -> IO Bool
 recognizeFromAuto auto start input = do
@@ -2153,11 +2153,12 @@ passiveTrav p h = Chart.passiveTrav p (automat h) (chart h)
 -- | Return the list of final, initial, passive chart items.
 finalFrom
     :: (Ord n, Eq t)
-    => n            -- ^ The start symbol
+    => S.Set n      -- ^ The start symbol set
     -> Int          -- ^ The length of the input sentence
     -> Hype n t     -- ^ Result of the earley computation
     -> [Passive n t]
-finalFrom start n hype = Chart.finalFrom start n (automat hype) (chart hype)
+finalFrom startSet n hype =
+  Chart.finalFrom' startSet n (automat hype) (chart hype)
 
 
 -- -- -- | Return the list of final passive chart items.
