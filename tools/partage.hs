@@ -640,6 +640,7 @@ anchorTags =
 --       tokTags
 
 
+-- | Anchor the given elementary tree with the given anchor terminal symbol.
 anchorTag
   :: t
     -- ^ To substitute the anchor
@@ -647,19 +648,17 @@ anchorTag
     -- ^ To map over standard terminals
   -> Br.Tree
   -> O.Tree T.Text t
-anchorTag x f t =
-  doAnchor $ check t
+anchorTag x f tree =
+  case getSum (anchorNum tree) of
+    1 -> doAnchor tree
+    n -> error $ "anchorTag: number of anchors = " ++ show n
   where
     doAnchor = fmap . O.mapTerm $ \case
       Br.Anchor -> x
       Br.Term t -> f t
-    check t = isSum1 t . flip F.foldMap t $ \case
+    anchorNum = F.foldMap $ \case
       O.Term Br.Anchor -> Sum (1 :: Int)
       _ -> Sum 0
-    isSum1 t (Sum x)
-      | x == 1 = t
-      | otherwise =
-          error $ "anchorTag: number of anchors = " ++ show x
 
 
 --------------------------------------------------
