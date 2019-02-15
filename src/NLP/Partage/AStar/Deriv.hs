@@ -228,6 +228,8 @@ applySister
   -> O.Tree n (Maybe t)
   -> O.Tree n (Maybe t)
 applySister pos mod hed =
+  -- TODO: Remove the trace!
+  trace (showTree mod ++ "\n" ++ showTree hed ++ "\n") $
   root (left ++ R.subForest mod ++ right)
   where
     (left, right) =
@@ -237,6 +239,7 @@ applySister pos mod hed =
     root subf = R.Node
       { R.rootLabel = R.rootLabel hed
       , R.subForest = subf }
+    showTree = R.drawTree . fmap show
 
 
 -- | Apply adjunction
@@ -259,7 +262,13 @@ splitForest
   -> [O.Tree n (Maybe t)]
   -> ([O.Tree n (Maybe t)], [O.Tree n (Maybe t)])
 splitForest pos k =
-  L.partition (\t -> treePos pos t < k)
+  L.partition (\t -> localTreePos pos t < k)
+  where
+    localTreePos pos t =
+      case catMaybes (O.project t) of
+        x:_ -> pos x
+        otherwise -> error
+          "AStar.Deriv.splitForest.localTreePos: no terminal in the given elementary tree"
 
 
 -- | Get the "main" position of the tree.  If several, arbitrarily
