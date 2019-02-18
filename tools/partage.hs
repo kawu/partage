@@ -752,7 +752,7 @@ renderInput inp = do
 
 -- | Render the given derivation.
 renderDeriv 
-  :: D.Deriv T.Text (A.Tok (Int, T.Text))
+  :: D.Deriv D.UnNorm T.Text (A.Tok (Int, T.Text))
   -> IO ()
 renderDeriv deriv0 = do
   let deriv = DG.fromDeriv deriv0
@@ -776,7 +776,7 @@ renderDeriv deriv0 = do
 
 -- | Render the given derivation.
 renderParse 
-  :: D.Deriv T.Text (A.Tok (Int, T.Text))
+  :: D.Deriv D.UnNorm T.Text (A.Tok (Int, T.Text))
   -> IO ()
 renderParse deriv
   = printIt
@@ -785,7 +785,7 @@ renderParse deriv
   where
     -- printIt = putStrLn  . R.drawTree . fmap show
     printIt = LIO.putStr . Br.showTree . fmap rmTokID'
-    parse = D.toParse A.position $ D.normalize deriv
+    parse = fst $ D.toParse deriv
     check t =
       let posList = map A.position (catMaybes $ O.project t) in
       -- let posList = map A.position (O.project t) in

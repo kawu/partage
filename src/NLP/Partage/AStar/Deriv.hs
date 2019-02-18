@@ -8,6 +8,8 @@ module NLP.Partage.AStar.Deriv
 ( Deriv
 , ModifDerivs
 , DerivNode (..)
+, Norm
+, UnNorm
 , derivTrees
 , derivTreesW
 , fromPassive
@@ -71,6 +73,14 @@ import Debug.Trace (trace)
 ---------------------------
 
 
+-- | Unnormalized: sister adjunction is represented as a regular `Sister` node.
+data UnNorm
+
+
+-- | Normalized: sister adjunction is represented as modification.
+data Norm
+
+
 -- | Derivation tree is similar to `O.Tree` but additionally includes
 -- potential modifications aside the individual nodes.  Modifications
 -- themselves take the form of derivation trees.  Whether the modification
@@ -79,19 +89,22 @@ import Debug.Trace (trace)
 --
 -- UPDATE 09/06/2018: We now also have sister-adjunction. For the moment, it is
 -- not represented as a modifier, but as a regular 'Sister' node.
-type Deriv n t = R.Tree (DerivNode n t)
+--
+-- UPDATE 18/02/2019: `c` is a phantom parameter which stands for `UnNorm` or
+-- `Norm`.
+type Deriv c n t = R.Tree (DerivNode c n t)
 
 
 -- | A node of a derivation tree.
-data DerivNode n t = DerivNode
+data DerivNode c n t = DerivNode
   { node  :: O.Node n (Maybe t)
-  , modif :: [Deriv n t]
+  , modif :: [Deriv c n t]
   } deriving (Eq, Ord, Show)
 
 
 -- | Normalize the derivation tree so that sister adjunction is modeled
 -- properly using the `modif` field.
-normalize :: Deriv n t -> Deriv n t
+normalize :: Deriv UnNorm n t -> Deriv Norm n t
 normalize =
   onTree
   where
@@ -145,7 +158,7 @@ instance Show a => Show (PrintNode a) where
 
 -- | Transform the derivation tree into a tree which is easier
 -- to draw using the standard `R.draw` function.
-deriv4show :: Deriv n t -> R.Tree (PrintNode (O.Node n (Maybe t)))
+deriv4show :: Deriv c n t -> R.Tree (PrintNode (O.Node n (Maybe t)))
 deriv4show =
   go False
   where
@@ -163,50 +176,44 @@ deriv4show =
 ---------------------------
 
 
--- | Convert the given derivation tree to a parsed tree.
---
--- WARNING: the input tree should be normalized!
---
-toParse
-  :: (Show n, Show t, Ord pos, Num pos)
-  => (t -> pos)
-  -> Deriv n t
-  -> O.Tree n (Maybe t)
-toParse pos deriv =
-  applyAll
-    (map (applyDeriv pos . toParse pos) modif)
-    tree'
+-- | Convert the given derivation tree to a parsed tree.  The second element of
+-- the reuslting tuple is `True` if the tree is a sister-adjunction tree.
+toParse :: (Show n, Show t) => Deriv UnNorm n t -> (O.Tree n (Maybe t), Bool)
+toParse deriv =
+  ( applyAll
+      (map (applyDeriv . fst . toParse) modif)
+      tree'
+  , isSister 
+  )
   where
+    DerivNode{..} = R.rootLabel deriv
+    isSister =
+      case node of
+        O.Sister _ -> True
+        _ -> False
+--     rmSisterRoot t
+--       | isSister  = R.subForest t
+--       | otherwise = [t]
     tree' = R.Node
       { R.rootLabel = node
-      , R.subForest = map (toParse pos) (R.subForest deriv)
+      , R.subForest = concatMap (onChild . toParse) (R.subForest deriv)
       }
-    DerivNode{..} = R.rootLabel deriv
-
-
--- -- | Get the "main" position of the derivation tree.  If several, arbitrarily
--- -- pick one of them.
--- derivPos :: (Ord pos) => (t -> pos) -> Deriv n t -> pos
--- derivPos pos deriv =
---   case project deriv of
---     x:_ -> pos x
---     otherwise -> error
---       "AStar.Deriv.applySister: no terminal in an elementary tree"
---   where
---     project = O.project . fmap node
+    onChild (t, False) = [t]
+    onChild (t, True)  = R.subForest t
 
 
 -- | Apply a given modifier tree to a given head tree.
 applyDeriv
-  :: (Show n, Show t, Ord pos)
-  => (t -> pos)
+  :: (Show n, Show t)
+  => O.Tree n (Maybe t)
   -> O.Tree n (Maybe t)
   -> O.Tree n (Maybe t)
-  -> O.Tree n (Maybe t)
-applyDeriv pos mod hed
+applyDeriv mod hed
   | isLeaf hed = applySubst mod hed
-  | isSister mod = applySister pos mod hed
-  | otherwise = applyAdj pos mod hed
+  | isSister mod = 
+      error "Deriv.applyDeriv: isSister should not be possible!"
+      -- applySister pos mod hed
+  | otherwise = applyAdj mod hed
   where
     isLeaf = null . R.subForest
     isSister t =
@@ -220,65 +227,64 @@ applySubst :: O.Tree n (Maybe t) -> O.Tree n (Maybe t) -> O.Tree n (Maybe t)
 applySubst mod _hed = mod
 
 
--- | Apply sister adjunction
-applySister
-  :: (Show n, Show t, Ord pos)
-  => (t -> pos)
-  -> O.Tree n (Maybe t)
-  -> O.Tree n (Maybe t)
-  -> O.Tree n (Maybe t)
-applySister pos mod hed =
-  -- TODO: Remove the trace!
-  trace (showTree mod ++ "\n" ++ showTree hed ++ "\n") $
-  root (left ++ R.subForest mod ++ right)
-  where
-    (left, right) =
-      splitForest pos
-        (treePos pos mod)
-        (R.subForest hed)
-    root subf = R.Node
-      { R.rootLabel = R.rootLabel hed
-      , R.subForest = subf }
-    showTree = R.drawTree . fmap show
+-- -- | Apply sister adjunction
+-- applySister
+--   :: (Show n, Show t, Ord pos)
+--   => (t -> pos)
+--   -> O.Tree n (Maybe t)
+--   -> O.Tree n (Maybe t)
+--   -> O.Tree n (Maybe t)
+-- applySister pos mod hed =
+--   -- TODO: Remove the trace!
+--   trace (showTree mod ++ "\n" ++ showTree hed ++ "\n") $
+--   root (left ++ R.subForest mod ++ right)
+--   where
+--     (left, right) =
+--       splitForest pos
+--         (treePos pos mod)
+--         (R.subForest hed)
+--     root subf = R.Node
+--       { R.rootLabel = R.rootLabel hed
+--       , R.subForest = subf }
+--     showTree = R.drawTree . fmap show
 
 
 -- | Apply adjunction
 applyAdj
-  :: (Show n, Show t, Ord pos)
-  => (t -> pos)
+  :: (Show n, Show t)
+  => O.Tree n (Maybe t)
   -> O.Tree n (Maybe t)
   -> O.Tree n (Maybe t)
-  -> O.Tree n (Maybe t)
-applyAdj _pos mod hed =
+applyAdj mod hed =
   O.replaceFoot hed mod
 
 
--- | Split the forest into two separate parts, on two sides of the given
--- position.
-splitForest
-  :: (Ord pos)
-  => (t -> pos) 
-  -> pos
-  -> [O.Tree n (Maybe t)]
-  -> ([O.Tree n (Maybe t)], [O.Tree n (Maybe t)])
-splitForest pos k =
-  L.partition (\t -> localTreePos pos t < k)
-  where
-    localTreePos pos t =
-      case catMaybes (O.project t) of
-        x:_ -> pos x
-        otherwise -> error
-          "AStar.Deriv.splitForest.localTreePos: no terminal in the given elementary tree"
+-- -- | Split the forest into two separate parts, on two sides of the given
+-- -- position.
+-- splitForest
+--   :: (Ord pos)
+--   => (t -> pos) 
+--   -> pos
+--   -> [O.Tree n (Maybe t)]
+--   -> ([O.Tree n (Maybe t)], [O.Tree n (Maybe t)])
+-- splitForest pos k =
+--   L.partition (\t -> localTreePos pos t < k)
+--   where
+--     localTreePos pos t =
+--       case catMaybes (O.project t) of
+--         x:_ -> pos x
+--         otherwise -> error
+--           "AStar.Deriv.splitForest.localTreePos: no terminal in the given elementary tree"
 
 
--- | Get the "main" position of the tree.  If several, arbitrarily
--- pick one of them.
-treePos :: (t -> pos) -> O.Tree n (Maybe t) -> pos
-treePos pos t =
-  case catMaybes (O.project t) of
-    x:_ -> pos x
-    otherwise -> error
-      "AStar.Deriv.treePos: no terminal in the given elementary tree"
+-- -- | Get the "main" position of the tree.  If several, arbitrarily
+-- -- pick one of them.
+-- treePos :: (t -> pos) -> O.Tree n (Maybe t) -> pos
+-- treePos pos t =
+--   case catMaybes (O.project t) of
+--     x:_ -> pos x
+--     otherwise -> error
+--       "AStar.Deriv.treePos: no terminal in the given elementary tree"
 
 
 -- --------------------------------------------------
@@ -316,8 +322,8 @@ treePos pos t =
 mkTree
   :: A.Hype n t
   -> A.Passive n t
-  -> [Deriv n (Tok t)]
-  -> Deriv n (Tok t)
+  -> [Deriv UnNorm n (Tok t)]
+  -> Deriv UnNorm n (Tok t)
 mkTree hype p ts = R.Node
   { R.rootLabel = mkRoot hype p
   , R.subForest = reverse ts }
@@ -328,18 +334,19 @@ unTree
   :: (Ord n, Ord t)
   => A.Hype n t
   -> A.Passive n t
-  -> Deriv n (Tok t)
-  -> Maybe [Deriv n (Tok t)]
+  -> Deriv UnNorm n (Tok t)
+  -> Maybe [Deriv UnNorm n (Tok t)]
 unTree hype p deriv = do
   guard $ R.rootLabel deriv == mkRoot hype p
   return . reverse $ R.subForest deriv
 
 -- | Construct a derivation node with no modifier.
-only :: O.Node n (Maybe t) -> DerivNode n t
+only :: O.Node n (Maybe t) -> DerivNode UnNorm n t
 only x = DerivNode {node = x, modif =  []}
 
--- | Several constructors which allow to build non-modified nodes.
-mkRoot :: A.Hype n t -> A.Passive n t -> DerivNode n (Tok t)
+-- Below follow several constructors which allow to build non-modified nodes.
+
+mkRoot :: A.Hype n t -> A.Passive n t -> DerivNode UnNorm n (Tok t)
 -- mkRoot hype p = only $
 --   case dagID of
 --     Left notFoot ->
@@ -361,24 +368,24 @@ mkRoot hype p = only $
     labNT = Item.nonTerm dagID auto
 
 
-mkFoot :: n -> DerivNode n t
+mkFoot :: n -> DerivNode UnNorm n t
 mkFoot x = only . O.Foot $ x
 
-mkTerm :: Maybe t -> DerivNode n t
+mkTerm :: Maybe t -> DerivNode UnNorm n t
 mkTerm = only . O.Term
 
 -- | Build non-modified nodes of different types.
-footNode :: n -> Deriv n t
+footNode :: n -> Deriv UnNorm n t
 footNode x = R.Node (mkFoot x) []
 
-termNode :: t -> Deriv n t
+termNode :: t -> Deriv UnNorm n t
 termNode x = R.Node (mkTerm $ Just x) []
 
-emptyNode :: Deriv n t
+emptyNode :: Deriv UnNorm n t
 emptyNode = R.Node (mkTerm Nothing) []
 
 -- | Retrieve root non-terminal of a derivation tree.
-derivRoot :: Deriv n t -> n
+derivRoot :: Deriv UnNorm n t -> n
 derivRoot R.Node{..} = case node rootLabel of
   O.NonTerm x -> x
   O.Foot _ -> error "passiveDerivs.getRoot: got foot"
@@ -386,7 +393,9 @@ derivRoot R.Node{..} = case node rootLabel of
   O.Term _ -> error "passiveDerivs.getRoot: got terminal"
 
 -- | Construct substitution node stemming from the given derivation.
-substNode :: A.Hype n t -> A.Passive n t -> Deriv n (Tok t) -> Deriv n (Tok t)
+substNode
+  :: A.Hype n t -> A.Passive n t
+  -> Deriv UnNorm n (Tok t) -> Deriv UnNorm n (Tok t)
 substNode hype p t
 --   | A.isRoot (p ^. A.dagID) = flip R.Node [] $ DerivNode
 --     { node = O.NonTerm (derivRoot t)
@@ -400,7 +409,10 @@ substNode hype p t
 
 -- | Inverse of `substNode`.
 -- substNode p t == t' => unSubstNode o t' == Just t
-unSubstNode :: (Eq n) => A.Hype n t -> A.Passive n t -> Deriv n (Tok t) -> Maybe (Deriv n (Tok t))
+unSubstNode 
+  :: (Eq n) => A.Hype n t -> A.Passive n t
+  -> Deriv UnNorm n (Tok t)
+  -> Maybe (Deriv UnNorm n (Tok t))
 unSubstNode hype p t'
 --   | A.isRoot (p ^. A.dagID) = do
 --       R.Node DerivNode{..} [] <- return t'
@@ -418,7 +430,7 @@ unSubstNode hype p t'
 
 -- | Add the auxiliary derivation to the list of modifications of the
 -- initial derivation.
-adjoinTree :: Deriv n t -> Deriv n t -> Deriv n t
+adjoinTree :: Deriv c n t -> Deriv c n t -> Deriv c n t
 adjoinTree ini aux = R.Node
   { R.rootLabel = let root = R.rootLabel ini in DerivNode
     { node = node root
@@ -434,7 +446,7 @@ adjoinTree ini aux = R.Node
 
 -- | Unverse of `adjoinTree`.
 -- adjoinTree ini aux == cmb => unAjoinInit cmb == Just (ini, aux)
-unAdjoinTree :: Deriv n t -> Maybe (Deriv n t, Deriv n t)
+unAdjoinTree :: Deriv c n t -> Maybe (Deriv c n t, Deriv c n t)
 unAdjoinTree cmb = do
   subForestIni <- return (R.subForest cmb)
   DerivNode{..} <- return (R.rootLabel cmb)
@@ -468,7 +480,7 @@ derivTrees
     => A.Hype n t   -- ^ Final state of the earley parser
     -> S.Set n      -- ^ The start symbol set
     -> Int          -- ^ Length of the input sentence
-    -> [Deriv n (Tok t)]
+    -> [Deriv UnNorm n (Tok t)]
 derivTrees hype start n
   = concatMap (`fromPassive` hype)
   $ A.finalFrom start n hype
@@ -481,7 +493,7 @@ fromPassiveTrav
   => A.Passive n t
   -> A.Trav n t
   -> A.Hype n t
-  -> [Deriv n (Tok t)]
+  -> [Deriv UnNorm n (Tok t)]
 fromPassiveTrav p trav hype = case trav of
   A.Adjoin qa qm _ ->
     [ adjoinTree ini aux
@@ -502,7 +514,7 @@ fromActive
   :: (Ord n, Ord t)
   => A.Active
   -> A.Hype n t
-  -> [[Deriv n (Tok t)]]
+  -> [[Deriv UnNorm n (Tok t)]]
 fromActive active hype = 
   if S.null (A.prioTrav ext)
     then [[]]
@@ -520,7 +532,7 @@ fromActiveTrav
   => A.Active
   -> A.Trav n t
   -> A.Hype n t
-  -> [[Deriv n (Tok t)]]
+  -> [[Deriv UnNorm n (Tok t)]]
 fromActiveTrav _p trav hype = case trav of
   A.Scan q t _ ->
     [ termNode t : ts
@@ -551,7 +563,7 @@ fromPassive
   :: forall n t. (Ord n, Ord t)
   => A.Passive n t
   -> A.Hype n t
-  -> [Deriv n (Tok t)]
+  -> [Deriv UnNorm n (Tok t)]
 fromPassive passive hype = concat
   [ fromPassiveTrav passive trav hype
   | trav <- S.toList (A.prioTrav ext) ]
@@ -635,7 +647,7 @@ derivTreesW
     => A.Hype n t   -- ^ Final state of the earley parser
     -> S.Set n      -- ^ The start symbol set
     -> Int          -- ^ Length of the input sentence
-    -> Maybe (Deriv n (Tok t), Weight)
+    -> Maybe (Deriv UnNorm n (Tok t), Weight)
 derivTreesW hype start n = do
   pass <- minimumBy
     (flip passiveWeight hype)
@@ -648,7 +660,7 @@ fromPassiveW
   :: forall n t. (Ord n, Ord t)
   => A.Passive n t
   -> A.Hype n t
-  -> Maybe (Deriv n (Tok t), Weight)
+  -> Maybe (Deriv UnNorm n (Tok t), Weight)
 fromPassiveW passive hype = do
   let ext = passiveTrav passive hype
   trav <- minimumBy
@@ -664,7 +676,7 @@ fromPassiveTravW
   => A.Passive n t
   -> A.Trav n t
   -> A.Hype n t
-  -> Maybe (Deriv n (Tok t), Weight)
+  -> Maybe (Deriv UnNorm n (Tok t), Weight)
 fromPassiveTravW p trav hype =
   second (+ arcWeight trav) <$> case trav of
     A.Adjoin qa qm _ -> do
@@ -686,7 +698,7 @@ fromActiveW
   :: (Ord n, Ord t)
   => A.Active
   -> A.Hype n t
-  -> Maybe ([Deriv n (Tok t)], Weight)
+  -> Maybe ([Deriv UnNorm n (Tok t)], Weight)
 fromActiveW active hype = do
   let ext = activeTrav active hype
   if S.null (A.prioTrav ext)
@@ -705,7 +717,7 @@ fromActiveTravW
   => A.Active
   -> A.Trav n t
   -> A.Hype n t
-  -> Maybe ([Deriv n (Tok t)], Weight)
+  -> Maybe ([Deriv UnNorm n (Tok t)], Weight)
 fromActiveTravW _p trav hype =
   second (+ arcWeight trav) <$> case trav of
     A.Scan q t _ -> do
@@ -777,7 +789,7 @@ encodes
     => A.Hype n t   -- ^ Final state of the earley parser
     -> S.Set n      -- ^ The start symbol set
     -> Int          -- ^ Length of the input sentence
-    -> Deriv n (Tok t)
+    -> Deriv UnNorm n (Tok t)
     -> Bool
 encodes hype begSym sentLen deriv = or
   [ passiveEncodes p hype deriv
@@ -792,7 +804,7 @@ passiveEncodes
   :: (Ord n, Ord t)
   => A.Passive n t
   -> A.Hype n t
-  -> Deriv n (Tok t)
+  -> Deriv UnNorm n (Tok t)
   -> Bool
 passiveEncodes passive hype deriv = case A.passiveTrav passive hype of
   Nothing -> case Q.lookup (A.ItemP passive) (A.waiting hype) of
@@ -810,7 +822,7 @@ passiveTravEncodes
   => A.Passive n t
   -> A.Trav n t
   -> A.Hype n t
-  -> Deriv n (Tok t)
+  -> Deriv UnNorm n (Tok t)
   -> Bool
 passiveTravEncodes p trav hype root = case trav of
 
@@ -838,7 +850,7 @@ activeEncodes
   :: (Ord n, Ord t)
   => A.Active
   -> A.Hype n t
-  -> [Deriv n (Tok t)]
+  -> [Deriv UnNorm n (Tok t)]
   -> Bool
 activeEncodes active hype deriv = case A.activeTrav active hype of
   Nothing  -> case Q.lookup (A.ItemA active) (A.waiting hype) of
@@ -862,7 +874,7 @@ activeTravEncodes
   => A.Active
   -> A.Trav n t
   -> A.Hype n t
-  -> [Deriv n (Tok t)]
+  -> [Deriv UnNorm n (Tok t)]
   -> Bool
 activeTravEncodes _p trav hype root = case trav of
 
@@ -1030,7 +1042,7 @@ fromArc
      -- ^ The corresponding hypergraph
   -> RevHype n t
      -- ^ The reversed version of the hypergraph
-  -> [Deriv n (Tok t)]
+  -> [Deriv UnNorm n (Tok t)]
 fromArc node arc hype revHype =
   case node of
     A.ItemP p ->
@@ -1067,11 +1079,11 @@ upFromPassive
   :: (Ord n, Ord t)
   => A.Passive n t
      -- ^ Passive node
-  -> (() -> [Deriv n (Tok t)])
+  -> (() -> [Deriv UnNorm n (Tok t)])
      -- ^ The list of derivation corresponding to the passive node
   -> A.Hype n t
   -> RevHype n t
-  -> [Deriv n (Tok t)]
+  -> [Deriv UnNorm n (Tok t)]
 upFromPassive passive passiveDerivs hype revHype =
   case M.lookup (A.ItemP passive) (doneReversed revHype) of
     Nothing -> error "upFromPassive: item with no respective entry in `RevHype`"
@@ -1088,11 +1100,11 @@ upFromPassiveTrav
      -- ^ Source hypernode (passive item)
   -> RevTrav n t
      -- ^ Traversal to be followed from the source node
-  -> (() -> [Deriv n (Tok t)])
+  -> (() -> [Deriv UnNorm n (Tok t)])
      -- ^ Derivation corresponding to the source node
   -> A.Hype n t
   -> RevHype n t
-  -> [Deriv n (Tok t)]
+  -> [Deriv UnNorm n (Tok t)]
 upFromPassiveTrav source revTrav sourceDerivs hype revHype =
   case revTrav of
     SubstP{..} ->
@@ -1131,11 +1143,11 @@ upFromPassiveTrav source revTrav sourceDerivs hype revHype =
 upFromActive
   :: (Ord n, Ord t)
   => A.Active
-  -> (() -> [[Deriv n (Tok t)]])
+  -> (() -> [[Deriv UnNorm n (Tok t)]])
   -- ^ Derivation corresponding to the active node
   -> A.Hype n t
   -> RevHype n t
-  -> [Deriv n (Tok t)]
+  -> [Deriv UnNorm n (Tok t)]
 upFromActive active activeDerivs hype revHype = concat
   [ upFromActiveTrav active revTrav activeDerivs hype revHype
   | revTravSet <- maybeToList $ M.lookup (A.ItemA active) (doneReversed revHype)
@@ -1148,11 +1160,11 @@ upFromActiveTrav
      -- ^ Source hypernode (active item)
   -> RevTrav n t
      -- ^ Traversal to be followed from the source node
-  -> (() -> [[Deriv n (Tok t)]])
+  -> (() -> [[Deriv UnNorm n (Tok t)]])
      -- ^ Derivation corresponding to the source node
   -> A.Hype n t
   -> RevHype n t
-  -> [Deriv n (Tok t)]
+  -> [Deriv UnNorm n (Tok t)]
 upFromActiveTrav _source revTrav sourceDerivs hype revHype =
   case revTrav of
     ScanA{..} ->
@@ -1192,14 +1204,14 @@ upFromActiveTrav _source revTrav sourceDerivs hype revHype =
 
 
 -- | Modifications corresponding to the given hypergraph modification.
-type ModifDerivs n t = (A.HypeModif n t, [Deriv n (Tok t)])
+type ModifDerivs c n t = (A.HypeModif n t, [Deriv c n (Tok t)])
 
 
 -- | Derivation monad.
-type DerivM n t m =
+type DerivM c n t m =
   P.Pipe
     (A.HypeModif n t)
-    (ModifDerivs n t)
+    (ModifDerivs c n t)
     (RWS.RWST (DerivR n) () (DerivS n t) m)
 -- type DerivM n t m = RWS.RWST
 --   (DerivR n) () (DerivS n t)
@@ -1242,7 +1254,7 @@ type DerivS n t = RevHype n t
 -- corresponding derivations.
 derivsPipe
   :: (Monad m, Ord n, Ord t)
-  => DerivM n t m a
+  => DerivM UnNorm n t m a
 derivsPipe = loop
   where
     loop = do
@@ -1274,7 +1286,7 @@ derivsPipe = loop
 derivsProd
   :: (SOrd n, SOrd t)
   => P.Producer
-      (ModifDerivs n t)
+      (ModifDerivs UnNorm n t)
       (RWS.RWST (DerivR n) () (DerivS n t)
         (A.Earley n t)
       ) (A.Hype n t)
@@ -1291,7 +1303,7 @@ consumeDerivs
   => A.Auto n t
   -> A.Input t
   -> S.Set n            -- ^ Start symbol set
-  -> P.Consumer (ModifDerivs n t) IO (A.Hype n t)
+  -> P.Consumer (ModifDerivs UnNorm n t) IO (A.Hype n t)
   -> IO (A.Hype n t)
 consumeDerivs automat input start cons0 = do
   evalRWST input (A.mkHype automat) $ do
@@ -1326,7 +1338,7 @@ consumeDerivs automat input start cons0 = do
 procModif
   :: forall m n t. (Monad m, Ord n, Ord t)
   => A.HypeModif n t
-  -> DerivM n t m [Deriv n (Tok t)]
+  -> DerivM UnNorm n t m [Deriv UnNorm n (Tok t)]
 procModif A.HypeModif{..}
   | modifType == A.NewNode = fmap (maybe [] id) . runMaybeT $ do
       -- liftIO $ putStrLn "<<NewNode>>"
@@ -1358,7 +1370,7 @@ procModif A.HypeModif{..}
     -- Recursively explore the hypergraph starting from the given node and add
     -- all nodes and arcs to the inverse representation, if not present there
     -- yet.
-    goNode :: A.Item n t -> DerivM n t m ()
+    goNode :: A.Item n t -> DerivM c n t m ()
 --     goNode node = addNode node >> goChildren node
     goNode node = do
       b <- hasNode node
@@ -1402,7 +1414,7 @@ incomingArcs item hype = getTrav $ case item of
 
 
 -- | Does the inversed representation of the hypergraph contain the given node?
-hasNode :: (Monad m, Ord n) => A.Item n t -> DerivM n t m Bool
+hasNode :: (Monad m, Ord n) => A.Item n t -> DerivM c n t m Bool
 hasNode item = do
   rev <- RWS.gets doneReversed
   return $ M.member item rev
@@ -1410,7 +1422,7 @@ hasNode item = do
 
 -- | Add a node to the inversed representation of the hypergraph. Nothing about
 -- the ingoing or outgoing arcs is known at this moment.
-addNode :: (Monad m, Ord n, Ord t) => A.Item n t -> DerivM n t m ()
+addNode :: (Monad m, Ord n, Ord t) => A.Item n t -> DerivM c n t m ()
 addNode item = RWS.modify' $ \RevHype{..} ->
   let rev = M.insertWith S.union item S.empty doneReversed
   in  RevHype {doneReversed = rev}
@@ -1423,7 +1435,7 @@ addArc
      -- ^ Node to which the arc leads
   -> A.Trav n t
      -- ^ Arc to add
-  -> DerivM n t m ()
+  -> DerivM c n t m ()
 addArc item trav = RWS.modify' $ \RevHype{..} ->
   let rev = doneReversed `modifyWith`
             [addOne p t | (p, t) <- turnAround item trav]
@@ -1481,7 +1493,7 @@ isFinal
   :: (Monad m, Ord n)
   => A.Hype n t
   -> A.Passive n t -- ^ The item to check
-  -> DerivM n t m Bool
+  -> DerivM c n t m Bool
 isFinal hype p = do
   DerivR{..} <- RWS.ask
   return $ isFinal_ hype startSym sentLen p

@@ -68,8 +68,8 @@ type OTree = O.Tree String (Maybe Term)
 -- type AuxTr = AuxTree String String
 -- type Other = O.SomeTree String String
 type Hype  = AStar.Hype String Term
-type Deriv = Deriv.Deriv String (Tok Term)
-type ModifDerivs = Deriv.ModifDerivs String Term
+type Deriv = Deriv.Deriv Deriv.UnNorm String (Tok Term)
+type ModifDerivs = Deriv.ModifDerivs Deriv.UnNorm String Term
 
 
 -- | A terminal/token.

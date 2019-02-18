@@ -81,7 +81,7 @@ deriv4show =
 
 
 -- | Conversion from the base derivation data type.
-fromDeriv :: D.Deriv n t -> Deriv n t
+fromDeriv :: D.Deriv D.UnNorm n t -> Deriv n t
 fromDeriv =
   go . D.normalize
   where
@@ -93,13 +93,13 @@ fromDeriv =
 
 
 -- | Extract the root ET from the given derivation.
-getRootET :: D.Deriv n t -> O.Tree n (Maybe t)
+getRootET :: D.Deriv D.Norm n t -> O.Tree n (Maybe t)
 getRootET = fmap D.node
 
 
 -- | Get the derivations (and their corresponding Gorn addresses)
 -- modifying the rootET.
-getModifs :: D.Deriv n t -> [(Path, [D.Deriv n t])]
+getModifs :: D.Deriv D.Norm n t -> [(Path, [D.Deriv D.Norm n t])]
 getModifs =
   map (Arr.first reverse) . go []
   where
