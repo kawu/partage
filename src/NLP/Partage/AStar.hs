@@ -1441,6 +1441,8 @@ tryAdjoinTerm q qw = void $ P.runListT $ do
     -- by `rootSpan`)
     qNonTerm <- some (nonTerm' qDID dag)
     (p, pw) <- rootSpan qNonTerm (gapBeg, gapEnd)
+    -- NEW 17.04.2019: make sure `p` does not correspond to a sister node
+    guard . not $ isSister' (p ^. dagID) dag
 #ifdef NoAdjunctionRestriction
     let changeAdjState = id
 #else
@@ -1522,6 +1524,8 @@ tryAdjoinTerm' p pw = void $ P.runListT $ do
     let dag = gramDAG auto
     -- Ensure that `p` is auxiliary but not top-level
     guard $ auxiliary pSpan <= not (DAG.isRoot pDID dag)
+    -- NEW 17.04.2019: make sure `p` does not correspond to a sister node
+    guard . not $ isSister' (p ^. dagID) dag
     -- Retrieve the non-terminal in the p's root
     pNT <- some $ nonTerm' pDID dag
     -- Retrieve all completed, top-level items representing auxiliary

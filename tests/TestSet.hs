@@ -907,6 +907,39 @@ gram10Tests =
 
 
 ---------------------------------------------------------------------
+-- Test 11
+---------------------------------------------------------------------
+
+
+mkGram11 :: [(OTree, Weight)]
+mkGram11 =
+  [(to, 0.0), (do_, 0.0)]
+    where
+      term' t = term . Just $ Term t Nothing
+      to =
+        node "VP"
+        [ term' "to"
+        , foot "VP"
+        ]
+      do_ =
+        sister "VP"
+          [ term' "do"
+          ]
+
+
+-- | Make sure that one cannot adjoin (with regular adjunction) to the root of
+-- a sister tree.
+gram11Tests :: [Test]
+gram11Tests =
+  [ test "VP" ["to", "do"] No
+  ]
+    where
+      test start sent res = Test start (map tok sent) M.empty res
+      tok t = Term t Nothing
+      mkLeaf = Leaf . Just . tok
+
+
+---------------------------------------------------------------------
 -- Resources
 ---------------------------------------------------------------------
 
@@ -924,6 +957,7 @@ data Res = Res
   , gram8 :: [(OTree, Weight)]
   , gram9 :: [(OTree, Weight)]
   , gram10 :: [(OTree, Weight)]
+  , gram11 :: [(OTree, Weight)]
   }
 
 
@@ -934,7 +968,7 @@ mkGrams :: Res
 mkGrams =
   Res mkGram1 mkGram1_1 mkGram2 mkGram3 mkGram4
       mkGram5 mkGram6 mkGram7 mkGram8 mkGram9
-      mkGram10
+      mkGram10 mkGram11
 
 
 ---------------------------------------------------------------------
@@ -1043,7 +1077,8 @@ testTree modName TagParser{..} = do
         map (testIt resIO gram7) gram7Tests ++
         map (testIt resIO gram8) gram8Tests ++
         map (testIt resIO gram9) gram9Tests ++
-        map (testIt resIO gram10) gram10Tests
+        map (testIt resIO gram10) gram10Tests ++
+        map (testIt resIO gram11) gram11Tests
   where
     testIt resIO getGram test =
       -- make sure that headMap is empty if no dependency support

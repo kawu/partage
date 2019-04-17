@@ -465,6 +465,11 @@ expectEnd getAuto getChart did i = do
 -- | Return all passive items with:
 -- * the given root non-terminal value (but not top-level auxiliary)
 -- * the given span
+--
+-- WARNING 17.04.2019: the returned node can be a top-level sister node!
+-- On top of that, this seems inconsistent with the behavior of `rootSpan` in
+-- the Earley parser.
+--
 rootSpan
     :: (Ord n, MS.MonadState s m)
     => (s -> Chart n t)
