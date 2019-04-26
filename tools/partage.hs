@@ -63,7 +63,7 @@ attoReader p = eitherReader (Atto.parseOnly p . T.pack)
 
 data Command
     = Earley
-      { inputPath :: FilePath
+      { inputPath :: Maybe FilePath
       , verbose :: Bool
       -- , withProb :: Bool
       , maxTags :: Maybe Int
@@ -79,7 +79,7 @@ data Command
       }
     -- ^ Parse the input sentences using the Earley-style chart parser
     | AStar
-      { inputPath :: FilePath
+      { inputPath :: Maybe FilePath
       , verbose :: Bool
       , maxTags :: Maybe Int
       , maxDeps :: Maybe Int
@@ -95,9 +95,9 @@ data Command
       }
     -- ^ Parse the input sentences using the Earley-style A* chart parser
     | Dummy
-      { inputPath :: FilePath
+      { inputPath :: Maybe FilePath
       }
-    -- ^ Parse the input sentences using the Earley-style A* chart parser
+    -- ^ Dummy parser?  Don't remember what was its purpose.
     | RemoveCol
       { colNum :: Int
       }
@@ -111,7 +111,7 @@ data Command
 
 earleyOptions :: Parser Command
 earleyOptions = Earley
-  <$> strOption
+  <$> (optional . strOption)
   ( long "input"
     <> short 'i'
     <> help "Input file with supertagging results"
@@ -178,7 +178,7 @@ earleyOptions = Earley
 
 astarOptions :: Parser Command
 astarOptions = AStar
-  <$> strOption
+  <$> (optional . strOption)
   ( long "input"
     <> short 'i'
     <> help "Input file with supertagging results"
@@ -237,7 +237,7 @@ astarOptions = AStar
 
 dummyOptions :: Parser Command
 dummyOptions = Dummy
-  <$> strOption
+  <$> (optional . strOption)
   ( long "input"
     <> short 'i'
     <> help "Input file with supertagging results"
@@ -315,7 +315,7 @@ run cmd =
         . limitTagsBeta betaParam
         . limitTagsNum maxTags
         . parseSuper
-        <$> LIO.readFile inputPath
+        <$> readInput inputPath
 
       -- Read the gold file
       gold <- case goldPath of
@@ -417,7 +417,7 @@ run cmd =
         . limitDepsNum maxDeps
         . limitTagsNum maxTags
         . parseSuper
-        <$> LIO.readFile inputPath
+        <$> readInput inputPath
 
       forM_ super $ \sent -> do
 
@@ -516,7 +516,7 @@ run cmd =
 
 
     Dummy{..} -> do
-      super <- Br.parseSuperProb <$> LIO.readFile inputPath
+      super <- Br.parseSuperProb <$> readInput inputPath
       forM_ super $ \sent -> do
         renderInput $ zip [1 :: Int ..] sent
         putStrLn ""
@@ -559,6 +559,11 @@ run cmd =
     takeBest k xs
       = take k . reverse
       $ List.sortBy (comparing snd) xs
+
+    readInput mayPath =
+      case mayPath of
+        Nothing -> LIO.getContents
+        Just path -> LIO.readFile path
 
 
 main :: IO ()
