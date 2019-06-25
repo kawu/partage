@@ -159,11 +159,11 @@ It is possible to restrict the number of supertags (`-t` or `--max-tags`) and
 dependency heads (`-d` or `--max-deps`) used for parsing.  For instance, to
 restrict both numbers to `5`:
 
-    partage astar -i test.tsv -s "SENT" -t 5 -d 5
+    partage astar -i test.tsv -s SENT -t 5 -d 5
 
 This will normally speed up parsing, but there is a price to pay -- additional
 restrictions may make the parser fail for some sentences.  In such situations,
-the parser will explore the full parsing hypergraph and therefore work even
+the parser will explore the full parsing hypergraph and, therefore, work even
 slower.
 
 #### Earley
