@@ -97,6 +97,18 @@ the sentence length.  ID `0` is reserved for the special dummy token
 representing the root.  Another, larger example can be found in
 `examples/french.tsv`.
 
+The anchor of the trees is represented with `<>`.  For example, `(SENT (NP) (VP
+(V <>)))` is transformed to `(SENT (NP) (VP (V eats)))` in the example above
+before parsing takes place.
+
+### Adjunction vs. sister-adjunction
+
+Auxiliary trees (which attach to other trees via adjunction) are represented by
+marking the *foot* node with a star, e.g. `(VP (V <>)(VP* ))`.
+
+Sister trees (which attach to other trees via sister-adjunction) are
+represented by marking the *root* node with a star, e.g. `(NP* (D <>))`.
+
 
 Usage
 -----
@@ -116,7 +128,43 @@ command should result in:
 4	apple	2	(NP (N apple))
 ```
 
-In order to run the Earley-style parser on the same input file, run:
+Run `partage astar --help` to learn more about the possible parsing options.
+
+#### Output representation
+
+You can retrieve the parsed trees instead of the selected supertags and
+dependency heads using the `-p` option:
+
+    partage astar -i test.tsv -s SENT -p
+
+If you want to have a look at the derivation trees themselves, use `-v`
+(`--verbse`):
+
+    partage astar -i test.tsv -s SENT -v
+
+#### Multiple start symbols
+
+To use several start symbols, specify them separated by spaces between double
+quotation marks, as in the example below:
+
+    partage astar -i test.tsv -s "SENT FRAG"
+
+#### Number of supertags and dependency heads
+
+It is possible to restrict the number of supertags (`-t` or `--max-tags`) and
+dependency heads (`-d` or `--max-deps`) used for parsing.  For instance, to
+restrict both numbers to `5`:
+
+    partage astar -i test.tsv -s "SENT" -t 5 -d 5
+
+This will normally speed up parsing, but there is a price to pay -- additional
+restrictions may make the parser fail for some sentences.  In such situations,
+the parser will explore the full parsing hypergraph and therefore work even
+slower.
+
+#### Earley
+
+In order to run the Earley-style parser instead of A\*, use:
 
     partage earley -i test.tsv -s SENT
 
@@ -128,8 +176,7 @@ the set of parsed trees.  For the example sentence above:
 (SENT (NP (N John)) (VP (V eats) (NP (D an) (N apple))))
 ```
 
-Run `partage astar --help` and `partage earley --help` to learn more about the
-possible parsing options.
+Run `partage earley --help` to learn more about the possible parsing options.
 
 
 References
