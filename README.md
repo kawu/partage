@@ -101,7 +101,7 @@ The anchor of the trees is represented with `<>`.  For example, `(SENT (NP) (VP
 (V <>)))` is transformed to `(SENT (NP) (VP (V eats)))` in the example above
 before parsing takes place.
 
-### Adjunction vs. sister-adjunction
+#### Adjunction vs. sister-adjunction
 
 Auxiliary trees (which attach to other trees via adjunction) are represented by
 marking the *foot* node with a star, e.g. `(VP (V <>)(VP* ))`.
@@ -109,7 +109,7 @@ marking the *foot* node with a star, e.g. `(VP (V <>)(VP* ))`.
 Sister trees (which attach to other trees via sister-adjunction) are
 represented by marking the *root* node with a star, e.g. `(NP* (D <>))`.
 
-### Empty terminals
+#### Empty terminals
 
 To represent an empty terminal, use the special `-NONE-` terminal symbol, e.g
 `(S (NP )(VP (V <>)(NP -NONE-)))`.
