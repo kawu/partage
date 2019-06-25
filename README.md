@@ -109,6 +109,11 @@ marking the *foot* node with a star, e.g. `(VP (V <>)(VP* ))`.
 Sister trees (which attach to other trees via sister-adjunction) are
 represented by marking the *root* node with a star, e.g. `(NP* (D <>))`.
 
+### Empty terminals
+
+To represent an empty terminal, use the special `-NONE-` terminal symbol, e.g
+`(S (NP )(VP (V <>)(NP -NONE-)))`.
+
 
 Usage
 -----
@@ -137,8 +142,7 @@ dependency heads using the `-p` option:
 
     partage astar -i test.tsv -s SENT -p
 
-If you want to have a look at the derivation trees themselves, use `-v`
-(`--verbse`):
+If you want to have a look at the derivation trees, use `-v` (`--verbose`):
 
     partage astar -i test.tsv -s SENT -v
 

@@ -134,7 +134,7 @@ parseTree' txt =
 
 -- | Parse a tree in bracketed format. Only anchors are allowed as terminals.
 treeP :: Atto.Parser Tree
-treeP = emptyP <|> nodeP <|> leafP
+treeP = emptyP <|> emptyP' <|> nodeP <|> leafP
 
 
 forestP :: Atto.Parser [Tree]
@@ -171,7 +171,13 @@ terminalP =
 
 
 emptyP :: Atto.Parser Tree
-emptyP = between '(' ')' $ do
+emptyP = do
+  _ <- Atto.string "-NONE-"
+  return $ R.Node (O.Term $ Term Nothing) []
+
+
+emptyP' :: Atto.Parser Tree
+emptyP' = between '(' ')' $ do
   _ <- Atto.string "-NONE-"
   Atto.skipWhile C.isSpace
   return $ R.Node (O.Term $ Term Nothing) []
