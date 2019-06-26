@@ -259,7 +259,8 @@ startSetP = do
   xs <- startSymP `Atto.sepBy1` spacesP
   return (S.fromList xs)
   where
-    startSymP = Atto.takeWhile1 C.isAlphaNum
+    -- startSymP = Atto.takeWhile1 C.isAlphaNum
+    startSymP = Atto.takeTill C.isSpace
     spacesP = Atto.takeWhile1 C.isSpace
 
 
