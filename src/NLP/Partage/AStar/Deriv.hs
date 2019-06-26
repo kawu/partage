@@ -1525,11 +1525,11 @@ isFinal_ hype startSet n p =
     dag = Auto.gramDAG $ A.automat hype
     dagID = p ^. A.dagID
     getLabel did = Base.labNonTerm =<< DAG.label did dag
---     checkStart labelSet
---       | S.null startSet = True
---       | otherwise = (not . S.null) (labelSet `S.intersection` startSet)
-    checkStart labelSet =
-      (not . S.null) (labelSet `S.intersection` startSet)
+    checkStart labelSet
+      | S.null startSet = True
+      | otherwise = (not . S.null) (labelSet `S.intersection` startSet)
+--     checkStart labelSet =
+--       (not . S.null) (labelSet `S.intersection` startSet)
 
 
 -- -- | ListT from a list.

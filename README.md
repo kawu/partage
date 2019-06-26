@@ -120,11 +120,13 @@ Usage
 
 Use the following command to parse an input `test.tsv` file using A\*:
 
-    partage astar -i test.tsv -s SENT
+    partage astar -i test.tsv
 
-The `-s` option allows to specify the start symbol (i.e. the label of the root
-of the resulting parse).  Assuming the example sentence presented above, this
-command should result in:
+or:
+
+    cat test.tsv | partage astar
+
+Assuming the example sentence presented above, this command should result in:
 
 ```
 1	John	2	(NP (N John))
@@ -140,18 +142,27 @@ Run `partage astar --help` to learn more about the possible parsing options.
 You can retrieve the parsed trees instead of the selected supertags and
 dependency heads using the `-p` option:
 
-    partage astar -i test.tsv -s SENT -p
+    partage astar -i test.tsv -p
 
 If you want to have a look at the derivation trees, use `-v` (`--verbose`):
 
-    partage astar -i test.tsv -s SENT -v
+    partage astar -i test.tsv -v
 
-#### Multiple start symbols
+#### Start symbol
+
+The `-s` option allows to specify the start symbol, i.e., the label of the
+root of the resulting parse, e.g.:
+
+    partage astar -i test.tsv -s SENT
 
 To use several start symbols, specify them separated by spaces between double
 quotation marks, as in the example below:
 
     partage astar -i test.tsv -s "SENT FRAG"
+
+Alternatively, you can use the `-s` option several times:
+
+    partage astar -i test.tsv -s SENT -s FRAG
 
 #### Number of supertags and dependency heads
 
@@ -163,8 +174,7 @@ restrict both numbers to `5`:
 
 This will normally speed up parsing, but there is a price to pay -- additional
 restrictions may make the parser fail for some sentences.  In such situations,
-the parser will explore the full parsing hypergraph and, therefore, work even
-slower.
+the parser will explore the full parsing hypergraph and actually work slower.
 
 #### Earley
 
@@ -173,8 +183,9 @@ In order to run the Earley-style parser instead of A\*, use:
     partage earley -i test.tsv -s SENT
 
 Note that the Earley-style parser ignores the dependency-related constraints
-(third column of the input file).  The output is also different, it consists of
-the set of parsed trees.  For the example sentence above:
+(third column of the input file).  It also requires that the start symbol(s) be
+specified.   The output is also different, it consists of the set of parsed
+trees.  For the example sentence above:
 
 ```
 (SENT (NP (N John)) (VP (V eats) (NP (D an) (N apple))))

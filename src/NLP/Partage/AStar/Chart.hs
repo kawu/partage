@@ -29,7 +29,6 @@ module NLP.Partage.AStar.Chart
 
   -- * Extraction
   , finalFrom
-  , finalFrom'
   , expectEnd
   , rootSpan
   , rootEnd
@@ -42,7 +41,7 @@ module NLP.Partage.AStar.Chart
 where
 
 
-import           Control.Monad               ((>=>))
+import           Control.Monad               ((>=>), guard)
 import           Data.Lens.Light
 import qualified Data.Map.Strict             as M
 import           Data.Maybe                  (fromJust, maybeToList)
@@ -372,37 +371,44 @@ hasPassiveTrav p travSet auto chart =
 -- | Return the list of final, initial, passive chart items.
 finalFrom
     :: (Ord n, Eq t)
-    => n            -- ^ The start symbol
+    => S.Set n      -- ^ Accepted start symbols (if empty, no constraint)
     -> Int          -- ^ The length of the input sentence
     -> Auto n t     -- ^ The underlying Earley yautomaton
     -> Chart n t    -- ^ Result of the earley computation
     -> [Passive n t]
-finalFrom start n auto Chart{..} =
-  case M.lookup 0 donePassiveIni >>= M.lookup start >>= M.lookup n of
-    Nothing -> []
-    Just m ->
-      [ p
-      | p <- M.keys m
-      -- , p ^. dagID == Left root ]
-      , DAG.isRoot (p ^. dagID) dag
-      , getLabel (p ^. dagID) == Just start
-      , regular (p ^. spanP) ]
+finalFrom startSet n auto Chart{..} = do
+  -- case M.lookup 0 donePassiveIni >>= M.lookup start >>= M.lookup n of
+  (start, m) <- relevant
+  p <- M.keys m
+  guard $ DAG.isRoot (p ^. dagID) dag
+  guard $ getLabel (p ^. dagID) == Just start
+  guard $ regular (p ^. spanP)
+  return p
   where
     dag = gramDAG auto
     -- root = NotFoot {notFootLabel = start, isSister = False}
     getLabel did = labNonTerm =<< DAG.label did dag
+    relevant = do
+      m0 <- maybeToList $ M.lookup 0 donePassiveIni
+      start <- 
+        if S.null startSet
+           then M.keys m0
+           else S.toList startSet
+      m1 <- maybeToList $ M.lookup start m0 >>= M.lookup n
+      return (start, m1)
 
 
--- | Version of `finalFrom` which accepts several start symbols.
-finalFrom'
-    :: (Ord n, Eq t)
-    => S.Set n      -- ^ The start symbol set
-    -> Int          -- ^ The length of the input sentence
-    -> Auto n t     -- ^ The underlying Earl yautomaton
-    -> Chart n t    -- ^ Result of the earley computation
-    -> [Passive n t]
-finalFrom' startSet n auto chart =
-  concatMap (\start -> finalFrom start n auto chart) (S.toList startSet)
+-- -- | Version of `finalFrom` which accepts several start symbols.
+-- finalFrom'
+--     :: (Ord n, Eq t)
+--     => S.Set n      -- ^ The start symbol set
+--     -> Int          -- ^ The length of the input sentence
+--     -> Auto n t     -- ^ The underlying Earl yautomaton
+--     -> Chart n t    -- ^ Result of the earley computation
+--     -> [Passive n t]
+-- finalFrom' startSet n auto chart =
+--   finalFrom startSet n auto chart
+--   -- concatMap (\start -> finalFrom start n auto chart) (S.toList startSet)
 
 
 -- -- | Return all active processed items which:

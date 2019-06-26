@@ -144,7 +144,8 @@ earleyOptions = Earley
     <> short 'g'
     <> help "Gold file with parsed trees"
   )
-  <*> option (attoReader startSetP)
+  -- <*> option (attoReader startSetP)
+  <*> (fmap S.unions . some . option (attoReader startSetP))
   ( long "start"
     <> short 's'
     <> help "Start symbol"
@@ -206,7 +207,8 @@ astarOptions = AStar
   ( long "beta"
     <> help "Beta parameter à la Clark & Curran"
   )
-  <*> option (attoReader startSetP)
+  -- <*> (fmap (maybe S.empty id) . many . option (attoReader startSetP))
+  <*> (fmap S.unions . many . option (attoReader startSetP))
   ( long "start"
     <> short 's'
     <> help "Start symbol"
@@ -256,7 +258,7 @@ removeColOptions = RemoveCol
 -- | Start symbol set parser
 startSetP :: Atto.Parser (S.Set T.Text)
 startSetP = do
-  xs <- startSymP `Atto.sepBy1` spacesP
+  xs <- startSymP `Atto.sepBy` spacesP
   return (S.fromList xs)
   where
     -- startSymP = Atto.takeWhile1 C.isAlphaNum

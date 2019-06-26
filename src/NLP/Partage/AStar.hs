@@ -2162,7 +2162,7 @@ finalFrom
     -> Hype n t     -- ^ Result of the earley computation
     -> [Passive n t]
 finalFrom startSet n hype =
-  Chart.finalFrom' startSet n (automat hype) (chart hype)
+  Chart.finalFrom startSet n (automat hype) (chart hype)
 
 
 -- -- -- | Return the list of final passive chart items.
