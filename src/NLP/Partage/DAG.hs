@@ -20,6 +20,8 @@ module NLP.Partage.DAG
   DAG
 , DID(..)
 , Weight
+-- ** Mapping
+, nmap
 -- ** Identifiers
 , rootSet
 , nodeSet
@@ -216,6 +218,27 @@ nodeSet dag = S.fromList
 
 -- TODO: Similar instance already inferred in the "Gen" module.
 deriving instance (Ord a) => (Ord (R.Tree a))
+
+
+----------------------
+-- Mapping
+----------------------
+
+
+-- | Map over node values.
+--
+-- NOTE: This does not touch edge values!
+--
+nmap :: (DID -> b -> b) -> DAG a b -> DAG a b
+nmap f dag = dag
+  { nodeMap = M.fromList $ do
+      (did, node) <- M.toList (nodeMap dag)
+      return (did, updateNode did node)
+  }
+  where
+    updateNode did node = node
+      { nodeValue = f did (nodeValue node)
+      }
 
 
 ----------------------
@@ -563,7 +586,7 @@ data Gram n t = Gram
 
 -- | Construct `Gram` from the given weighted grammar.
 -- 
--- The behaviour of this function depends on compile-time flags.
+-- The behaviour of this function depends on some compile-time flags.
 --
 mkGram
     :: (Ord n, Ord t)
@@ -609,21 +632,6 @@ mkDummy ts = Gram
     dagGram_ = dummyFromWeightedForest ts
 
 
--- -- | Compute the lower bound estimates on reading terminal weights.
--- -- Based on the idea that weights of the elementary trees are evenly
--- -- distributed over its terminals.
--- mkTermWei
---     :: (Ord t)
---     => [(O.SomeTree n t, Weight)]   -- ^ Weighted grammar
---     -> M.Map t Weight
--- mkTermWei ts = M.fromListWith min
---     [ (x, w / fromIntegral n)
---     | (t, w) <- ts
---     , let terms = listTerms t
---           n = length terms
---     , x <- terms ]
-
-
 -- | Compute the lower bound estimates on reading terminal weights.
 --
 -- Based on the idea that weights of the elementary trees are evenly distributed
@@ -638,47 +646,6 @@ mkTermWei ts = M.fromListWith min
     , let terms = catMaybes (O.project t)
           n = length terms
     , x <- terms ]
-
-
--- -- | Construct `Gram` from the given weighted grammar and the given terminals'
--- -- frequency map.
--- mkFreqGram
---     :: (Ord n, Ord t)
---     => M.Map t Int            -- ^ Global terminal frequencies
---     -> [(O.Tree n t, Weight)]
---     -> Gram n t
--- mkFreqGram freqMap ts = Gram
---     { dagGram   = dagGram_
---     , factGram  = rulesMapFromDAG dagGram_
---     , termWei   = termWeiFromFreq freqMap (map (first O.decode) ts) }
---   where
---     dagGram_ = dagFromWeightedForest ts
-
-
--- -- | Compute the lower bound estimates on reading terminal weights. Based on the
--- -- idea that weights of the elementary trees are distributed over its terminals
--- -- proportionaly to their global frequencies.
--- --
--- -- We assume that terminals which are not present in the global
--- -- frequency map are very rare.
--- termWeiFromFreq
---     :: (Ord t)
---     => M.Map t Int                  -- ^ Global terminal frequencies
---     -> [(O.SomeTree n t, Weight)]   -- ^ Weighted grammar
---     -> M.Map t Weight
--- termWeiFromFreq freqMap gram = M.fromListWith min
---   [ (term, treeWeight * termWeight)
---   | (tree, treeWeight) <- gram
---   , let terms = listTerms tree
---         termWeights = normalize $ map obtainWeight terms
---   , (term, termWeight) <- zip terms termWeights ]
---   where
---     obtainWeight term = case M.lookup term freqMap of
---       Just freq -> fromIntegral freq
---       Nothing   -> 1.0
---     normalize xs =
---       let n = sum xs
---       in  map (/n) xs
 
 
 ----------------------

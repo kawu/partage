@@ -31,6 +31,7 @@ module NLP.Partage.AStar.HeuristicNew
 import qualified Control.Arrow                   as Arr
 -- import           Data.Hashable (Hashable)
 -- import qualified Data.HashTable.IO          as H
+import           Data.Maybe                      (catMaybes)
 import qualified Data.List                       as L
 import qualified Data.Map.Strict                 as M
 import qualified Data.MemoCombinators            as Memo
@@ -47,7 +48,7 @@ import qualified NLP.Partage.DAG                 as D
 import qualified NLP.Partage.Tree.Other          as O
 -- import qualified NLP.Partage.Earley.AutoAP     as E
 
--- import Debug.Trace (trace)
+import Debug.Trace (trace)
 
 
 --------------------------------
@@ -57,24 +58,10 @@ import qualified NLP.Partage.Tree.Other          as O
 
 -- | Distance estimation heuristic.
 data Esti t = Esti
-  { termEsti :: Bag t -> D.Weight
-  , trieEsti :: ID -> Bag t -> D.Weight
-  -- , dagEsti  :: D.DID -> M.Map (Bag t) D.Weight
-  , dagEsti  :: D.DID -> Bag t -> D.Weight
-  -- ^ Bags of terminals and the corresponding (minimal) weights
-  -- for the individual super-trees surrounding the given DAG node.
-  , dagAmort :: D.DID -> D.Weight
+  { dagAmort :: D.DID -> D.Weight
   -- ^ Amortized weight of the dag node
-
-  -- <<NEW 12.2018>>
-
   , trieAmort :: ID -> D.Weight
   -- ^ Amortized weight of the trie node
-
-  , depPrefEsti :: Int -> D.Weight
-  -- ^ Dependency related cost estimation (prefix)
-  , depSuffEsti :: Int -> D.Weight
-  -- ^ Dependency related cost estimation (suffix)
   , prefEsti :: Int -> D.Weight
   -- ^ Prefix cost estimation
   , suffEsti :: Int -> D.Weight
@@ -96,13 +83,8 @@ mkEsti
                         -- ^ Head map
   -> Esti t
 mkEsti _memoElem D.Gram{..} autoGram input posMap hedMap = Esti
-  { termEsti = estiTerm
-  , trieEsti = estiCost2 autoGram dagGram estiTerm
-  , dagEsti  = estiNode
-  , dagAmort = amortDag
-  , trieAmort = amortTrie 
-  , depPrefEsti = \p -> maybe 0 id (M.lookup p prefDepSum)
-  , depSuffEsti = \q -> maybe 0 id (M.lookup q suffDepSum)
+  { dagAmort = amortDag
+  , trieAmort = amortTrie
   , prefEsti = \p -> maybe 0 id (M.lookup p prefSum)
   , suffEsti = \q -> maybe 0 id (M.lookup q suffSum)
   , minDepEsti = depCost
@@ -112,22 +94,34 @@ mkEsti _memoElem D.Gram{..} autoGram input posMap hedMap = Esti
     sent = B.inputSent input
     sentLen = length sent
 
-    estiTerm = estiCost1 termWei
---     estiNode i bag = minimumInf
---       [ estiTerm (bag `bagDiff` bag') + w
---       | (bag', w) <- M.toList (cost i)
---       , bag' `bagSubset` bag ]
-    estiNode i bag = amortDag i + estiTerm bag
+    -- DAG enriched with minimal dependency weights
+    dag = addMinDepWeights posMap depCostMap dagGram
+
+    -- cost of the given node
+    nodeCost i = case labelValue i dag of
+      Nothing -> error "nodeCost: incorrect ID"
+      Just (_, v) -> v
+
+    -- cost of the outer part, enriched with the cost of the node itself
+    supCostDag = supCost dag
+    -- costDag i = fmap (+nodeCost i) (supCostDag i)
+    costDag = supCostDag
+
+    -- DAG amortized cost
     amortDag i = minimumInf
-      [ w - estiTerm bag
+      [ w - termBagCost bag
       | (bag, w) <- M.toList (costDag i) ]
-    costDag = supCost dagGram
 
     -- trie amortized cost
     amortTrie i = minimumInf
-      [ w - estiTerm bag
+      [ w - termBagCost bag
       | (bag, w) <- M.toList (costTrie i) ]
-    costTrie = trieCost dagGram autoGram
+    -- TODO: make sure that the `trieCost` of the "almost root"
+    -- accounts for the root node cost!
+    costTrie = trieCost dag autoGram
+
+    -- minimal supertagging + dependency cost of the given bag
+    termBagCost = minCost termWei posMap depCostMap
 
     -- miminal dependency cost for the individual positions
     depCost dep = maybe 0 id
@@ -139,14 +133,6 @@ mkEsti _memoElem D.Gram{..} autoGram input posMap hedMap = Esti
     -- miminal supertagging cost for a given terminal
     termCost t = maybe 0 id
       (M.lookup t termWei)
-
-    -- partial dependency sums
-    prefDepSum = M.fromList . sums $
-      [ (dep, depCost (dep-1))
-      | dep <- [0..sentLen] ]
-    suffDepSum = M.fromList . sums $
-      [ (dep, depCost dep)
-      | dep <- reverse [0..sentLen] ]
 
     -- partial sums
     prefSum = M.fromList . sums $
@@ -170,101 +156,50 @@ sums =
       go _ [] = []
 
 
--- -- | Heuristic: lower bound estimate on the cost (weight) remaining
--- -- to fully parse the given input sentence.
--- estiCost1
---     :: (Ord t)
---     => Memo.Memo t      -- ^ Memoization strategy for terminals
---     -> M.Map t D.Weight -- ^ The lower bound estimates
---                         --   on terminal weights
---     -> Bag t            -- ^ Bag of terminals
---     -> D.Weight
--- estiCost1 memoElem termWei =
---     esti
---   where
---     esti = memoBag memoElem esti'
---     esti' bag = sum
---         [ maybe 0
---             (* fromIntegral n)
---             (M.lookup t termWei)
---         | (t, n) <- M.toList bag ]
-
-
--- | Heuristic: lower bound estimate on the cost (weight) remaining
--- to fully parse the given input sentence.
-estiCost1
-    :: (Ord t)
-    => M.Map t D.Weight -- ^ The lower bound estimates
-                        --   on terminal weights
-    -> Bag t            -- ^ Bag of terminals
-    -> D.Weight
-estiCost1 termWei bag =
+-- | Minimal cost of scanning the terminals in the given bag.
+minCost
+  :: (Ord t)
+  => M.Map t D.Weight   -- ^ Minimal terminal scanning weights
+  -> M.Map t Int        -- ^ Position map
+  -> M.Map Int D.Weight -- ^ Minimal dependency weight map
+  -> Bag t              -- ^ Bag of terminals
+  -> D.Weight
+minCost termWei posMap headWei bag =
   sum
-    [ maybe 0
-        (* fromIntegral n)
-        (M.lookup t termWei)
-    | (t, n) <- M.toList bag ]
+    [ (w1 + w2) * fromIntegral n
+    | (t, n) <- M.toList bag 
+    , let w1 = maybe 0 id $ M.lookup t termWei
+    , let w2 = maybe 0 id $ do
+                  k <- M.lookup t posMap
+                  M.lookup k headWei
+    ]
 
 
---------------------------------
--- Heuristic, part 2
---------------------------------
-
-
--- -- | Heuristic: lower bound estimate on the cost (weight) remaining
--- -- to fully parse the given input sentence.
--- --
--- -- NOTE: This function works on any weithed automaton representations,
--- -- but in reality it works correctly only on prefix trees!
--- estiCost2
---     :: (Ord n, Ord t)
---     => Memo.Memo t                  -- ^ Memoization strategy for terminals
---     -> A.WeiGramAuto n t            -- ^ The weighted automaton
---     -> D.DAG (O.Node n t) D.Weight  -- ^ The corresponding grammar DAG
---     -> (Bag t -> D.Weight)          -- ^ `estiCost1`
---     -> ID                           -- ^ ID of the automaton node
---     -> Bag t                        -- ^ Bag of terminals
---     -> D.Weight
--- estiCost2 memoElem weiAuto@A.WeiAuto{..} weiDag estiTerm =
---     esti
---   where
---     esti = Memo.memo2 Memo.integral (memoBag memoElem) esti'
---     esti' i bag = minimumInf
---       [ estiTerm (bag `bagDiff` bag') + w
---       | (bag', w) <- M.toList (cost i)
---       , bag' `bagSubset` bag ]
---     cost = trieCost weiDag weiAuto
-
-
--- | Heuristic: lower bound estimate on the cost (weight) remaining
--- to fully parse the given input sentence.
---
--- NOTE: This function works on any weithed automaton representations,
--- but in reality it works correctly only on prefix trees!
-estiCost2
-    :: (Ord n, SOrd t)
-    => A.WeiGramAuto n t            -- ^ The weighted automaton
-    -> D.DAG (O.Node n (Maybe t)) D.Weight
-                                    -- ^ The corresponding grammar DAG
-    -> (Bag t -> D.Weight)          -- ^ `estiCost1`
-    -> ID                           -- ^ ID of the automaton node
-    -> Bag t                        -- ^ Bag of terminals
-    -> D.Weight
-estiCost2 weiAuto@A.WeiAuto{..} weiDag estiTerm =
-    esti
+-- | Enrich the DAG with the minimal dep weights.
+addMinDepWeights
+  :: (Ord t)
+  => M.Map t Int        -- ^ Position map
+  -> M.Map Int D.Weight -- ^ Minimal dependency weight map
+  -> D.DAG (O.Node n (Maybe t)) D.Weight
+  -> D.DAG (O.Node n (Maybe t)) D.Weight
+addMinDepWeights posMap depMap dag0 =
+  D.nmap f dag0
   where
---     esti i bag = minimumInf
---       [ estiTerm (bag `bagDiff` bag') + w
---       | (bag', w) <- M.toList (cost i)
---       , bag' `bagSubset` bag ]
-    esti i bag = amortDag i + estiTerm bag
---     esti i bag = trace 
---       (show (i, bag, amortDag i, cost i, estiTerm bag))
---       (amortDag i + estiTerm bag)
-    amortDag i = minimumInf
-      [ w - estiTerm bag
-      | (bag, w) <- M.toList (cost i) ]
-    cost = trieCost weiDag weiAuto
+    terminals = catMaybes . O.project
+    f did w0
+      | D.isRoot did dag0 = maybe err (w0+) $ do
+          tree <- D.toTree did dag0
+          [t] <- return (terminals tree)
+          k <- M.lookup t posMap
+          M.lookup k depMap
+--           v <- M.lookup k depMap
+--           return $ if v < 0
+--              then trace ("negative final root val: " ++ show v) v
+--              else v
+      | w0 /= 0 =
+          error "addMinDepWeights: non-root weight /= 0!"
+      | otherwise = w0
+    err = error "addMinDepWeights: something wrong!"
 
 
 --------------------------------
@@ -300,13 +235,24 @@ subCost dag =
 
 -- | Compute the bags of terminals and the corresponding (minimal) weights
 -- for the individual super-trees surrounding the given DAG node.
+--
+-- WARNING: the implementation is currently tweaked so that the weight of the
+-- root is equal to the weight of the corresponding ET (theoretically it should
+-- be 0).  See the line:
+--
+--    \i -> fmap (+nodeCost i) (sup i)
+--
+-- Note also that this impacts roots only because non-root nodes do not have
+-- weights assigned.
+--
 supCost
     :: (Ord n, Ord t, Num w, Ord w)
     => D.DAG (O.Node n (Maybe t)) w     -- ^ Grammar DAG
     -> D.DID                            -- ^ ID of the DAG node
     -> M.Map (Bag t) w
 supCost dag =
-    sup
+  -- sup
+  \i -> fmap (+nodeCost i) (sup i)
   where
     sup = Memo.wrap D.DID D.unDID Memo.integral sup'
     sup' i
@@ -321,6 +267,10 @@ supCost dag =
           , sup_j <- M.toList (sup j) ]
     sub = subCost dag
     parMap = D.parentMap dag
+    -- cost of the given node
+    nodeCost i = case labelValue i dag of
+      Nothing -> error "nodeCost: incorrect ID"
+      Just (_, v) -> v
 
 
 --------------------------------

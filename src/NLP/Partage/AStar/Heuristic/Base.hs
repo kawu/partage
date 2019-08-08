@@ -4,22 +4,6 @@
 
 -- | A* base heuristic, independent from the currently parsed
 -- elementary tree (of trees).
---
--- WARNING: This heuristic is actually not correct!
--- UPDATE 12/07/2016: Is it really?
---
--- Let x, y be two graph nodes connected by arc with weight c(x, y).
--- Let c(x, y) represent scanning of terminal t with minw(t) > 0.
--- The cost of scanning is always zero (i.e., \beta(x) = \beta(y)),
--- thus c(x, y) = 0.
---
--- For a heuristic to be monotone, the following formula must be satisfied:
---
---   h(x) <= c(x, y) + h(y)
---
--- However, in this particular case, c(x, y) = 0 and h(y) < h(x), the latter
--- because h(x) = h(y) + minw(t) and minw(t) > 0, which together imply h(x) >
--- c(x, y) + h(y). QED.
 
 
 module NLP.Partage.AStar.Heuristic.Base

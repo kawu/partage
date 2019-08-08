@@ -154,6 +154,8 @@ import           Control.Monad.IO.Class     (liftIO)
 import qualified Data.Time              as Time
 #endif
 
+import Debug.Trace (trace)
+
 
 --------------------------------------------------
 -- Notes
@@ -554,7 +556,7 @@ pushPassive :: (SOrd t, SOrd n)
             -> Trav n t      -- ^ Traversal leading to the new item
             -> EarleyPipe n t ()
 pushPassive p newWeight newTrav = do
-  -- TODO: do we have to compute the esimated distance if the node is already
+  -- TODO: do we have to compute the estimated distance if the node is already
   -- processed (done)?
   estDist <- lift $ estimateDistP p
   let new = extWeight newWeight estDist newTrav
@@ -647,7 +649,8 @@ popItem = RWS.state $ \st -> case Q.minView (waiting st) of
 ----------------------
 
 
--- | Estimate the remaining distance for a passive item.
+-- | Estimate the remaining distance for a passive item (with the exception of
+-- the "gap weight", which is threaded via inference rules).
 estimateDistP :: (Ord t) => Passive n t -> Earley n t Weight
 estimateDistP p = do
 --   tbag <- bagOfTerms (p ^. spanP)
@@ -675,28 +678,22 @@ estimateDistP' p = do
 -- | Estimate the remaining distance for an active item.
 estimateDistA :: (Ord n, SOrd t) => Active -> Earley n t Weight
 estimateDistA q = do
---     tbag <- bagOfTerms (q ^. spanA)
-    -- esti <- RWS.gets (H.trieEsti . estiCost . automat)
     H.Esti{..} <- RWS.gets (estiCost . automat)
---     let sup = trieEsti (q ^. state) tbag
---         dep = depPrefEsti (q ^. spanA ^. beg)
---             + depSuffEsti (q ^. spanA ^. end)
-    let sup = trieAmort (q ^. state)  -- + termEsti tbag
+    let sup = trieAmort (q ^. state)
         dep = prefEsti (q ^. spanA ^. beg)
             + suffEsti (q ^. spanA ^. end)
     return $ sup + dep
--- #ifdef DebugOn
---     Auto{..} <- RWS.gets automat
---     lift $ do
---         putStr " #TC(0) " >> print ( H.treeCost
---           gramDAG gramAuto 3 )
---         putStr " #TBAG  " >> print tbag
---         putStr " #TCOST " >> print ( H.treeCost
---           gramDAG gramAuto (q ^. state) )
---         putStr " #STATE " >> print (q ^. state)
---         putStr " #ESTI  " >> print (esti (q ^. state) tbag)
--- #endif
---     return $ esti (q ^. state) tbag
+
+
+-- | Estimate the remaining distance for an active item.
+estimateDistA' :: (Ord n, SOrd t) => Active -> Earley n t (Double, Double, Double)
+estimateDistA' q = do
+    H.Esti{..} <- RWS.gets (estiCost . automat)
+    return $
+      ( trieAmort (q ^. state)
+      , prefEsti (q ^. spanA ^. beg)
+      , suffEsti (q ^. spanA ^. end)
+      )
 
 
 -- | Compute the amortized weight of the given passive item.
@@ -704,16 +701,24 @@ amortizedWeight :: Passive n t -> Earley n t Weight
 #ifdef NewHeuristic
 amortizedWeight p = do
   dagAmort <- RWS.gets (H.dagAmort . estiCost . automat)
---   return $ case p ^. dagID of
---     Left _  -> zeroWeight
---     Right i -> dagAmort i
   return $ dagAmort (p ^. dagID)
 #else
 amortizedWeight = const $ return zeroWeight
 #endif
 
 
--- -- | Compute the bag of terminals for the given span.
+-- | Compute the amortized weight of the given passive item.
+amortizedWeight' :: Active -> Earley n t Weight
+#ifdef NewHeuristic
+amortizedWeight' q = do
+  H.Esti{..} <- RWS.gets (estiCost . automat)
+  return $ trieAmort (q ^. state)
+#else
+amortizedWeight' = error "amortizedWeight' not implemented"
+#endif
+
+
+-- -- | TODO: Compute *the weight of* the bag of terminals for the given span.
 -- bagOfTerms :: (Ord t) => Span -> Earley n t (H.Bag t)
 -- bagOfTerms span = do
 --     n <- sentLen
@@ -730,25 +735,6 @@ amortizedWeight = const $ return zeroWeight
 --   where
 --     sentLen = length <$> RWS.asks inputSent
 --     estOn i j = H.bagFromList . map terminal . over i j <$> RWS.asks inputSent
-
-
--- | TODO: Compute *the weight of* the bag of terminals for the given span.
-bagOfTerms :: (Ord t) => Span -> Earley n t (H.Bag t)
-bagOfTerms span = do
-    n <- sentLen
-    x <- estOn 0 (span ^. beg)
-    y <- estOn (span ^. end) n
-#ifdef NewHeuristic
-    let z = H.bagEmpty
-#else
-    z <- case span ^. gap of
-        Nothing -> return H.bagEmpty
-        Just (i, j) -> estOn i j
-#endif
-    return $ x `H.bagAdd` y `H.bagAdd` z
-  where
-    sentLen = length <$> RWS.asks inputSent
-    estOn i j = H.bagFromList . map terminal . over i j <$> RWS.asks inputSent
 
 
 -- | The minimal possible cost of the given token as a dependent.
@@ -836,8 +822,8 @@ tryScan p duo = void $ P.runListT $ do
   -- read the word immediately following the ending position of
   -- the state
   tok <- readInput $ getL (spanA >>> end) p
-  -- determine the minimal cost of `tok` being a dependent
-  depCost <- lift . lift $ minDepCost tok
+--   -- determine the minimal cost of `tok` being a dependent
+--   depCost <- lift . lift $ minDepCost tok
   -- follow appropriate terminal transition outgoing from the
   -- given automaton state
   (termCost, j) <- followTerm (getL state p) (Just $ terminal tok)
@@ -845,11 +831,9 @@ tryScan p duo = void $ P.runListT $ do
   let q = setL state j
         . modL' (spanA >>> end) (+1)
         $ p
-  -- compute the estimated distance for the resulting item
-  -- estDist <- lift . estimateDistA $ q
   -- push the resulting state into the waiting queue
   let newBeta = addWeight (duoBeta duo) termCost
-      newGap = duoGap duo + depCost
+      newGap = duoGap duo -- + depCost
       newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
   lift $ pushInduced q newDuo
            (Scan p tok termCost)
@@ -920,6 +904,80 @@ tryEmpty p duo = void $ P.runListT $ do
 
 
 --------------------------------------------------
+-- OMEGA
+--------------------------------------------------
+
+
+-- | Weight of the given node becoming a dependent of another node.
+-- Returns `Nothing` if the operation is not allowed.
+omega
+  :: DID  -- ^ Dependent
+  -> DID  -- ^ Head
+  -> EarleyPipe n t (Maybe Weight)
+omega depDid hedDid = do
+  auto <- RWS.gets automat
+  let anchorMap = anchorPos auto
+      headMap = headPos auto
+      dag = gramDAG auto
+  let cost = do
+        -- determine the position of the dependent tree
+        depPos <- M.lookup depDid anchorMap
+        -- determine the position of the head tree
+        hedPos <- M.lookup hedDid anchorMap
+        -- determine the accepted positions of the dependent tree
+        posMap <- M.lookup depPos headMap
+        -- return the corresponding weight
+        return $ M.lookup hedPos posMap
+  -- we additionally add the dependent node weight (which should be non-zero
+  -- only if `depDid` is a root)
+  let treeWeight =
+        case DAG.value depDid dag of
+          Nothing -> 0
+          Just x -> x
+  -- combine and return
+  return . fmap (+treeWeight) $
+    case cost of
+      Just Nothing -> Nothing
+      Nothing -> Just 0
+      Just (Just x) -> Just x
+
+
+-- | Weight of the given node becoming a dependent of another node.
+-- Returns `Nothing` if the operation is not allowed.
+omega'
+  :: DID  -- ^ Dependent
+  -> ID   -- ^ Head
+  -> EarleyPipe n t (Maybe Weight)
+omega' depDid hedId = do
+  auto <- RWS.gets automat
+  let anchorMap = anchorPos auto
+      anchorMap' = anchorPos' auto
+      headMap = headPos auto
+      dag = gramDAG auto
+  let cost = do
+        -- determine the position of the dependent tree
+        depPos <- M.lookup depDid anchorMap
+        -- determine the position of the head tree
+        hedPos <- M.lookup hedId anchorMap'
+        -- determine the accepted positions of the dependent tree
+        posMap <- M.lookup depPos headMap
+        -- return the corresponding weight
+        return $ M.lookup hedPos posMap
+  -- we additionally add the dependent node weight (which should be non-zero
+  -- only if `depDid` is a root)
+  let treeWeight =
+        case DAG.value depDid dag of
+          Nothing -> 0
+          Just x -> x
+  -- combine and return
+  return . fmap (+treeWeight) $
+    case cost of
+      Just Nothing -> Nothing
+      Nothing -> Just 0
+      Just (Just x) -> Just x
+
+
+--------------------------------------------------
 -- SUBST
 --------------------------------------------------
 
@@ -943,21 +1001,12 @@ trySubst p pw = void $ P.runListT $ do
     auto <- RWS.gets automat
     let dag = gramDAG auto
         leafMap = leafDID auto
-        anchorMap = anchorPos auto
-        headMap = headPos auto
+--         anchorMap = anchorPos auto
+--         headMap = headPos auto
     -- make sure that `p` does not represent sister tree
     guard $ not (isSister' pDID dag)
     -- now, we need to choose the DAG node to search for depending on whether
     -- the DAG node provided by `p' is a root or not
---     # OLD VERSION FOLLOWS
---     theDID <- case pDID of
---         -- real substitution
---         Left root ->
---           each . S.toList . maybe S.empty id $
---             M.lookup (notFootLabel root) leafMap
---         -- pseudo-substitution
---         Right did -> return did
---     # NEW VERSION FOLLOWS
     (theDID, depCost) <-
       if DAG.isRoot pDID dag
          -- real substitution
@@ -966,21 +1015,22 @@ trySubst p pw = void $ P.runListT $ do
            did <- each . S.toList . maybe S.empty id $
              M.lookup (nonTerm pDID auto) leafMap
            -- verify that the substitution is OK w.r.t. the dependency info
-           let cost = do
-                 -- determine the position of the head tree
-                 hedPos <- M.lookup did anchorMap
-                 -- determine the position of the dependent tree
-                 depPos <- M.lookup pDID anchorMap
-                 -- determine the accepted positions of the dependent tree
-                 posMap <- M.lookup depPos headMap
-                 -- return the corresponding weight
-                 return $ M.lookup hedPos posMap
-           guard $ cost /= Just Nothing
-           return (did, maybe 0 fromJust cost)
+--            let cost = do
+--                  -- determine the position of the head tree
+--                  hedPos <- M.lookup did anchorMap
+--                  -- determine the position of the dependent tree
+--                  depPos <- M.lookup pDID anchorMap
+--                  -- determine the accepted positions of the dependent tree
+--                  posMap <- M.lookup depPos headMap
+--                  -- return the corresponding weight
+--                  return $ M.lookup hedPos posMap
+--            guard $ cost /= Just Nothing
+--            return (did, maybe 0 fromJust cost)
+           Just cost <- lift $ omega pDID did
+           return (did, cost)
          -- pseudo-substitution
          else do
            return (pDID, 0)
---     # NEW VERSION ENDS
     -- find active items which end where `p' begins and which
     -- expect the non-terminal provided by `p' (ID included)
     (q, qw) <- expectEnd theDID (getL beg pSpan)
@@ -1035,8 +1085,10 @@ trySubst' q qw = void $ P.runListT $ do
     auto <- RWS.gets automat
     let dag = gramDAG auto
         leafMap = leafDID auto
-        anchorMap = anchorPos auto
-        headMap = headPos auto
+
+--         anchorMap = anchorPos auto
+--         headMap = headPos auto
+
     -- Learn what non-terminals `q` actually expects.
     -- WARNING: in the automaton-based parser, this seems not
     -- particularly efficient in some corner cases...
@@ -1066,35 +1118,25 @@ trySubst' q qw = void $ P.runListT $ do
     -- make sure that `p` does not represent a sister tree
     guard $ not (isSister' pDID dag)
 
---     -- Check if the dependencies match (but only in case of actual
---     -- substitution) (NEW: 13.12.2018)
---     guard $ 
---       if DAG.isLeaf qDID dag
---          then
---            -- determine the position of the head tree
---            let hedPos = M.lookup qDID anchorMap
---            -- determine the position of the dependent tree
---                depPos = M.lookup (p ^. dagID) anchorMap
---            -- verify that the substitution is OK w.r.t. the dependency info
---            in  case flip M.lookup headMap =<< depPos of
---                  Nothing -> True
---                  Just pos -> Just pos == hedPos
---          else True
+--     let cost = do
+--           -- only in case of actual substitution
+--           guard $ DAG.isLeaf qDID dag
+--           -- determine the position of the head tree
+--           hedPos <- M.lookup qDID anchorMap
+--           -- determine the position of the dependent tree
+--           depPos <- M.lookup (p ^. dagID) anchorMap
+--           -- determine the accepted positions of the dependent tree
+--           posMap <- M.lookup depPos headMap
+--           -- check if they agree
+--           return $ M.lookup hedPos posMap
+--     guard $ cost /= Just Nothing
+--     let depCost = maybe 0 fromJust cost
 
-    -- NEW: 27.12.2018
-    let cost = do
-          -- only in case of actual substitution
-          guard $ DAG.isLeaf qDID dag
-          -- determine the position of the head tree
-          hedPos <- M.lookup qDID anchorMap
-          -- determine the position of the dependent tree
-          depPos <- M.lookup (p ^. dagID) anchorMap
-          -- determine the accepted positions of the dependent tree
-          posMap <- M.lookup depPos headMap
-          -- check if they agree
-          return $ M.lookup hedPos posMap
-    guard $ cost /= Just Nothing
-    let depCost = maybe 0 fromJust cost
+    Just depCost <- 
+      if DAG.isLeaf qDID dag
+         then lift $ omega (p ^. dagID) qDID
+         else return (Just 0)
+
 --     liftIO $ do
 --       putStr "is actual substitution: "
 --       putStrLn $ show $ DAG.isLeaf qDID dag
@@ -1189,7 +1231,7 @@ tryAdjoinInit p pw = void $ P.runListT $ do
     -- push the resulting state into the waiting queue
     let newBeta = addWeight (duoBeta qw) tranCost
         -- newGap = duoBeta pw + duoGap pw + amortWeight
-        -- NEW 28.12.2018:
+        -- TODO: `duaGap qw` should be equal to `0` again!
         newGap = duoGap qw + duoBeta pw + duoGap pw + amortWeight
         newDuo = DuoWeight {duoBeta = newBeta, duoGap = newGap}
     lift $ pushInduced q' newDuo
@@ -1451,25 +1493,21 @@ tryAdjoinTerm q qw = void $ P.runListT $ do
     let changeAdjState = setL isAdjoinedTo True
 #endif
     -- check w.r.t. the dependency structure
-    let anchorMap = anchorPos auto
-        headMap = headPos auto
---         depPos = M.lookup (q ^. dagID) anchorMap
---         hedPos = M.lookup (p ^. dagID) anchorMap
---     guard $ case flip M.lookup headMap =<< depPos of
---               Nothing -> True
---               Just pos -> Just pos == hedPos
-    let cost = do
-    -- guard . (/= Just False) $ do
-          -- determine the position of the head tree
-          hedPos <- M.lookup (p ^. dagID) anchorMap
-          -- determine the position of the dependent tree
-          depPos <- M.lookup (q ^. dagID) anchorMap
-          -- determine the accepted positions of the dependent tree
-          posMap <- M.lookup depPos headMap
-          -- check if they agree
-          return $ M.lookup hedPos posMap
-    guard $ cost /= Just Nothing
-    let depCost = maybe 0 fromJust cost
+--     let anchorMap = anchorPos auto
+--         headMap = headPos auto
+--     let cost = do
+--     -- guard . (/= Just False) $ do
+--           -- determine the position of the head tree
+--           hedPos <- M.lookup (p ^. dagID) anchorMap
+--           -- determine the position of the dependent tree
+--           depPos <- M.lookup (q ^. dagID) anchorMap
+--           -- determine the accepted positions of the dependent tree
+--           posMap <- M.lookup depPos headMap
+--           -- check if they agree
+--           return $ M.lookup hedPos posMap
+--     guard $ cost /= Just Nothing
+--     let depCost = maybe 0 fromJust cost
+    Just depCost <- lift $ omega (q ^. dagID) (p ^. dagID)
 
     -- construct the resulting item
     let p' = setL (spanP >>> beg) (qSpan ^. beg)
@@ -1537,25 +1575,20 @@ tryAdjoinTerm' p pw = void $ P.runListT $ do
         , p ^. spanP ^. end )
     let qSpan = q ^. spanP
     -- check w.r.t. the dependency structure
-    let anchorMap = anchorPos auto
-        headMap = headPos auto
---         depPos = M.lookup (q ^. dagID) anchorMap
---         hedPos = M.lookup (p ^. dagID) anchorMap
---     guard $ case flip M.lookup headMap =<< depPos of
---               Nothing -> True
---               Just pos -> Just pos == hedPos
-    let cost = do
-    -- guard . (/= Just False) $ do
-          -- determine the position of the head tree
-          hedPos <- M.lookup (p ^. dagID) anchorMap
-          -- determine the position of the dependent tree
-          depPos <- M.lookup (q ^. dagID) anchorMap
-          -- determine the accepted positions of the dependent tree
-          posMap <- M.lookup depPos headMap
-          -- check if they agree
-          return $ M.lookup hedPos posMap
-    guard $ cost /= Just Nothing
-    let depCost = maybe 0 fromJust cost
+--     let anchorMap = anchorPos auto
+--         headMap = headPos auto
+--     let cost = do
+--           -- determine the position of the head tree
+--           hedPos <- M.lookup (p ^. dagID) anchorMap
+--           -- determine the position of the dependent tree
+--           depPos <- M.lookup (q ^. dagID) anchorMap
+--           -- determine the accepted positions of the dependent tree
+--           posMap <- M.lookup depPos headMap
+--           -- check if they agree
+--           return $ M.lookup hedPos posMap
+--     guard $ cost /= Just Nothing
+--     let depCost = maybe 0 fromJust cost
+    Just depCost <- lift $ omega (q ^. dagID) (p ^. dagID)
 
     -- Construct the resulting state:
     let p' = setL (spanP >>> beg) (qSpan ^. beg)
@@ -1608,27 +1641,24 @@ tryDeactivate q qw = void $ P.runListT $ do
 #endif
   dag <- RWS.gets (gramDAG . automat)
   (headCost, did) <- heads (getL state q)
+  -- (_headCost, did) <- heads (getL state q)
   let p = Passive
           { _dagID = did
           , _spanP = getL spanA q
           , _isAdjoinedTo = False }
-  -- estDist <- lift (estimateDistP p)
-  -- let ext  = new priWeight
-  -- let ext' = ext
-  --         { priWeight = priWeight new + headCost
-  --         , estWeight = estDist }
-  -- lift $ pushPassive p ext'
   let finalWeight = DuoWeight
+        -- { duoBeta = duoBeta qw -- + headCost
         { duoBeta = duoBeta qw + headCost
         , duoGap = duoGap qw }
   lift $ pushPassive p finalWeight (Deactivate q headCost)
+  -- lift $ pushPassive p finalWeight (Deactivate q 0)
 #ifdef CheckMonotonic
   totalQ <- lift . lift $ est2total qw <$> estimateDistA q
   totalP <- lift . lift $ est2total finalWeight <$> estimateDistP p
   when (totalP + epsilon < totalQ) $ do
     P.liftIO . putStrLn $
-      "[DEACTIVATE: MONOTONICITY TEST FAILED] TAIL WEIGHT: " ++ show totalP ++
-      ", HEAD WEIGHT: " ++ show totalQ
+      "[DEACTIVATE: MONOTONICITY TEST FAILED] TAIL WEIGHT: " ++ show totalQ ++
+      ", HEAD WEIGHT: " ++ show totalP
 #endif
 #ifdef DebugOn
   -- print logging information
@@ -1682,26 +1712,21 @@ trySisterAdjoin p pw = void $ P.runListT $ do
 --     (q, qw) <- rootEnd (notFootLabel root) (getL beg pSpan)
     (q, qw) <- rootEnd (nonTermH pDID hype) (getL beg pSpan)
     -- check w.r.t. the dependency structure
-    let anchorMap = anchorPos auto
-        anchorMap' = anchorPos' auto
-        headMap = headPos auto
---         depPos = M.lookup (p ^. dagID) anchorMap
---         hedPos = M.lookup (q ^. state) anchorMap'
---     guard $ case flip M.lookup headMap =<< depPos of
---               Nothing -> True
---               Just pos -> Just pos == hedPos
-    let cost = do
-    -- guard . (/= Just False) $ do
-          -- determine the position of the head tree
-          hedPos <- M.lookup (q ^. state) anchorMap'
-          -- determine the position of the dependent tree
-          depPos <- M.lookup (p ^. dagID) anchorMap
-          -- determine the accepted positions of the dependent tree
-          posMap <- M.lookup depPos headMap
-          -- check if they agree
-          return $ M.lookup hedPos posMap
-    guard $ cost /= Just Nothing
-    let depCost = maybe 0 fromJust cost
+--     let anchorMap = anchorPos auto
+--         anchorMap' = anchorPos' auto
+--         headMap = headPos auto
+--     let cost = do
+--           -- determine the position of the head tree
+--           hedPos <- M.lookup (q ^. state) anchorMap'
+--           -- determine the position of the dependent tree
+--           depPos <- M.lookup (p ^. dagID) anchorMap
+--           -- determine the accepted positions of the dependent tree
+--           posMap <- M.lookup depPos headMap
+--           -- check if they agree
+--           return $ M.lookup hedPos posMap
+--     guard $ cost /= Just Nothing
+--     let depCost = maybe 0 fromJust cost
+    Just depCost <- lift $ omega' (p ^. dagID) (q ^. state)
 
     -- construct the resultant item with the same state and extended span
     let q' = setL (end . spanA) (getL end pSpan) $ q
@@ -1748,26 +1773,21 @@ trySisterAdjoin' q qw = void $ P.runListT $ do
   let sister = lhsNotFoot {isSister = True}
   (p, pw) <- provideBegIni' (Left sister) (q ^. spanA ^. end)
   -- check w.r.t. the dependency structure
-  let anchorMap = anchorPos auto
-      anchorMap' = anchorPos' auto
-      headMap = headPos auto
---       depPos = M.lookup (p ^. dagID) anchorMap
---       hedPos = M.lookup (q ^. state) anchorMap'
---   guard $ case flip M.lookup headMap =<< depPos of
---             Nothing -> True
---             Just pos -> Just pos == hedPos
-  let cost = do
-  -- guard . (/= Just False) $ do
-        -- determine the position of the head tree
-        hedPos <- M.lookup (q ^. state) anchorMap'
-        -- determine the position of the dependent tree
-        depPos <- M.lookup (p ^. dagID) anchorMap
-        -- determine the accepted positions of the dependent tree
-        posMap <- M.lookup depPos headMap
-        -- check if they agree
-        return $ M.lookup hedPos posMap
-  guard $ cost /= Just Nothing
-  let depCost = maybe 0 fromJust cost
+--   let anchorMap = anchorPos auto
+--       anchorMap' = anchorPos' auto
+--       headMap = headPos auto
+--   let cost = do
+--         -- determine the position of the head tree
+--         hedPos <- M.lookup (q ^. state) anchorMap'
+--         -- determine the position of the dependent tree
+--         depPos <- M.lookup (p ^. dagID) anchorMap
+--         -- determine the accepted positions of the dependent tree
+--         posMap <- M.lookup depPos headMap
+--         -- check if they agree
+--         return $ M.lookup hedPos posMap
+--   guard $ cost /= Just Nothing
+--   let depCost = maybe 0 fromJust cost
+  Just depCost <- lift $ omega' (p ^. dagID) (q ^. state)
 
   -- construct the resulting item with the same state and extended span
   let pSpan = getL spanP p
@@ -1887,22 +1907,6 @@ parsedTrees hype start n
 --------------------------------------------------
 
 
--- -- | Does the given grammar generate the given sentence?
--- -- Uses the `earley` algorithm under the hood.
--- recognize
--- #ifdef DebugOn
---     :: (SOrd t, SOrd n)
--- #else
---     :: (Hashable t, Ord t, Hashable n, Ord n)
--- #endif
---     => FactGram n t         -- ^ The grammar (set of rules)
---     -> Input t            -- ^ Input sentence
---     -> IO Bool
--- recognize gram input = do
---     auto <- mkAuto (D.fromGram gram)
---     recognizeAuto auto input
-
-
 -- | Does the given grammar generate the given sentence from the given
 -- non-terminal symbol (i.e. from an initial tree with this symbol in its root)?
 -- Uses the `earley` algorithm under the hood.
@@ -1927,55 +1931,9 @@ recognizeFrom memoTerm gram start posMap hedMap input = do
     recognizeFromAuto auto start input
 
 
--- -- | Parse the given sentence and return the set of parsed trees.
--- parse
--- #ifdef DebugOn
---     :: (SOrd t, SOrd n)
--- #else
---     :: (Hashable t, Ord t, Hashable n, Ord n)
--- #endif
---     => FactGram n t         -- ^ The grammar (set of rules)
---     -> n                    -- ^ The start symbol
---     -> Input t              -- ^ Input sentence
---     -> IO [T.Tree n t]
--- parse gram start input = do
---     auto <- mkAuto (D.fromGram gram)
---     parseAuto auto start input
---
---
--- -- | Perform the earley-style computation given the grammar and
--- -- the input sentence.
--- earley
--- #ifdef DebugOn
---     :: (SOrd t, SOrd n)
--- #else
---     :: (Hashable t, Ord t, Hashable n, Ord n)
--- #endif
---     => FactGram n t         -- ^ The grammar (set of rules)
---     -> Input t              -- ^ Input sentence
---     -> IO (Hype n t)
--- earley gram input = do
---     auto <- mkAuto (D.fromGram gram)
---     earleyAuto auto input
-
-
 --------------------------------------------------
 -- Parsing with automaton
 --------------------------------------------------
-
-
--- -- | See `recognize`.
--- recognizeAuto
--- #ifdef DebugOn
---     :: (SOrd t, SOrd n)
--- #else
---     :: (Hashable t, Ord t, Hashable n, Ord n)
--- #endif
---     => Auto n t           -- ^ Grammar automaton
---     -> Input t            -- ^ Input sentence
---     -> IO Bool
--- recognizeAuto auto xs =
---     isRecognized xs <$> earleyAuto auto xs
 
 
 -- | See `recognizeFrom`.
@@ -1990,23 +1948,6 @@ recognizeFromAuto auto start input = do
     -- let n = V.length (inputSent input)
     let n = length (inputSent input)
     return $ (not.null) (finalFrom start n hype)
-
-
--- -- | See `parse`.
--- parseAuto
--- #ifdef DebugOn
---     :: (SOrd t, SOrd n)
--- #else
---     :: (Hashable t, Ord t, Hashable n, Ord n)
--- #endif
---     => Auto n t           -- ^ Grammar automaton
---     -> n                  -- ^ The start symbol
---     -> Input t            -- ^ Input sentence
---     -> IO [T.Tree n t]
--- parseAuto auto start input = do
---     earSt <- earleyAuto auto input
---     let n = V.length (inputSent input)
---     return $ parsedTrees earSt start n
 
 
 -- | See `earley`.
@@ -2034,16 +1975,6 @@ earleyAutoP auto input consumer =
   fst <$> RWS.evalRWST
     (P.runEffect (earleyAutoGen >-> consumer))
     input (mkHype auto)
-
-
--- | See `earley`.
--- earleyAutoP
---     :: (SOrd t, SOrd n)
---     => Auto n t         -- ^ Grammar automaton
---     -> Input t          -- ^ Input sentence
---     -> P.Producer (HypeModif n t) IO (Hype n t)
--- earleyAutoP auto input =
---   fst <$> RWS.evalRWST earleyAutoGen input (mkHype auto)
 
 
 -- | Produce the constructed items (and the corresponding hypergraphs) on the
@@ -2280,16 +2211,20 @@ testMono
     -> Earley n t ()
 testMono opStr (p, pw) (q, qw) (q', newDuo) = do
     distP <- estimateDistP p
-    distP' <- estimateDistP' p
+    dist'P <- estimateDistP' p
     distQ <- estimateDistA q
+    dist'Q <- estimateDistA' q
     distQ' <- estimateDistA q'
+    dist'Q' <- estimateDistA' q'
     let totalP = est2total pw distP
         totalQ = est2total qw distQ
         totalQ' = est2total newDuo distQ'
     let tails = [totalP, totalQ]
     when (any (totalQ' + epsilon <) tails) $ do
       hype <- RWS.get
-      amortWeight <- amortizedWeight p
+      amortWeightP <- amortizedWeight p
+      amortWeightQ <- amortizedWeight' q
+      amortWeightQ' <- amortizedWeight' q'
       P.liftIO $ do
         putStrLn $ "[" ++ opStr ++ ": MONOTONICITY TEST FAILED]" ++
           " TAILS: " ++ show tails ++
@@ -2299,16 +2234,20 @@ testMono opStr (p, pw) (q, qw) (q', newDuo) = do
 
         printPassive p hype
         putStr " => "
-        putStrLn $ show (pw, distP')
-        putStr " => node's amortized weight: "
-        putStrLn $ show amortWeight
+        putStrLn $ show (pw, dist'P)
+        putStr " => amortized weight: "
+        putStrLn $ show amortWeightP
 
         printActive q
         putStr " => "
-        putStrLn $ show (qw, distQ)
+        putStrLn $ show (qw, dist'Q)
+        putStr " => amortized weight: "
+        putStrLn $ show amortWeightQ
 
         putStrLn "HEAD:"
         printActive q'
         putStr " => "
-        putStrLn $ show (newDuo, distQ')
+        putStrLn $ show (newDuo, dist'Q')
+        putStr " => amortized weight: "
+        putStrLn $ show amortWeightQ'
 #endif

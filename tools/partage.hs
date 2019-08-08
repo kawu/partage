@@ -343,8 +343,6 @@ run cmd =
           -- Create the compressed grammar representation
           gram
             = DAG.mkGram
-            -- . (\xs -> trace (show $ length xs) xs)
-            -- . anchorTags'
             . anchorTagsIgnoreProbs
             . zip [0 :: Int ..]
             $ sent
@@ -616,7 +614,11 @@ anchorTagsIgnoreProbs xs = do
 
 -- | A version of `anchorTagsIgnoreProbs` which preserves probabilities, but
 -- does not join identical supertags.  Besides, it replaces each probability
--- `p` by `-log(p)`.
+-- `p` by `-log(p)`.  
+--
+-- WARNING: At the end, the minimum weight of a tree becoming a dependendent is
+-- added to the corresponding weight.  This allows the new definition of the
+-- amortized weight.
 anchorTags
   :: [(Int, Br.SuperTok)]
   -> [(O.Tree T.Text (Maybe (Int, T.Text)), DAG.Weight)]
@@ -625,27 +627,19 @@ anchorTags =
   where
     anchor tokID Br.SuperTok{..} = map
       ( Arr.first (anchorTag (Just (tokID, tokWord)) onTerm)
-      . Arr.second (\p -> -log(p))
+      -- . Arr.second (\p -> - (log p + log maxDepProb))
+      . Arr.second (\p -> - (log p))
       )
       tokTags
+--         where
+--           maxDepProb =
+--             case M.elems tokDeph of
+--               [] -> error
+--                 "partage.anchorTags: dependency weights not specified"
+--               xs -> maximum xs
     onTerm = \case
       Nothing -> Nothing
       Just _ -> error "Cannot process a co-anchor terminal node"
-
-
--- -- | A version of `anchorTags` (really works the same, just different output
--- -- type; hence can be used with the Earley-style parser).
--- anchorTags'
---   :: [(Int, Br.SuperTok)]
---   -> [(Tree, DAG.Weight)]
--- anchorTags' =
---   concatMap (uncurry anchor)
---   where
---     anchor tokID Br.SuperTok{..} = map
---       ( Arr.first (anchorTag $ S.singleton (tokID, tokWord))
---       . Arr.second (\p -> -log(p))
---       )
---       tokTags
 
 
 -- | Anchor the given elementary tree with the given anchor terminal symbol.

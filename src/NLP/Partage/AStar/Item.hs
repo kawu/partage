@@ -120,11 +120,13 @@ printActive p = do
 -- | Print a passive item.
 printPassive :: (Show n, Show t) => Passive n t -> Auto n t -> IO ()
 printPassive p auto = do
+    let did = getL dagID p
     putStr "("
     putStr $
-      let did = getL dagID p
-       in show (DAG.unDID did) ++ "[" ++
-          show (nonTerm did auto) ++ "]"
+      show (DAG.unDID did) ++ "[" ++
+      show (nonTerm did auto) ++ "]"
+    putStr ", "
+    putStr $ "root=" ++ show (DAG.isRoot did (gramDAG auto))
     putStr ", "
     printSpan $ getL spanP p
     putStrLn ")"
