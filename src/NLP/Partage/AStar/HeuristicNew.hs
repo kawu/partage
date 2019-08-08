@@ -263,16 +263,6 @@ subCost dag =
 
 -- | Compute the bags of terminals and the corresponding (minimal) weights
 -- for the individual super-trees surrounding the given DAG node.
---
--- WARNING: the implementation is currently tweaked so that the weight of the
--- root is equal to the weight of the corresponding ET (theoretically it should
--- be 0).  See the line:
---
---    \i -> fmap (+nodeCost i) (sup i)
---
--- Note also that this impacts roots only because non-root nodes do not have
--- weights assigned.
---
 supCost
     :: (Ord n, Ord t, Num w, Ord w)
     => D.DAG (O.Node n (Maybe t)) w     -- ^ Grammar DAG
@@ -280,7 +270,6 @@ supCost
     -> M.Map (Bag t) w
 supCost dag =
   sup
-  -- \i -> fmap (+nodeCost i) (sup i)
   where
     sup = Memo.wrap D.DID D.unDID Memo.integral sup'
     sup' i
@@ -295,10 +284,6 @@ supCost dag =
           , sup_j <- M.toList (sup j) ]
     sub = subCost dag
     parMap = D.parentMap dag
-    -- cost of the given node
-    nodeCost i = case labelValue i dag of
-      Nothing -> error "nodeCost: incorrect ID"
-      Just (_, v) -> v
 
 
 --------------------------------
