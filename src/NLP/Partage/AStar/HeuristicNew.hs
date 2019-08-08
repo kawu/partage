@@ -90,22 +90,22 @@ mkEsti _memoElem D.Gram{..} autoGram input posMap hedMap = Esti
   , minDepEsti = depCost
   }
   where
+
+    -- DAG and automaton (trie) enriched with minimal dependency weights
+    (dag, auto) = addMinDepWeights posMap depCostMap dagGram autoGram
+
     -- sentence length
     sent = B.inputSent input
     sentLen = length sent
 
-    -- DAG enriched with minimal dependency weights
-    dag = addMinDepWeights posMap depCostMap dagGram
-
+    -- cost of the outer part, enriched with the cost of the node itself
+    supCostDag = supCost dag
+    costDag i = fmap (+nodeCost i) (supCostDag i)
     -- cost of the given node
     nodeCost i = case labelValue i dag of
       Nothing -> error "nodeCost: incorrect ID"
       Just (_, v) -> v
-
-    -- cost of the outer part, enriched with the cost of the node itself
-    supCostDag = supCost dag
-    -- costDag i = fmap (+nodeCost i) (supCostDag i)
-    costDag = supCostDag
+--     costDag = supCostDag
 
     -- DAG amortized cost
     amortDag i = minimumInf
@@ -116,9 +116,7 @@ mkEsti _memoElem D.Gram{..} autoGram input posMap hedMap = Esti
     amortTrie i = minimumInf
       [ w - termBagCost bag
       | (bag, w) <- M.toList (costTrie i) ]
-    -- TODO: make sure that the `trieCost` of the "almost root"
-    -- accounts for the root node cost!
-    costTrie = trieCost dag autoGram
+    costTrie = trieCost dag auto
 
     -- minimal supertagging + dependency cost of the given bag
     termBagCost = minCost termWei posMap depCostMap
@@ -175,31 +173,61 @@ minCost termWei posMap headWei bag =
     ]
 
 
--- | Enrich the DAG with the minimal dep weights.
+-- | Enrich the DAG/automaton with the minimal dep weights.
 addMinDepWeights
   :: (Ord t)
   => M.Map t Int        -- ^ Position map
   -> M.Map Int D.Weight -- ^ Minimal dependency weight map
   -> D.DAG (O.Node n (Maybe t)) D.Weight
-  -> D.DAG (O.Node n (Maybe t)) D.Weight
-addMinDepWeights posMap depMap dag0 =
-  D.nmap f dag0
+                        -- ^ The underlying DAG
+  -> A.WeiGramAuto n t  -- ^ The underlying automaton
+  -> ( D.DAG (O.Node n (Maybe t)) D.Weight
+     , A.WeiGramAuto n t )
+addMinDepWeights posMap depMap dag0 auto0 =
+  ( D.nmap f dag0
+  , mapHeads f auto0
+  )
   where
+    f did w0 =
+      case M.lookup did updMap of
+        Nothing -> w0
+        Just w1 -> w0 + w1
+    updMap = M.fromList $ do
+      did <- S.toList $ D.rootSet dag0
+      return (did, updateRoot did)
+--     update did w0
+--       | D.isRoot did dag0 = maybe err (w0+) $ do
+--           tree <- D.toTree did dag0
+--           [t] <- return (terminals tree)
+--           k <- M.lookup t posMap
+--           M.lookup k depMap
+--       | w0 /= 0 =
+--           error "addMinDepWeights: non-root weight /= 0!"
+--       | otherwise = w0
+    updateRoot did = maybe err id $ do
+      tree <- D.toTree did dag0
+      [t] <- return (terminals tree)
+      k <- M.lookup t posMap
+      M.lookup k depMap
     terminals = catMaybes . O.project
-    f did w0
-      | D.isRoot did dag0 = maybe err (w0+) $ do
-          tree <- D.toTree did dag0
-          [t] <- return (terminals tree)
-          k <- M.lookup t posMap
-          M.lookup k depMap
---           v <- M.lookup k depMap
---           return $ if v < 0
---              then trace ("negative final root val: " ++ show v) v
---              else v
-      | w0 /= 0 =
-          error "addMinDepWeights: non-root weight /= 0!"
-      | otherwise = w0
     err = error "addMinDepWeights: something wrong!"
+
+
+-- | Perform map over weighted automaton head edges.  We only need to consider
+-- heads because the others do not contain any weights.
+mapHeads
+  :: (D.DID -> D.Weight -> D.Weight)
+  -> A.WeiGramAuto n t
+  -> A.WeiGramAuto n t
+mapHeads f auto =
+  auto { A.edgesWei = newEdgesWei }
+  where
+    newEdgesWei i = do
+      (e, w0, j) <- A.edgesWei auto i
+      return $
+        case e of
+          A.Head did -> (A.Head did, f did w0, j)
+          A.Body did -> (A.Body did, w0, j)
 
 
 --------------------------------
@@ -251,8 +279,8 @@ supCost
     -> D.DID                            -- ^ ID of the DAG node
     -> M.Map (Bag t) w
 supCost dag =
-  -- sup
-  \i -> fmap (+nodeCost i) (sup i)
+  sup
+  -- \i -> fmap (+nodeCost i) (sup i)
   where
     sup = Memo.wrap D.DID D.unDID Memo.integral sup'
     sup' i
@@ -278,15 +306,13 @@ supCost dag =
 --------------------------------
 
 
--- | Compute the bags of terminals and the corresponding
--- (minimal) weights which still need to be scanned before
--- some full elementary tree is parsed starting from the
--- given automaton state.
+-- | Compute the bags of terminals and the corresponding (minimal) weights
+-- which still need to be scanned before some full elementary tree is parsed
+-- starting from the given automaton state.
 --
--- Note that for final automaton states (at the moment it is
--- guaranteed that such states are also leaves) the function
--- returns the empty map, even though we could possibly compute
--- and return 'sup' for such states.
+-- Note that for final automaton states (at the moment it is guaranteed that
+-- such states are also leaves) the function returns the empty map, even though
+-- we could possibly compute and return 'sup' for such states.
 trieCost
     :: (Ord n, Ord t)
     => D.DAG (O.Node n (Maybe t)) D.Weight  -- ^ Grammar DAG

@@ -116,8 +116,8 @@ walk Auto{..} =
 
 -- | Minimal weighted automaton implementation.
 --
--- UPDATE 08/06/2018: "minimal" in what sense? Probably in the sense of "minimal
--- implementation".
+-- UPDATE 08/06/2018: "minimal" in what sense? Probably in the sense of
+-- "minimal implementation".
 data WeiAuto a = WeiAuto
     { rootsWei  :: S.Set ID
     -- ^ Set of automata roots

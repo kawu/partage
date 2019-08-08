@@ -1640,18 +1640,18 @@ tryDeactivate q qw = void $ P.runListT $ do
   begTime <- liftIO $ Time.getCurrentTime
 #endif
   dag <- RWS.gets (gramDAG . automat)
-  (headCost, did) <- heads (getL state q)
-  -- (_headCost, did) <- heads (getL state q)
+  -- (headCost, did) <- heads (getL state q)
+  (_headCost, did) <- heads (getL state q)
   let p = Passive
           { _dagID = did
           , _spanP = getL spanA q
           , _isAdjoinedTo = False }
   let finalWeight = DuoWeight
-        -- { duoBeta = duoBeta qw -- + headCost
-        { duoBeta = duoBeta qw + headCost
+        { duoBeta = duoBeta qw -- + headCost
+        -- { duoBeta = duoBeta qw + headCost
         , duoGap = duoGap qw }
-  lift $ pushPassive p finalWeight (Deactivate q headCost)
-  -- lift $ pushPassive p finalWeight (Deactivate q 0)
+  -- lift $ pushPassive p finalWeight (Deactivate q headCost)
+  lift $ pushPassive p finalWeight (Deactivate q 0)
 #ifdef CheckMonotonic
   totalQ <- lift . lift $ est2total qw <$> estimateDistA q
   totalP <- lift . lift $ est2total finalWeight <$> estimateDistP p
