@@ -201,11 +201,14 @@ astarOptions = AStar
   )
   <*> (optional . option auto)
   ( long "min-prob"
-    <> help "Minimum probability of a supertag to take"
+    <> help "Minimum supertag/dependency probability"
   )
   <*> (optional . option auto)
   ( long "beta"
-    <> help "Beta parameter à la Clark & Curran"
+    <> help ( unwords
+          [ "Beta parameter à la Clark & Curran"
+          , "(for both supertags and dependencies)" 
+          ] )
   )
   -- <*> (fmap (maybe S.empty id) . many . option (attoReader startSetP))
   <*> (fmap S.unions . many . option (attoReader startSetP))
@@ -414,7 +417,9 @@ run cmd =
       super <-
           filterLen
         . limitTagsProb minProb
+        . limitDepsProb minProb
         . limitTagsBeta betaParam
+        . limitDepsBeta betaParam
         . limitDepsNum maxDeps
         . limitTagsNum maxTags
         . parseSuper
@@ -533,6 +538,11 @@ run cmd =
 
   where
 
+    -- Additional supertag-related constraints
+    limitTagsNum = \case
+      Nothing -> id
+      Just m -> map . map $ \superTok -> superTok
+        {Br.tokTags = takeBest m (Br.tokTags superTok)}
     limitTagsProb = \case
       Nothing -> id
       Just p -> map . map $ \superTok -> superTok
@@ -546,10 +556,8 @@ run cmd =
             p = maxProb * beta
         in  superTok
             {Br.tokTags = filter ((>=p) . snd) (Br.tokTags superTok)}
-    limitTagsNum = \case
-      Nothing -> id
-      Just m -> map . map $ \superTok -> superTok
-        {Br.tokTags = takeBest m (Br.tokTags superTok)}
+
+    -- Additional dependency-related constraints
     limitDepsNum = \case
       Nothing -> id
       Just m -> map . map $ \superTok -> superTok
@@ -557,6 +565,25 @@ run cmd =
           (M.fromList . takeBest m . M.toList)
           (Br.tokDeph superTok)
         }
+    limitDepsProb = \case
+      Nothing -> id
+      Just p -> map . map $ limitDepsProbFor p
+    limitDepsBeta = \case
+      Nothing -> id
+      Just beta -> map . map $ \superTok ->
+        let maxProb = case M.elems (Br.tokDeph superTok) of
+              [] -> 0.0
+              xs -> maximum xs
+            p = maxProb * beta
+        in  limitDepsProbFor p superTok
+    limitDepsProbFor p superTok = superTok
+      { Br.tokDeph
+          = M.fromList
+          . filter ((>=p) . snd)
+          . M.toList
+          $ Br.tokDeph superTok
+      }
+
     takeBest k xs
       = take k . reverse
       $ List.sortBy (comparing snd) xs
