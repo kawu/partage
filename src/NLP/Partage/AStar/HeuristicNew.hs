@@ -31,7 +31,7 @@ module NLP.Partage.AStar.HeuristicNew
 import qualified Control.Arrow                   as Arr
 -- import           Data.Hashable (Hashable)
 -- import qualified Data.HashTable.IO          as H
-import           Data.Maybe                      (catMaybes)
+import           Data.Maybe                      (catMaybes, maybeToList)
 import qualified Data.List                       as L
 import qualified Data.Map.Strict                 as M
 import qualified Data.MemoCombinators            as Memo
@@ -48,7 +48,7 @@ import qualified NLP.Partage.DAG                 as D
 import qualified NLP.Partage.Tree.Other          as O
 -- import qualified NLP.Partage.Earley.AutoAP     as E
 
-import Debug.Trace (trace)
+-- import Debug.Trace (trace)
 
 
 --------------------------------
@@ -195,22 +195,16 @@ addMinDepWeights posMap depMap dag0 auto0 =
     updMap = M.fromList $ do
       did <- S.toList $ D.rootSet dag0
       return (did, updateRoot did)
---     update did w0
---       | D.isRoot did dag0 = maybe err (w0+) $ do
---           tree <- D.toTree did dag0
---           [t] <- return (terminals tree)
---           k <- M.lookup t posMap
---           M.lookup k depMap
---       | w0 /= 0 =
---           error "addMinDepWeights: non-root weight /= 0!"
---       | otherwise = w0
-    updateRoot did = maybe err id $ do
-      tree <- D.toTree did dag0
-      [t] <- return (terminals tree)
-      k <- M.lookup t posMap
-      M.lookup k depMap
+    updateRoot did = sum $ do
+      tree <- maybeToList $ D.toTree did dag0
+      -- In case the tree is multi-anchored, we add each of the minimal
+      -- dependency weights to the root.  Seems to make sense, but this should
+      -- not occur in practice (in our current formalization, each ET should be
+      -- single-anchored).
+      term <- terminals tree
+      k <- maybeToList $ M.lookup term posMap
+      maybeToList $ M.lookup k depMap
     terminals = catMaybes . O.project
-    err = error "addMinDepWeights: something wrong!"
 
 
 -- | Perform map over weighted automaton head edges.  We only need to consider

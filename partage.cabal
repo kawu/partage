@@ -97,7 +97,7 @@ library
     cpp-options: -DNewHeuristic
 
     -- Check realtime if the monotonicity property is preserved
-    cpp-options: -DCheckMonotonic
+    -- cpp-options: -DCheckMonotonic
 
     -- Grammar compression
     cpp-options: -DCompression
