@@ -486,21 +486,22 @@ run cmd =
         let n = length input
             consume = do
               A.HypeModif{..} <- P.await
-              -- modifHype <- RWS.get
               case (modifType, modifItem) of
                 (A.NewNode, A.ItemP p) ->
                   -- if (D.isFinal_ modifHype startSym n p) then do
                   if (C.isFinal startSym n (A.automat modifHype) p) then do
-                    semiTime <- P.liftIO Time.getCurrentTime
-                    P.liftIO . IORef.writeIORef hypeRef $ Just (modifHype, semiTime)
+                    P.liftIO $ do
+                      semiTime <- Time.getCurrentTime
+                      IORef.modifyIORef hypeRef $ \case
+                        Nothing -> Just (modifHype, semiTime)
+                        Just x  -> Just x
+--                     semiTime <- P.liftIO Time.getCurrentTime
+--                     P.liftIO . IORef.writeIORef hypeRef $ Just (modifHype, semiTime)
                     if fullHype
                       then consume
                       else return modifHype
                   else consume
                 _ -> consume
---         finalHype <- P.runEffect $
---           A.earleyAutoP automat (A.fromList input)
---           P.>-> consume
         finalHype <- A.earleyAutoP automat (A.fromList input) consume
         endTime <- Time.getCurrentTime
         (semiHype, semiTime) <- maybe (finalHype, endTime) id
