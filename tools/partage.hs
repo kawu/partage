@@ -13,7 +13,7 @@ import qualified Control.Arrow as Arr
 import qualified Control.Monad.RWS.Strict   as RWS
 
 import           Data.Monoid ((<>))
-import           Data.Maybe (catMaybes, maybeToList)
+import           Data.Maybe (catMaybes)
 import           Options.Applicative
 import qualified Data.Attoparsec.Text as Atto
 import           Data.Ord (comparing)
@@ -72,7 +72,7 @@ data Command
       , betaParam :: Maybe Double
       , goldPath :: Maybe FilePath
       , startSym :: S.Set T.Text
-      , showParses :: Maybe Int
+      , showParsesMay :: Maybe Int
       , showParseNum :: Maybe Int
       , brackets :: Bool
       , checkRepetitions :: Bool
@@ -81,7 +81,8 @@ data Command
     -- ^ Parse the input sentences using the Earley-style chart parser
     | AStar
       { inputPath :: Maybe FilePath
-      , verbose :: Bool
+      , verbosity :: Int
+        -- ^ Verbosity level
       , maxTags :: Maybe Int
       , maxDeps :: Maybe Int
       , minProb :: Maybe Double
@@ -91,6 +92,9 @@ data Command
       , maxLen :: Maybe Int
       , fullParse :: Bool
       -- , brackets :: Bool
+      , showParses :: Int
+      , showParseNum :: Maybe Int
+      , allDerivs :: Bool
       , useSoftMax :: Bool
 --       , checkRepetitions :: Bool
       }
@@ -185,10 +189,11 @@ astarOptions = AStar
     <> short 'i'
     <> help "Input file with supertagging results"
   )
-  <*> switch
-  ( long "verbose"
+  <*> option auto
+  ( long "verbosity"
     <> short 'v'
-    <> help "Verbose reporting"
+    <> value 0
+    <> help "Verbose reporting (value from 0 to 2)"
   )
   <*> (optional . option auto)
   ( long "max-tags"
@@ -235,6 +240,20 @@ astarOptions = AStar
 --     <> short 'b'
 --     <> help "Render trees in the bracketed format"
 --   )
+  <*> option auto
+  ( long "print-parses"
+    <> value 1
+    <> help "Show the given number of parses (at most)"
+  )
+  <*> option (Just <$> auto)
+  ( long "print-parse-num"
+    <> value Nothing
+    <> help "Show the number of parsed trees (at most)"
+  )
+  <*> switch
+  ( long "all-derivs"
+    <> help "Extract all derivations, regardless of their weights"
+  )
   <*> switch
   ( long "softmax"
     <> help "Apply softmax to dependency weights"
@@ -392,7 +411,7 @@ run cmd =
 
         -- Show the parsed trees
         let shorten = 
-              case showParses of
+              case showParsesMay of
                 Just k  -> take k
                 Nothing -> id
         parses <- E.parse gram startSym (E.fromList input)
@@ -456,10 +475,11 @@ run cmd =
             Memo.integral
 
         -- Check against the gold file or perform simple recognition
-        when verbose $ do
-          putStr "# "
-          TIO.putStr . T.unwords $ map snd input
-          LIO.putStr " => "
+        when (verbosity > 0) $ do
+          putStr "# SENT: "
+          TIO.putStrLn . T.unwords $ map snd input
+          putStr "# LENGTH: "
+          print $ length input
 
         begTime <- Time.getCurrentTime
         hypeRef <- IORef.newIORef Nothing
@@ -485,9 +505,11 @@ run cmd =
         endTime <- Time.getCurrentTime
         (semiHype, semiTime) <- maybe (finalHype, endTime) id
           <$> IORef.readIORef hypeRef
-        when verbose $ do
-          let reco = (not.null) (A.finalFrom startSym n semiHype)
-          print reco
+        when (verbosity > 0) $ do
+--           let reco = (not.null) (A.finalFrom startSym n semiHype)
+--           putStr "# RECO: "
+--           print reco
+          putStr "# ARCS: "
           putStr (show n)
           putStr "\t"
           putStr (show $ A.hyperEdgesNum semiHype)
@@ -501,25 +523,42 @@ run cmd =
           else do
             putStrLn ""
 
-        -- Show the derivations
-        let derivs = D.derivTreesW finalHype startSym (length input)
+        -- Calculating derivations
+        let getDerivs () =
+              if allDerivs
+                 then D.derivTreesAllW finalHype startSym (length input)
+                 else D.derivTreesW finalHype startSym (length input)
+
+        -- Calculate the derivations
+        let derivs = getDerivs ()
         when (null derivs) $ do
           putStr "# NO PARSE FOR: "
           TIO.putStrLn . T.unwords $ map snd input
-        forM_ (maybeToList derivs) $ \(deriv, w) -> do
+
+        case showParseNum of
+          Nothing -> return ()
+          Just k -> do
+            putStr "# PARSE NUM: "
+            putStrLn . show $ sum
+              -- Evaluate the trees to avoid the memory leak
+              [ L.length txtTree `seq` (1 :: Int)
+              | (deriv, _weight) <- take k (getDerivs ())
+              , let txtTree = showParse deriv
+              ]
+
+        -- Print a single best derivation 
+        forM_ (take showParses derivs) $ \(deriv, w) -> do
           if fullParse
-             then do
-               -- renderParse' deriv
-               renderParse deriv
+             then renderParse deriv >> putStrLn ""
              else renderDeriv deriv
-          when verbose $ do
-            putStrLn ""
-            putStrLn $ "# weight: " ++ show w
-            putStrLn
-              . R.drawTree . fmap show
-              . D.deriv4show . D.normalize
-              $ deriv
-            putStrLn ""
+          when (verbosity > 0) $ do
+            putStrLn $ "# WEIGHT: " ++ show w
+            when (verbosity > 1) $ do
+              putStrLn
+                . R.drawTree . fmap show
+                . D.deriv4show . D.normalize
+                $ deriv
+            -- putStrLn ""
         putStrLn ""
 
 
@@ -806,32 +845,26 @@ renderDeriv deriv0 = do
 
 
 -- | Render the given derivation.
-renderParse 
+renderParse :: D.Deriv D.UnNorm T.Text (A.Tok (Int, T.Text)) -> IO ()
+renderParse = LIO.putStr . showParse
+
+
+-- | Render the given derivation.
+showParse 
   :: D.Deriv D.UnNorm T.Text (A.Tok (Int, T.Text))
-  -> IO ()
-renderParse deriv
-  = printIt
+  -> L.Text
+showParse deriv
+  = showIt
   . check
   $ parse
   where
-    -- printIt = putStrLn  . R.drawTree . fmap show
-    printIt = LIO.putStr . Br.showTree . fmap rmTokID'
+    showIt = Br.showTree . fmap rmTokID'
     parse = fst $ D.toParse deriv
     check t =
       let posList = map A.position (catMaybes $ O.project t) in
-      -- let posList = map A.position (O.project t) in
       if posList == List.sort posList
          then t
          else error "partage.renderParse: words not in order!"
-
-
--- renderParse' 
---   :: D.Deriv T.Text (A.Tok (Int, T.Text))
---   -> IO ()
--- renderParse' =
---   putStrLn
---     . R.drawTree . fmap show
---     . D.deriv4show . D.normalize
 
 
 --------------------------------------------------

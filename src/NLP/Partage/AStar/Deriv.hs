@@ -2,6 +2,7 @@
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections       #-}
+{-# LANGUAGE Rank2Types          #-}
 
 
 module NLP.Partage.AStar.Deriv
@@ -12,6 +13,7 @@ module NLP.Partage.AStar.Deriv
 , UnNorm
 , derivTrees
 , derivTreesW
+, derivTreesAllW
 , fromPassive
 , normalize
 , toParse
@@ -41,7 +43,7 @@ import qualified Control.Monad.Morph       as Morph
 import qualified Data.Foldable as F
 import           Data.Lens.Light
 import qualified Data.Map.Strict           as M
-import           Data.Maybe                (maybeToList, isJust, catMaybes)
+import           Data.Maybe                (listToMaybe, maybeToList, isJust, catMaybes)
 import qualified Data.PSQueue              as Q
 import qualified Data.Set                  as S
 import qualified Data.Tree                 as R
@@ -637,7 +639,22 @@ arcWeight = A._weight
 -----------------------------------------
 
 
--- | Extract the least-weight derivation tree obtained on the given input
+-- | Extract all derivation trees obtained on the given input sentence. Should
+-- be run on the final result of the Earley parser.
+--
+-- WARNING: the resulting derivation is not normalized -- sister-adjunction
+-- trees are not represented in the `modif` field.  Consider using `normalize`.
+--
+derivTreesAllW
+    :: (Ord n, Ord t)
+    => A.Hype n t   -- ^ Final state of the earley parser
+    -> S.Set n      -- ^ The start symbol set
+    -> Int          -- ^ Length of the input sentence
+    -> [(Deriv UnNorm n (Tok t), Weight)]
+derivTreesAllW = derivTreesGenW $ L.sortBy . comparing
+
+
+-- | Extract the least-weight derivation trees obtained on the given input
 -- sentence. Should be run on the final result of the Earley parser.
 --
 -- WARNING: the resulting derivation is not normalized -- sister-adjunction
@@ -648,37 +665,112 @@ derivTreesW
     => A.Hype n t   -- ^ Final state of the earley parser
     -> S.Set n      -- ^ The start symbol set
     -> Int          -- ^ Length of the input sentence
-    -> Maybe (Deriv UnNorm n (Tok t), Weight)
-derivTreesW hype start n = do
-  pass <- minimumBy
+    -> [(Deriv UnNorm n (Tok t), Weight)]
+derivTreesW = derivTreesGenW minimumBy
+
+
+-- -- | Extract the least-weight derivation tree obtained on the given input
+-- -- sentence. Should be run on the final result of the Earley parser.
+-- --
+-- -- WARNING: the resulting derivation is not normalized -- sister-adjunction
+-- -- trees are not represented in the `modif` field.  Consider using `normalize`.
+-- --
+-- derivTreesW
+--     :: (Ord n, Ord t)
+--     => A.Hype n t   -- ^ Final state of the earley parser
+--     -> S.Set n      -- ^ The start symbol set
+--     -> Int          -- ^ Length of the input sentence
+--     -> [(Deriv UnNorm n (Tok t), Weight)]
+-- derivTreesW hype start n = do
+--   pass <- minimumBy
+--     (flip passiveWeight hype)
+--     (A.finalFrom start n hype)
+--   fromPassiveW pass hype
+
+
+-- | Extract the least-weight derivation tree obtained on the given input
+-- sentence. Should be run on the final result of the Earley parser.
+--
+-- WARNING: the resulting derivation is not normalized -- sister-adjunction
+-- trees are not represented in the `modif` field.  Consider using `normalize`.
+--
+derivTreesGenW
+    :: (Ord n, Ord t)
+    => (forall a. (a -> Weight) -> [a] -> [a])
+    -> A.Hype n t   -- ^ Final state of the earley parser
+    -> S.Set n      -- ^ The start symbol set
+    -> Int          -- ^ Length of the input sentence
+    -> [(Deriv UnNorm n (Tok t), Weight)]
+derivTreesGenW minBy hype start n = do
+  pass <- minBy
     (flip passiveWeight hype)
     (A.finalFrom start n hype)
-  fromPassiveW pass hype
+  fromPassiveGenW minBy pass hype
+
+
+-- -- | Extract derivation trees represented by the given passive item.
+-- fromPassiveW
+--   :: forall n t. (Ord n, Ord t)
+--   => A.Passive n t
+--   -> A.Hype n t
+--   -> [(Deriv UnNorm n (Tok t), Weight)]
+-- fromPassiveW passive hype = do
+--   let ext = passiveTrav passive hype
+--   trav <- minimumBy
+--     (flip travWeight hype)
+--     (S.toList $ A.prioTrav ext)
+--   fromPassiveTravW passive trav hype
 
 
 -- | Extract derivation trees represented by the given passive item.
-fromPassiveW
+fromPassiveGenW
   :: forall n t. (Ord n, Ord t)
-  => A.Passive n t
+  => (forall a. (a -> Weight) -> [a] -> [a])
+  -> A.Passive n t
   -> A.Hype n t
-  -> Maybe (Deriv UnNorm n (Tok t), Weight)
-fromPassiveW passive hype = do
+  -> [(Deriv UnNorm n (Tok t), Weight)]
+fromPassiveGenW minBy passive hype = do
   let ext = passiveTrav passive hype
-  trav <- minimumBy
+  trav <- minBy
     (flip travWeight hype)
     (S.toList $ A.prioTrav ext)
-  fromPassiveTravW passive trav hype
+  fromPassiveTravGenW minBy passive trav hype
+
+
+-- -- | Extract derivation trees represented by the given passive item
+-- -- and the corresponding input traversal.
+-- fromPassiveTravW
+--   :: (Ord n, Ord t)
+--   => A.Passive n t
+--   -> A.Trav n t
+--   -> A.Hype n t
+--   -> [(Deriv UnNorm n (Tok t), Weight)]
+-- fromPassiveTravW p trav hype =
+--   second (+ arcWeight trav) <$> case trav of
+--     A.Adjoin qa qm _ -> do
+--       (aux, w) <- passiveDerivs qa
+--       (ini, w') <- passiveDerivs qm
+--       return (adjoinTree ini aux, w + w')
+--     A.Deactivate q _ -> do
+--       (ts, w) <- activeDerivs q
+--       return (mkTree hype p ts, w)
+--     _ ->
+--       error "Deriv.fromPassiveTrav: impossible happened"
+--   where
+--     passiveDerivs = flip fromPassiveW hype
+--     activeDerivs  = flip fromActiveW  hype
 
 
 -- | Extract derivation trees represented by the given passive item
 -- and the corresponding input traversal.
-fromPassiveTravW
+fromPassiveTravGenW
   :: (Ord n, Ord t)
-  => A.Passive n t
+  => (forall a. (a -> Weight) -> [a] -> [a])
+  -> A.Passive n t
   -> A.Trav n t
   -> A.Hype n t
-  -> Maybe (Deriv UnNorm n (Tok t), Weight)
-fromPassiveTravW p trav hype =
+  -> [(Deriv UnNorm n (Tok t), Weight)]
+fromPassiveTravGenW minBy p trav hype =
   second (+ arcWeight trav) <$> case trav of
     A.Adjoin qa qm _ -> do
       (aux, w) <- passiveDerivs qa
@@ -690,36 +782,89 @@ fromPassiveTravW p trav hype =
     _ ->
       error "Deriv.fromPassiveTrav: impossible happened"
   where
-    passiveDerivs = flip fromPassiveW hype
-    activeDerivs  = flip fromActiveW  hype
+    passiveDerivs = flip (fromPassiveGenW minBy) hype
+    activeDerivs  = flip (fromActiveGenW minBy)  hype
+
+
+-- -- | Extract derivations represented by the given active item.
+-- fromActiveW
+--   :: (Ord n, Ord t)
+--   => A.Active
+--   -> A.Hype n t
+--   -> [([Deriv UnNorm n (Tok t)], Weight)]
+-- fromActiveW active hype = do
+--   let ext = activeTrav active hype
+--   if S.null (A.prioTrav ext)
+--      then return ([], 0)
+--      else do
+--        trav <- minimumBy
+--          (flip travWeight hype)
+--          (S.toList $ A.prioTrav ext)
+--        fromActiveTravW active trav hype
 
 
 -- | Extract derivations represented by the given active item.
-fromActiveW
+fromActiveGenW
   :: (Ord n, Ord t)
-  => A.Active
+  => (forall a. (a -> Weight) -> [a] -> [a])
+  -> A.Active
   -> A.Hype n t
-  -> Maybe ([Deriv UnNorm n (Tok t)], Weight)
-fromActiveW active hype = do
+  -> [([Deriv UnNorm n (Tok t)], Weight)]
+fromActiveGenW minBy active hype = do
   let ext = activeTrav active hype
   if S.null (A.prioTrav ext)
      then return ([], 0)
      else do
-       trav <- minimumBy
+       trav <- minBy
          (flip travWeight hype)
          (S.toList $ A.prioTrav ext)
-       fromActiveTravW active trav hype
+       fromActiveTravGenW minBy active trav hype
+
+
+-- -- | Extract derivation trees represented by the given active item
+-- -- and the corresponding input traversal.
+-- fromActiveTravW
+--   :: (Ord n, Ord t)
+--   => A.Active
+--   -> A.Trav n t
+--   -> A.Hype n t
+--   -> [([Deriv UnNorm n (Tok t)], Weight)]
+-- fromActiveTravW _p trav hype =
+--   second (+ arcWeight trav) <$> case trav of
+--     A.Scan q t _ -> do
+--       (ts, w) <- activeDerivs q
+--       return (termNode t : ts, w)
+--     A.Empty q _ -> do
+--       (ts, w) <- activeDerivs q
+--       return (emptyNode : ts, w)
+--     A.Foot q x _ -> do
+--       (ts, w) <- activeDerivs q
+--       return (footNode x : ts, w)
+--     A.Subst qp qa _ -> do
+--       (ts, w) <- activeDerivs qa
+--       (t, w') <- passiveDerivs qp
+--       return (substNode hype qp t : ts, w + w')
+--     A.SisterAdjoin qp qa _ -> do
+--       (ts, w) <- activeDerivs qa
+--       (t, w') <- passiveDerivs qp
+--       return (t : ts, w + w')
+--     _ ->
+--       error "Deriv.fromActiveTrav: impossible happened"
+--   where
+--     activeDerivs = flip fromActiveW hype
+--     passiveDerivs = flip fromPassiveW hype
 
 
 -- | Extract derivation trees represented by the given active item
 -- and the corresponding input traversal.
-fromActiveTravW
+fromActiveTravGenW
   :: (Ord n, Ord t)
-  => A.Active
+  => (forall a. (a -> Weight) -> [a] -> [a])
+  -> A.Active
   -> A.Trav n t
   -> A.Hype n t
-  -> Maybe ([Deriv UnNorm n (Tok t)], Weight)
-fromActiveTravW _p trav hype =
+  -> [([Deriv UnNorm n (Tok t)], Weight)]
+fromActiveTravGenW minBy _p trav hype =
   second (+ arcWeight trav) <$> case trav of
     A.Scan q t _ -> do
       (ts, w) <- activeDerivs q
@@ -741,8 +886,8 @@ fromActiveTravW _p trav hype =
     _ ->
       error "Deriv.fromActiveTrav: impossible happened"
   where
-    activeDerivs = flip fromActiveW hype
-    passiveDerivs = flip fromPassiveW hype
+    activeDerivs = flip (fromActiveGenW minBy) hype
+    passiveDerivs = flip (fromPassiveGenW minBy) hype
 
 
 -- -- | Merge a given list of lists, each assumed to be sorted (w.r.t. the given
@@ -768,12 +913,23 @@ fromActiveTravW _p trav hype =
 --       | otherwise  = y : go (x:xs) ys
 
 
--- | Find the minimal element according to the given comparison function.
-minimumBy :: (Ord w) => (a -> w) -> [a] -> Maybe a
-minimumBy f xs =
-  case xs of
-    [] -> Nothing
-    _  -> Just $ L.minimumBy (comparing f) xs
+-- | Find all the minimal elements according to the given comparison function.
+minimumBy :: (Ord w) => (a -> w) -> [a] -> [a]
+minimumBy f =
+  go . L.sortBy (comparing snd) . map (\x -> (x, f x))
+  where
+    go ((x1, w1) : (x2, w2) : xs)
+      | w1 < w2   = x1 : []
+      | otherwise = x1 : go ((x2, w2) : xs)
+    go xs = map fst xs
+
+
+-- -- | Find the minimal element according to the given comparison function.
+-- minimumBy :: (Ord w) => (a -> w) -> [a] -> Maybe a
+-- minimumBy f xs =
+--   case xs of
+--     [] -> Nothing
+--     _  -> Just $ L.minimumBy (comparing f) xs
 
 
 --------------------------------------------------
