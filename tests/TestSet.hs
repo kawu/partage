@@ -1174,12 +1174,12 @@ testTree modName TagParser{..} = do
                   newWeight = AStar.totalWeight trav
               lift $ do
                 curWeight <- readIORef weightRef
---               if newWeight < curWeight then do
---                 putStr "NEW: " >> print newWeight
---                 putStr "NEW: " >> print (roundTo newWeight 10)
---                 putStr "CUR: " >> print curWeight
---                 putStr "CUR: " >> print (curWeight `roundTo` 10)
---               else return ()
+--                 if newWeight < curWeight then do
+--                   putStr "NEW: " >> print newWeight
+--                   putStr "NEW: " >> print (roundTo newWeight 10)
+--                   putStr "CUR: " >> print curWeight
+--                   putStr "CUR: " >> print (curWeight `roundTo` 10)
+--                 else return ()
                 newWeight `roundTo` 10 >= curWeight `roundTo` 10 @?= True
                 writeIORef weightRef newWeight
         _ -> return ()

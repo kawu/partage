@@ -109,6 +109,11 @@ library
     -- WARNING: you have to manage this flag in the test-suite as well!
     cpp-options: -DNoAdjunctionRestriction
 
+    -- Account for the weight of the arc leading to the dummy root.  This makes
+    -- the implementation slighly inconsistent with the formal description of
+    -- the inference rules.
+    cpp-options: -DHandleDummyArcWeight
+
 
 source-repository head
     type: git

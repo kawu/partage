@@ -28,6 +28,7 @@ module NLP.Partage.AStar.Chart
   , hasPassiveTrav
 
   -- * Extraction
+  , isFinal
   , finalFrom
   , expectEnd
   , rootSpan
@@ -368,7 +369,34 @@ hasPassiveTrav p travSet auto chart =
 ---------------------------------
 
 
+-- | Check whether the given passive item is final or not.
+isFinal
+  :: (Ord n)
+  => S.Set n       -- ^ Accepted start symbols
+  -> Int           -- ^ The length of the input sentence
+  -> Auto n t      -- ^ The underlying Earley yautomaton
+  -> Passive n t   -- ^ The item to check
+  -> Bool
+isFinal startSet n auto p =
+  p ^. spanP ^. beg == 0 &&
+  p ^. spanP ^. end == n &&
+  p ^. spanP ^. gap == Nothing &&
+  DAG.isRoot did dag && checkStart
+    (S.fromList . maybeToList $ getLabel did)
+  where
+    -- dag = Auto.gramDAG $ A.automat hype
+    dag = gramDAG auto
+    did = p ^. dagID
+    getLabel did = labNonTerm =<< DAG.label did dag
+    checkStart labelSet
+      | S.null startSet = True
+      | otherwise = (not . S.null) (labelSet `S.intersection` startSet)
+
+
 -- | Return the list of final, initial, passive chart items.
+--
+-- TODO: relate to `isFinal`?
+--
 finalFrom
     :: (Ord n, Eq t)
     => S.Set n      -- ^ Accepted start symbols (if empty, no constraint)

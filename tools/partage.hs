@@ -38,6 +38,7 @@ import qualified Pipes as P
 import qualified NLP.Partage.Tree.Other as O
 import qualified NLP.Partage.DAG as DAG
 import qualified NLP.Partage.AStar as A
+import qualified NLP.Partage.AStar.Chart as C
 import qualified NLP.Partage.AStar.Deriv as D
 import qualified NLP.Partage.AStar.Deriv.Gorn as DG
 import qualified NLP.Partage.Earley as E
@@ -468,7 +469,8 @@ run cmd =
               -- modifHype <- RWS.get
               case (modifType, modifItem) of
                 (A.NewNode, A.ItemP p) ->
-                  if (D.isFinal_ modifHype startSym n p) then do
+                  -- if (D.isFinal_ modifHype startSym n p) then do
+                  if (C.isFinal startSym n (A.automat modifHype) p) then do
                     semiTime <- P.liftIO Time.getCurrentTime
                     P.liftIO . IORef.writeIORef hypeRef $ Just (modifHype, semiTime)
                     if fullHype

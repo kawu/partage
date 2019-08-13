@@ -24,7 +24,7 @@ module NLP.Partage.AStar.Deriv
 -- -- , parseAndPrint
 
   -- * Provisional
-, isFinal_
+-- , isFinal_
 , consumeDerivs
 ) where
 
@@ -62,6 +62,7 @@ import qualified NLP.Partage.AStar         as A
 import qualified NLP.Partage.AStar.Base    as Base
 import qualified NLP.Partage.AStar.Item    as Item
 import qualified NLP.Partage.AStar.Auto    as Auto
+import qualified NLP.Partage.AStar.Chart   as Chart
 import           NLP.Partage.DAG           (Weight)
 import qualified NLP.Partage.Tree.Other    as O
 
@@ -1496,7 +1497,7 @@ isFinal
   -> DerivM c n t m Bool
 isFinal hype p = do
   DerivR{..} <- RWS.ask
-  return $ isFinal_ hype startSym sentLen p
+  return $ Chart.isFinal startSym sentLen (A.automat hype) p
 
 
 --------------------------------------------------
@@ -1504,32 +1505,32 @@ isFinal hype p = do
 --------------------------------------------------
 
 
--- | Check whether the given passive item is final or not.
--- TODO: Move to some core module?
-isFinal_
-  :: (Ord n)
-  => A.Hype n t
-  -> S.Set n       -- ^ Accepted start symbols
-  -> Int           -- ^ The length of the input sentence
-  -> A.Passive n t -- ^ The item to check
-  -> Bool
-isFinal_ hype startSet n p =
-  p ^. A.spanP ^. A.beg == 0 &&
-  p ^. A.spanP ^. A.end == n &&
-  p ^. A.spanP ^. A.gap == Nothing &&
-  -- p ^. A.dagID == Left root &&
-  DAG.isRoot dagID dag && checkStart
-    (S.fromList . maybeToList $ getLabel dagID)
-  where
-    -- root = Base.NotFoot {notFootLabel=start, isSister=False}
-    dag = Auto.gramDAG $ A.automat hype
-    dagID = p ^. A.dagID
-    getLabel did = Base.labNonTerm =<< DAG.label did dag
-    checkStart labelSet
-      | S.null startSet = True
-      | otherwise = (not . S.null) (labelSet `S.intersection` startSet)
---     checkStart labelSet =
---       (not . S.null) (labelSet `S.intersection` startSet)
+-- -- | Check whether the given passive item is final or not.
+-- -- TODO: Move to some core module?
+-- isFinal_
+--   :: (Ord n)
+--   => A.Hype n t
+--   -> S.Set n       -- ^ Accepted start symbols
+--   -> Int           -- ^ The length of the input sentence
+--   -> A.Passive n t -- ^ The item to check
+--   -> Bool
+-- isFinal_ hype startSet n p =
+--   p ^. A.spanP ^. A.beg == 0 &&
+--   p ^. A.spanP ^. A.end == n &&
+--   p ^. A.spanP ^. A.gap == Nothing &&
+--   -- p ^. A.dagID == Left root &&
+--   DAG.isRoot dagID dag && checkStart
+--     (S.fromList . maybeToList $ getLabel dagID)
+--   where
+--     -- root = Base.NotFoot {notFootLabel=start, isSister=False}
+--     dag = Auto.gramDAG $ A.automat hype
+--     dagID = p ^. A.dagID
+--     getLabel did = Base.labNonTerm =<< DAG.label did dag
+--     checkStart labelSet
+--       | S.null startSet = True
+--       | otherwise = (not . S.null) (labelSet `S.intersection` startSet)
+-- --     checkStart labelSet =
+-- --       (not . S.null) (labelSet `S.intersection` startSet)
 
 
 -- -- | ListT from a list.

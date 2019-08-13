@@ -545,7 +545,34 @@ pushPassive :: (SOrd t, SOrd n)
             -> DuoWeight     -- ^ Weight of reaching the new item
             -> Trav n t      -- ^ Traversal leading to the new item
             -> EarleyPipe n t ()
-pushPassive p newWeight newTrav = do
+pushPassive p newWeight0 newTrav0 = do
+
+#ifdef HandleDummyArcWeight
+  -- In case the item is final, we add the remaining costs (e.g., the cost
+  -- of attaching the corresponding tree to the dummy root node)
+  sentLen <- length <$> RWS.asks inputSent
+  auto <- RWS.gets automat
+  -- the extra cost to add
+  extra <-
+    if Chart.isFinal S.empty sentLen auto p
+       then do
+         -- NOTE: -1 is the position of the dummy root!  Not very elegant...
+         cost <- omegaPos (p ^. dagID) (Just (-1))
+         return $ case cost of
+                    -- `Nothing` means that the dummy root is not allowed as
+                    -- parent of the current item
+                    Nothing -> read "Infinity"
+                    Just x  -> x
+       else return 0
+  let newTrav = newTrav0
+        { _weight = _weight newTrav0 + extra }
+      newWeight = newWeight0
+        { duoBeta = duoBeta newWeight0 + extra }
+#else
+  let newTrav = newTrav0
+      newWeight = newWeight0
+#endif
+
   -- TODO: do we have to compute the estimated distance if the node is already
   -- processed (done)?
   estDist <- lift $ estimateDistP p
@@ -641,28 +668,40 @@ popItem = RWS.state $ \st -> case Q.minView (waiting st) of
 
 -- | Estimate the remaining distance for a passive item (with the exception of
 -- the "gap weight", which is threaded via inference rules).
-estimateDistP :: (Ord t) => Passive n t -> Earley n t Weight
+estimateDistP :: (Ord t, Ord n) => Passive n t -> Earley n t Weight
 estimateDistP p = do
---   tbag <- bagOfTerms (p ^. spanP)
-  H.Esti{..} <- RWS.gets (estiCost . automat)
---   let sup = dagAmort (p ^. dagID) + termEsti tbag
---       dep = prefEsti (p ^. spanP ^. beg)
---           + suffEsti (p ^. spanP ^. end)
-  let sup = dagAmort (p ^. dagID)
-      dep = prefEsti (p ^. spanP ^. beg)
-          + suffEsti (p ^. spanP ^. end)
+  (sup, pref, suff) <-  estimateDistP' p
+  let dep = pref + suff
   return $ sup + dep
+--        let sup = dagAmort (p ^. dagID)
+--            dep = prefEsti (p ^. spanP ^. beg)
+--                + suffEsti (p ^. spanP ^. end)
+--         in sup + dep
 
 
--- | Estimate the remaining distance for a passive item.
-estimateDistP' :: (Ord t) => Passive n t -> Earley n t (Double, Double, Double)
+-- | Estimate the remaining distance for a passive item.  Version of
+-- `estimateDistP` for debugging.
+estimateDistP' :: (Ord t, Ord n) => Passive n t -> Earley n t (Double, Double, Double)
 estimateDistP' p = do
+#ifdef HandleDummyArcWeight
+  sentLen <- length <$> RWS.asks inputSent
+  auto <- RWS.gets automat
+  let H.Esti{..} = estiCost auto
+      isFinal = Chart.isFinal S.empty sentLen auto p
+#else
   H.Esti{..} <- RWS.gets (estiCost . automat)
-  return $
-    ( dagAmort (p ^. dagID)
-    , prefEsti (p ^. spanP ^. beg)
-    , suffEsti (p ^. spanP ^. end)
-    )
+  let isFinal = False
+#endif
+  -- The case of the final item is special: its amortized weight is 0, but its
+  -- inside weight should contain the weight of the corresponding dependency
+  -- link and ET weight (see `tryDeactivate`).
+  return $ if isFinal
+    then (0, 0, 0)
+    else
+      ( dagAmort (p ^. dagID)
+      , prefEsti (p ^. spanP ^. beg)
+      , suffEsti (p ^. spanP ^. end)
+      )
 
 
 -- | Estimate the remaining distance for an active item.
@@ -907,29 +946,30 @@ omega
 omega depDid hedDid = do
   auto <- RWS.gets automat
   let anchorMap = anchorPos auto
-      headMap = headPos auto
-      dag = gramDAG auto
-  let cost = do
-        -- determine the position of the dependent tree
-        depPos <- M.lookup depDid anchorMap
-        -- determine the position of the head tree
-        hedPos <- M.lookup hedDid anchorMap
-        -- determine the accepted positions of the dependent tree
-        posMap <- M.lookup depPos headMap
-        -- return the corresponding weight
-        return $ M.lookup hedPos posMap
-  -- we additionally add the dependent node weight (which should be non-zero
-  -- only if `depDid` is a root)
-  let treeWeight =
-        case DAG.value depDid dag of
-          Nothing -> 0
-          Just x -> x
-  -- combine and return
-  return . fmap (+treeWeight) $
-    case cost of
-      Just Nothing -> Nothing
-      Nothing -> Just 0
-      Just (Just x) -> Just x
+--       headMap = headPos auto
+--       dag = gramDAG auto
+  omegaPos depDid (M.lookup hedDid anchorMap)
+--   let cost = do
+--         -- determine the position of the dependent tree
+--         depPos <- M.lookup depDid anchorMap
+--         -- determine the position of the head tree
+--         hedPos <- M.lookup hedDid anchorMap
+--         -- determine the accepted positions of the dependent tree
+--         posMap <- M.lookup depPos headMap
+--         -- return the corresponding weight
+--         return $ M.lookup hedPos posMap
+--   -- we additionally add the dependent node weight (which should be non-zero
+--   -- only if `depDid` is a root)
+--   let treeWeight =
+--         case DAG.value depDid dag of
+--           Nothing -> 0
+--           Just x -> x
+--   -- combine and return
+--   return . fmap (+treeWeight) $
+--     case cost of
+--       Just Nothing -> Nothing
+--       Nothing -> Just 0
+--       Just (Just x) -> Just x
 
 
 -- | Weight of the given node becoming a dependent of another node.
@@ -940,6 +980,42 @@ omega'
   -> EarleyPipe n t (Maybe Weight)
 omega' depDid hedId = do
   auto <- RWS.gets automat
+--   let anchorMap = anchorPos auto
+  let anchorMap' = anchorPos' auto
+--       headMap = headPos auto
+--       dag = gramDAG auto
+  omegaPos depDid (M.lookup hedId anchorMap')
+--   let cost = do
+--         -- determine the position of the dependent tree
+--         depPos <- M.lookup depDid anchorMap
+--         -- determine the position of the head tree
+--         hedPos <- M.lookup hedId anchorMap'
+--         -- determine the accepted positions of the dependent tree
+--         posMap <- M.lookup depPos headMap
+--         -- return the corresponding weight
+--         return $ M.lookup hedPos posMap
+--   -- we additionally add the dependent node weight (which should be non-zero
+--   -- only if `depDid` is a root)
+--   let treeWeight =
+--         case DAG.value depDid dag of
+--           Nothing -> 0
+--           Just x -> x
+--   -- combine and return
+--   return . fmap (+treeWeight) $
+--     case cost of
+--       Just Nothing -> Nothing
+--       Nothing -> Just 0
+--       Just (Just x) -> Just x
+
+
+-- | Weight of the given node becoming a dependent of another node.
+-- Returns `Nothing` if the operation is not allowed.
+omegaPos
+  :: DID        -- ^ Dependent
+  -> Maybe Pos  -- ^ Head position (maybe)
+  -> EarleyPipe n t (Maybe Weight)
+omegaPos depDid hedPosMay = do
+  auto <- RWS.gets automat
   let anchorMap = anchorPos auto
       anchorMap' = anchorPos' auto
       headMap = headPos auto
@@ -948,7 +1024,7 @@ omega' depDid hedId = do
         -- determine the position of the dependent tree
         depPos <- M.lookup depDid anchorMap
         -- determine the position of the head tree
-        hedPos <- M.lookup hedId anchorMap'
+        hedPos <- hedPosMay
         -- determine the accepted positions of the dependent tree
         posMap <- M.lookup depPos headMap
         -- return the corresponding weight
@@ -1928,6 +2004,7 @@ tryDeactivate q qw = void $ P.runListT $ do
 #ifdef DebugOn
   begTime <- liftIO $ Time.getCurrentTime
 #endif
+  -- sentLen <- length <$> RWS.asks inputSent
   dag <- RWS.gets (gramDAG . automat)
   -- (headCost, did) <- heads (getL state q)
   (_headCost, did) <- heads (getL state q)
