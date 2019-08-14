@@ -139,19 +139,19 @@ Run `partage astar --help` to learn more about the possible parsing options.
 
 #### Output representation
 
-You can retrieve the parsed trees instead of the selected supertags and
-dependency heads using the `-p` option:
+You can retrieve the parsed (derived) trees instead of the selected supertags
+and dependency heads using the `-p` option:
 
     partage astar -i test.tsv -p
 
-If you want to have a look at the derivation trees, use `-v` (`--verbose`):
-
-    partage astar -i test.tsv -v
+You can also use `-v` (`--verbosity`) to get additional information on the
+resulting parses, such as their weights (`-v 1`) or the corresponding
+derivation trees (`-v 2`).
 
 #### Start symbol
 
-The `-s` option allows to specify the start symbol, i.e., the label of the
-root of the resulting parse, e.g.:
+The `-s` option allows to specify the start symbol, i.e., the label of the root
+of the resulting parse, e.g.:
 
     partage astar -i test.tsv -s SENT
 
@@ -175,6 +175,11 @@ restrict both numbers to `5`:
 This will normally speed up parsing, but there is a price to pay -- additional
 restrictions may make the parser fail for some sentences.  In such situations,
 the parser will explore the full parsing hypergraph and actually work slower.
+
+The related `--beta` parameter alows to determine the number of supertags and
+heads for each token dynamically, based on the corresonding probabilities.  For
+instance, with `--beta 0.01` and the highest supertag probability of `0.9`, all
+the supertags with the probabilities lower than `0.01*0.9` will be discarded.
 
 #### Earley
 
