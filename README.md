@@ -179,7 +179,7 @@ the parser will explore the full parsing hypergraph and actually work slower.
 The related `--beta` parameter alows to determine the number of supertags and
 heads for each token dynamically, based on the corresonding probabilities.  For
 instance, with `--beta 0.01` and the highest supertag probability of `0.9`, all
-the supertags with the probabilities lower than `0.01*0.9` will be discarded.
+the supertags with the probabilities lower than `0.01 x 0.9` will get discarded.
 
 #### Earley
 
