@@ -577,7 +577,7 @@ pushPassive p newWeight0 newTrav0 = do
   -- processed (done)?
   estDist <- lift $ estimateDistP p
   let new = extWeight newWeight estDist newTrav
-  lift (track estDist >> isProcessedP p) >>= \case
+  lift (track newWeight estDist >> isProcessedP p) >>= \case
     True -> do
 --       hasPassiveTrav p (prioTrav new) >>= \case
 --         False -> return ()
@@ -599,13 +599,13 @@ pushPassive p newWeight0 newTrav0 = do
   where
     newWait = Q.insertWith joinExtWeight (ItemP p)
 #ifdef DebugOn
-    track estWeight = do
+    track newWeight estWeight = do
       hype <- RWS.get
       liftIO $ do
         putStr ">P>  " >> printPassive p hype
         putStr " :>  " >> print (newWeight, estWeight)
 #else
-    track _ = return ()
+    track _ _ = return ()
 #endif
 
 
