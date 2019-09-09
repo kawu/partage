@@ -1572,6 +1572,8 @@ tryAdjoinInit p pw = void $ P.runListT $ do
     -- intermediate auxiliary ((<=) used as implication here)
 --     guard $ auxiliary pSpan <= not (isRoot pDID)
     guard $ auxiliary pSpan <= not (DAG.isRoot pDID dag)
+    -- NEW 09.09.2019: make sure `p` does not correspond to a sister node
+    guard . not $ isSister' (p ^. dagID) dag
     -- find all active items which expect a foot with the given
     -- symbol and which end where `p` begins
     footNT <- some (nonTerm' pDID dag)
@@ -1651,6 +1653,9 @@ tryAdjoinInit' q qw = void $ P.runListT $ do
         pSpan = p ^. spanP
     -- The retrieved items must not be auxiliary top-level.
     guard $ auxiliary pSpan <= not (DAG.isRoot pDID dag)
+    -- NEW 09.09.2019: make sure `p` does not correspond to a sister node
+    guard . not $ isSister' (p ^. dagID) dag
+    -- Construct new item
     let q' = setL state j
            . setL (spanA >>> end) (pSpan ^. end)
            . setL (spanA >>> gap) (Just
