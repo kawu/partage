@@ -35,12 +35,12 @@ which:
 The probability of a TAG derivation in this setting is defined as the product
 of the probabilities of the participating supertags multiplied by the product
 of the probabilities of the entailed dependency arcs.  The A\* parser then
-gurantees to find a most probable derivation without searching the entire space
-of the possible derivations.
+guarantees to find a most probable derivation without searching the entire
+space of the possible derivations.
 
 Some correctness-related properties (notably, monotonicity) of the A\* parser
-are verified using the [Coq][coq] proof assisatnt.  See the [proofs](proofs#proofs)
-subfolder for more details.
+are verified using the [Coq][coq] proof assistant.  See the
+[proofs](proofs#proofs) subfolder for more details.
 
 Grammar compression is also used in the A\* parser, but to a very limited
 extent.
