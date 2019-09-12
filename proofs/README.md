@@ -6,9 +6,10 @@ rules implemented in ParTAGe.
 
 # Usage
 
-The proof is written using the Coq proof assistant, you will therefore need to
-install it before you can verify the proofs. If you install `coqide`, you can
-read and interactively edit a particular `FILE.v` using the following command:
+The proof is written using the [Coq][coq] proof assistant, you will therefore
+need to install it before you can verify the proofs. If you install `coqide`,
+you can read and interactively edit a particular `FILE.v` using the following
+command:
 
     coqide -async-proofs off -async-proofs-command-error-resilience off FILE.v
 
@@ -36,3 +37,6 @@ The two main files are:
     representation, the available grammar-related functions, etc.
   * `InfRules.v` -- defines the inference (deduction) rules of the parser and
     provides the proof of the monotonicity of the system.
+
+
+[coq]: https://coq.inria.fr/ "Coq proof assistant"

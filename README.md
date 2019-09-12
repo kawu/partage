@@ -38,6 +38,10 @@ of the probabilities of the entailed dependency arcs.  The A\* parser then
 gurantees to find a most probable derivation without searching the entire space
 of the possible derivations.
 
+Some correctness-related properties (notably, monotonicity) of the A\* parser
+are verified using the [Coq][coq] proof assisatnt.  See the [proofs] subfolder
+for more details.
+
 Grammar compression is also used in the A\* parser, but to a very limited
 extent.
 
@@ -229,3 +233,4 @@ of the two worlds*, PhD Thesis, Tours, 2017,
 
 [stack]: http://docs.haskellstack.org "Haskell Tool Stack"
 [hackage]: http://hackage.haskell.org/package/partage "Partage Hackage repository"
+[coq]: https://coq.inria.fr/ "Coq proof assistant"
