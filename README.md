@@ -38,12 +38,14 @@ of the probabilities of the entailed dependency arcs.  The A\* parser then
 guarantees to find a most probable derivation without searching the entire
 space of the possible derivations.
 
+Grammar compression is also used in the A\* parser, but to a very limited
+extent.
+
+##### Correctness
+
 Some correctness-related properties (notably, monotonicity) of the A\* parser
 are verified using the [Coq][coq] proof assistant.  See the
 [proofs](proofs#proofs) subfolder for more details.
-
-Grammar compression is also used in the A\* parser, but to a very limited
-extent.
 
 
 Installation
