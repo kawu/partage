@@ -39,8 +39,8 @@ gurantees to find a most probable derivation without searching the entire space
 of the possible derivations.
 
 Some correctness-related properties (notably, monotonicity) of the A\* parser
-are verified using the [Coq][coq] proof assisatnt.  See the [proofs] subfolder
-for more details.
+are verified using the [Coq][coq] proof assisatnt.  See the [proofs](proofs#proofs)
+subfolder for more details.
 
 Grammar compression is also used in the A\* parser, but to a very limited
 extent.
