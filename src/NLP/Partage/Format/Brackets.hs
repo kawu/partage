@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE RecordWildCards #-}
 
 
 module NLP.Partage.Format.Brackets
@@ -32,6 +33,7 @@ where
 
 import           Control.Applicative ((<|>))
 import           Control.Arrow (second)
+
 -- import           Data.List (intersperse)
 import           Data.Monoid (mconcat, mappend)
 import qualified Data.Char as C
@@ -93,6 +95,25 @@ type SuperSent = [SuperTok]
 
 -- | List of sentences after supertagging
 type Super = [SuperSent]
+
+
+-- | Check if the probabilities in the token are correctly specified.
+checkSuperTok :: T.Text -> SuperTok -> SuperTok
+checkSuperTok tokTxt tok@SuperTok{..} =
+  assertOne "tag" (sum (map snd tokTags)) $
+  assertOne "dependency" (sum (M.elems tokDeph)) $
+    tok
+  where
+    assertOne typ one x
+      | one >= oneEps = x
+      | otherwise = error $
+          "the sum of " ++ typ ++ " probabilities is " ++
+            show one ++ " in: " ++ T.unpack tokTxt
+    -- strange one...
+    oneEps = 0.1
+--     equal x y =
+--       x - eps <= y && x + eps >= y
+--     eps = 0.1
 
 
 -------------------------------------------------------------
@@ -248,7 +269,7 @@ parseTreeProb txt =
 
 
 parseSuperTokProb :: T.Text -> SuperTok
-parseSuperTokProb xs =
+parseSuperTokProb xs = checkSuperTok xs $
   case T.splitOn "\t" xs of
     [] -> error "Brackets.parseSuperTok: empty line"
     [_] -> error "Brackets.parseSuperTok: no supertags"
