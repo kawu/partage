@@ -100,17 +100,19 @@ type Super = [SuperSent]
 -- | Check if the probabilities in the token are correctly specified.
 checkSuperTok :: T.Text -> SuperTok -> SuperTok
 checkSuperTok tokTxt tok@SuperTok{..} =
-  assertOne "tag" (sum (map snd tokTags)) $
-  assertOne "dependency" (sum (M.elems tokDeph)) $
+  checkProb "tag" (map snd tokTags) $
+  checkProb "dependency" (M.elems tokDeph) $
     tok
   where
-    assertOne typ one x
-      | one >= oneEps = x
+    checkProb typ xs =
+      assert typ (sum xs >= 0.1) .
+      assert typ (all (>=0.0) xs) .
+      assert typ (all (<=1.0) xs)
+    assert typ cond x
+      | cond = x
       | otherwise = error $
-          "the sum of " ++ typ ++ " probabilities is " ++
-            show one ++ " in: " ++ T.unpack tokTxt
-    -- strange one...
-    oneEps = 0.1
+          typ ++ " probabilities in the following " ++
+          "are incorrect: " ++ T.unpack tokTxt
 --     equal x y =
 --       x - eps <= y && x + eps >= y
 --     eps = 0.1
