@@ -381,6 +381,7 @@ isFinal startSet n auto p =
   p ^. spanP ^. beg == 0 &&
   p ^. spanP ^. end == n &&
   p ^. spanP ^. gap == Nothing &&
+  not (isSister' did dag) &&
   DAG.isRoot did dag && checkStart
     (S.fromList . maybeToList $ getLabel did)
   where
@@ -411,6 +412,7 @@ finalFrom startSet n auto Chart{..} = do
   guard $ DAG.isRoot (p ^. dagID) dag
   guard $ getLabel (p ^. dagID) == Just start
   guard $ regular (p ^. spanP)
+  guard . not $ isSister' (p ^. dagID) dag
   return p
   where
     dag = gramDAG auto
