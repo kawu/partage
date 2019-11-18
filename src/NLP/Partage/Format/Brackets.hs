@@ -104,6 +104,7 @@ checkSuperTok tokTxt tok@SuperTok{..} =
   checkProb "dependency" (M.elems tokDeph) $
     tok
   where
+    checkProb _   [] = id
     checkProb typ xs =
       assert typ (sum xs >= 0.1) .
       assert typ (all (>=0.0) xs) .
